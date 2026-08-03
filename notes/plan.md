@@ -72,10 +72,21 @@ Jeder im Netz kann beliebig viele Umfragen anlegen und damit **beliebig viele Ma
 SMTP-Account von Mayflower versenden**. Offenes Mail-Relay in der Praxis.
 Vor Ziel 2 (Batch-Versand) zwingend zu adressieren, sonst skaliert man den Missbrauch mit.
 
-**B5 – Hardcodierter `SECRET_KEY`, `DEBUG = True` als Default.**
+**B5 – Hardcodierter `SECRET_KEY`, `DEBUG = True` auch in Produktion.** ⚠️ **in Phase 0.3 bestätigt**
 [demockrazy/settings.py](demockrazy/settings.py) – der Key steht im öffentlichen Git-Repo.
-Prod überschreibt beides über [k8s/settings.py](k8s/settings.py) … `DEBUG` aber **nicht**.
-→ Prüfen, ob Prod aktuell mit `DEBUG=True` läuft. Wenn ja: kritisch, sofort fixen.
+[k8s/settings.py](k8s/settings.py) überschreibt den `SECRET_KEY`, aber **nicht `DEBUG`**.
+Prod läuft also mit `DEBUG=True`, und die 500-Pfade aus B2/B3/B11/B12 sind von außen trivial
+auslösbar ⇒ Debug-Fehlerseiten inkl. **eingegebener Wähler-Mailadressen**, DB-Benutzer, SMTP-Host,
+Quellcode und Dateipfaden. Passwörter und `SECRET_KEY` werden von Django gecleanst,
+Abstimmungs-Tokens tauchen auf diesen Pfaden nicht auf. → Hotfix H1, §4a.
+
+**B11 – `manage()` crasht bei POST ohne `token`-Feld.**
+[vote/views.py](vote/views.py) – `request.POST['token']` ohne Guard → `MultiValueDictKeyError` → 500.
+Gleiche Klasse wie B3, eigene Stelle.
+
+**B12 – `ValidationError` aus `parse_mails()` wird nicht gefangen.**
+Eine ungültige Mailadresse im Empfängerfeld führt zu einem 500 statt zu einer Formularmeldung –
+und legt unter `DEBUG=True` die *gültigen* Adressen der Liste offen (siehe B5).
 
 **B6 – Doppelte Mailadressen bekommen doppelte Tokens.**
 `parse_mails()` dedupliziert nicht → dieselbe Person kann zweimal wählen.
@@ -134,19 +145,30 @@ aber die Anzeige. → `json_script` verwenden.
 
 ---
 
-## 4. Phase 0 – Baseline (keine funktionalen Änderungen)
+## 4. Phase 0 – Baseline ✅ ABGESCHLOSSEN 2026-08-03
 
-- [ ] **0.1 Versionslage verifizieren.** Aktuelles nixpkgs-Stable-Release ermitteln; prüfen ob
-      `mayflower/nixpkgs#mf-stable` noch der richtige Input ist oder auf `NixOS/nixpkgs` gewechselt
-      werden soll. Django-Zielversion aus PyPI/nixpkgs bestimmen (Erwartung: **5.2 LTS**;
-      6.x nur wenn alle Deps mitspielen). Python-Version passend dazu. Ergebnisse hier eintragen.
-- [ ] **0.2 Läuft es überhaupt?** `nix develop`, `manage.py migrate`, `manage.py runserver`,
-      Happy Path manuell durchklicken (Poll erstellen mit `VOTE_SEND_MAILS=False` → Konsolen-Mail →
-      abstimmen → Ergebnis). Abweichungen notieren.
-- [ ] **0.3 Prod-Zustand klären.** Läuft Prod mit `DEBUG=True` (B5)? Welches Image-Tag läuft?
-      Schema-Stand der Prod-DB (`\d+` auf `vote_*`) → Referenz für die eingecheckten Migrations.
-- [ ] **0.4 Snapshot des generierten Schemas** ablegen unter `notes/baseline-schema.sql`, damit die
-      eingecheckte `0001_initial` gegen Prod verifizierbar ist.
+**Volle Ergebnisse: [notes/phase-0-baseline.md](notes/phase-0-baseline.md)** – hier die Kurzfassung.
+
+- [x] **0.1 Versionslage verifiziert.** Ist: Python 3.11.6 / Django 4.2.9. `mf-stable`-HEAD (Juni 2026)
+      bringt nur Django 4.2.28 → **immer noch EOL**. Django 5.2.16 gibt es erst ab `nixos-26.05`
+      (dort auch Python 3.13.14, PG 17.10). → F2 entschieden: **Django 5.2 LTS**. F3 bleibt offen.
+- [x] **0.2 Läuft.** Beide Docker-Images bauen fehlerfrei. 21-Fall-Funktionsprobe
+      ([notes/baseline_probe.py](notes/baseline_probe.py)) auf 4.2.9 **und** 5.2.16 gefahren:
+      **Verhalten identisch**, kein Schema-Drift, keine neuen Deprecations. Das Django-Upgrade ist
+      damit verhaltensneutral – das Risiko steckt in den Altlasten, nicht in der Version.
+- [x] **0.3 Prod-Zustand: `DEBUG=True` bestätigt.** [k8s/settings.py](k8s/settings.py) überschreibt
+      `DEBUG` nicht. Zusammen mit den 500-Pfaden ⇒ von außen auslösbare Django-Debug-Fehlerseiten,
+      die **Wähler-Mailadressen** preisgeben (Passwörter/`SECRET_KEY` cleanst Django zuverlässig).
+      → **Hotfix vorziehen, §4a.** Offen (braucht Cluster-Zugang): laufendes Image-Tag,
+      Prod-Schema-Stand, Inhalt von `django_migrations`.
+- [x] **0.4 Schema-Snapshot** in [notes/baseline-schema.sql](notes/baseline-schema.sql).
+      Nebenbefund: kein `UNIQUE` auf `vote_token.token_string`, kein Index auf `vote_poll.identifier`.
+
+## 4a. Hotfix vorziehen (unabhängig vom Rest)
+
+- [ ] **H1 `DEBUG = False`** in [k8s/settings.py](k8s/settings.py). Einzeiler, betrifft die laufende
+      Produktion, wartet nicht auf Phase 1/2. Danach verifizieren, dass die bekannten 500-Pfade
+      generische Fehlerseiten liefern; die *Ursachen* fixt erst Phase 3.
 
 ## 5. Phase 1 – Fundament: Dependencies, Tooling, Tests
 
@@ -277,9 +299,9 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
 
 | # | Frage | Blockiert |
 |---|-------|-----------|
-| F1 | Läuft Prod aktuell mit `DEBUG=True`? (B5) | 0.3 / 2.4 |
-| F2 | Django **5.2 LTS** (konservativ, Support bis 2028) oder neueste Major? | 2.3 |
-| F3 | nixpkgs-Input: bei `mayflower/nixpkgs#mf-stable` bleiben oder auf upstream `nixos-XX.YY`? | 1.6 |
+| ~~F1~~ | ~~Läuft Prod mit `DEBUG=True`?~~ → **ja, in 0.3 bestätigt.** Neue Frage: darf H1 (`DEBUG=False`) sofort raus? | H1 |
+| ~~F2~~ | ~~Django-Zielversion?~~ → **5.2.16 LTS**, das ist auch die einzige, die nixpkgs liefert | – |
+| **F3** | nixpkgs-Input: `mf-stable` hängt auf nixos-25.11 und liefert nur Django 4.2.28. Auf `NixOS/nixpkgs/nixos-26.05` wechseln (empfohlen), oder `mf-stable` intern anheben lassen? Gibt es einen Binary-Cache-/Backport-Grund für `mf-stable`? | 1.6, 2.3 |
 | F4 | Highcharts-Lizenz: existiert eine kommerzielle Lizenz, oder ersetzen? (B8) | 4.3 |
 | F5 | Zugangsschutz für Poll-Erstellung – welche Variante? (B4/3.8) | 3.8, Ziel 2 |
 | F6 | uwsgi behalten oder auf gunicorn wechseln? (5.2) | 5.2 |
