@@ -243,17 +243,23 @@ niemanden außer mir nutzbar und in CI wertlos, solange 2.1 nicht erledigt ist.
 
 ## 6. Phase 2 – Django-Upgrade & Konfiguration
 
-- [ ] **2.1 Migrations einchecken (B1).** `migrations/` aus [.gitignore](.gitignore) entfernen,
-      `0001_initial` generieren, gegen [notes/baseline-schema.sql](notes/baseline-schema.sql) **und die
-      Prod-SQLite-DB** verifizieren, committen. Deploy-Pfad festlegen und dokumentieren:
-      `migrate` (wenn `django_migrations` den Eintrag schon hat) vs. `--fake-initial` (wenn nicht).
-      **Blockiert durch den offenen Prod-Schema-Stand aus 0.3.**
-- [ ] **2.2 `makemigrations` aus dem Deploy-Weg nehmen (B1).** Fällt größtenteils mit 5.1 weg
-      (uwsgi-Wrapper im Flake). Verbleibt: die [README.md](README.md) instruiert `makemigrations` als
-      Setup-Schritt – das muss zu `migrate` werden.
-- [ ] **2.3 Django auf 5.2.16 / Python 3.13** heben, in Nix **explizit pinnen** statt `ps.django`.
-      Deprecations abarbeiten: `USE_L10N` raus, `DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'`.
-      Laut Phase 0.2 verhaltensneutral – trotzdem die Testsuite aus 1.4 als Gegenprobe.
+- [x] **2.1 Migrations einchecken (B1)** ✅ – **Details: [notes/phase-2-migrations.md](notes/phase-2-migrations.md)**
+      Prod hatte **zwei** angewendete Migrations (`0001_initial` 2016-06-09,
+      `0002_auto_20160701_2022` 2016-07-01). Deshalb **beide unter ihren Originalnamen
+      rekonstruiert** statt eine zusammengefasste `0001_initial`. Beweis der Korrektheit: die
+      Spaltenreihenfolge von `vote_poll` stimmt danach exakt mit Prod überein
+      (`… is_active, num_tokens, type`), was eine zusammengefasste Migration nicht leistet.
+      `makemigrations --check` sauber. **Deploy: `migrate` ist ein garantierter No-Op,
+      kein `--fake-initial`.** Frischer Clone verifiziert: 56 grün, 9 xfailed.
+      Restrisiko dokumentiert: Prod-FKs ohne `DEFERRABLE`, alte Index-Namen → relevant für 3.6.
+- [x] **2.2 `makemigrations` aus dem Deploy-Weg** ✅ – im Flake mit 5.1 entfallen, in der
+      [README.md](README.md) beide Vorkommen ersetzt. Die README war ohnehin durch das Löschen von
+      `default.nix` kaputt (`nix-shell` gibt es nicht mehr), daher gleich neu geschrieben – das
+      verschiebt 6.1 nach vorn.
+- [x] **2.3 Django 5.2 / Python 3.13** ✅ – bereits mit 1.6 erledigt (mf-next: Django 5.2.15,
+      Python 3.13.13), Django in Nix nicht mehr unpinned. **Noch offen aus 2.3:**
+      `USE_L10N` entfernen und `DEFAULT_AUTO_FIELD` setzen (die 3 verbleibenden `models.W042`) –
+      gehört zu 2.4, weil es Settings anfasst.
 - [ ] **2.4 Settings-Layout aufräumen.** Sichere Defaults im Repo (`DEBUG = False`, kein `SECRET_KEY`),
       Konfiguration über Environment (B5). `local_settings.py` bleibt als Prod-Mechanismus erhalten
       (Regel 3 – nicht ohne Not umstellen, Prod hängt daran), aber die Defaults dürfen nicht mehr
@@ -375,8 +381,8 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
 | ~~F7~~ | ~~Postgres 14→17-Wartungsfenster?~~ → entfällt, Prod läuft auf SQLite. Ersetzt durch B13/5.4. | – |
 | ~~F9~~ | ~~`.sops.yaml`-Keys?~~ → entfällt, fällt mit 5.1 weg. | – |
 | **F10** | Darf der tote Deployment-Code raus ([k8s/](k8s/), [nix/](nix/), [.sops.yaml](.sops.yaml), Image-Outputs im Flake, Image-Build in der CI)? Git-History bleibt, also reversibel. | 5.1, 1.6 |
-| **F11** | **Wie wird `wahlcomputer.mayflower.de` konkret deployt und gestartet?** NixOS-Modul, systemd + venv, uwsgi/gunicorn hinter nginx, manuelles `git pull`? Wo liegt die `db.sqlite3`, wird sie gesichert? Wer darf ausrollen? | 5.2, 5.4, und faktisch das ganze Deploy-Ende von Ziel 1 |
-| **F12** | Prod-Schema-Stand: Ausgabe von `.schema vote_*` + `django_migrations` aus der Prod-SQLite (Kommando steht in [notes/phase-0-baseline.md](notes/phase-0-baseline.md)) | 2.1 |
+| **F11** | **Wie wird `wahlcomputer.mayflower.de` konkret deployt?** Teilantwort: **colmena mit eigenem Flake**, Zielhost ist ein Mayflower-Webserver, Datenverzeichnis `/var/lib/demockrazy`. Offen bleibt: welches NixOS-Modul die App startet, welcher WSGI-Server davor hängt, **was das Colmena-Flake aus diesem Repo konsumiert** (kritisch für 5.1) und ob die `db.sqlite3` gesichert wird. | 2.4, 5.2, 5.4 |
+| ~~F12~~ | ~~Prod-Schema-Stand?~~ → **geliefert.** Prod hat zwei Migrations (2016), DB liegt unter `/var/lib/demockrazy/db.sqlite3`. Ausgewertet in [notes/phase-2-migrations.md](notes/phase-2-migrations.md). Kleiner Rest: `type`-Spalte war in der Ausgabe abgeschnitten – `PRAGMA table_info(vote_poll);` für letzte Sicherheit. | – |
 | F4 | Highcharts-Lizenz: existiert eine kommerzielle Lizenz, oder ersetzen? (B8) | 4.3 |
 | F5 | Zugangsschutz für Poll-Erstellung – welche Variante? (B4/3.8) | 3.8, Ziel 2 |
 | F8 | Anonymität vs. Zustellstatus pro Empfänger – wie weit darf Ziel 2 das aufweichen? (§11.4) | Ziel 2 |
