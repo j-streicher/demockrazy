@@ -9,7 +9,7 @@
 
 | # | Ziel | Status |
 |---|------|--------|
-| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · Phase 3 bis 3.5 ✅ · CI ✅ · offen: 3.6–3.8, 4, 5.4, 5.5 |
+| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · Phase 3 bis 3.6 ✅ · CI ✅ · offen: 3.7, 3.8, 4, 5.4, 5.5 |
 | 2 | Batch-Modus für Mails bauen | **Spec folgt vom User** – nur Vorarbeit leisten, siehe §11 |
 
 **Wichtig:** Ziel 2 wird vom User später erklärt. Ziel 1 nicht so umbauen, dass Ziel 2 blockiert wird –
@@ -436,14 +436,30 @@ Tests für niemanden außer mir nutzbar und in CI wertlos. **Behoben in 2.1**, a
       *Nebenbefund:* die Kollisionsprüfung in `mk_token()` sieht die Geschwister eines
       `bulk_create`-Batches nicht, weil alle Objekte vor dem ersten INSERT konstruiert werden. Bei
       62^128 möglichen Tokens ist das kein praktisches Risiko, und ab 3.6 fängt es die Datenbank.
-- [ ] **3.6 Models aufräumen:** `.count()` statt `len()`, Schleife statt Rekursion in
-      `mk_token`/`mk_identifier`, `UniqueConstraint` auf `Token.token_string` und
-      `Poll.identifier`, `db_index` wo sinnvoll, `POLL_TYPES` als `TextChoices`,
-      `get_absolute_url()`. → eigene Migration.
-      **Dazu die Kollisionsprüfungen ganz streichen** (siehe 3.5): mit dem Constraint ist der
-      SELECT pro Token überflüssig, und die Query-Zahl einer Umfrage mit 200 Empfängern fällt von
-      206 auf 6. `test_poll_service.py::TestQueryCount` erwartet dann `6` statt `6 + num_tokens`.
-      **Vorher auf Prod prüfen** (Abfragen in §12), sonst schlägt die Unique-Migration dort fehl.
+- [x] **3.6 Models aufgeräumt** ✅ – Migration `0003_model_constraints_and_choices`.
+      `UniqueConstraint` auf `Token.token_string` und `Poll.identifier`; **kein zusätzliches
+      `db_index`**, der Constraint bringt seinen Index mit.
+      **Die Kollisionsprüfungen sind ganz weg** statt zu Schleifen umgebaut: sie sahen die
+      Geschwister eines `bulk_create`-Batches nicht und konnten Eindeutigkeit prinzipiell nicht
+      garantieren. Damit **fällt die Umfrage-Erstellung auf konstant 5 Statements** (200 Empfänger:
+      vorher 404, nach 3.5 noch 206) – besser als die in 3.5 vorhergesagten 6, weil auch die
+      `mk_identifier`-Prüfung wegfiel. Der Punkt „Rekursion → Schleife" erledigt sich damit: es gibt
+      nichts mehr zu rekursieren.
+      **Korrektur einer eigenen Annahme:** `UniqueConstraint` erzeugt auf SQLite **kein**
+      `CREATE UNIQUE INDEX`. SQLite kann keinen Constraint anhängen, Django **schreibt die Tabelle
+      neu**. Gegen ein exaktes Prod-Abbild geprüft – Daten unversehrt, FKs konsistent,
+      Spaltenreihenfolge unverändert; `vote_token` wird dabei normalisiert (FK `DEFERRABLE`,
+      Index umbenannt), `vote_choice` nicht. Vollständig in
+      [phase-2-migrations.md](phase-2-migrations.md). Kein Nebenläufigkeitsrisiko: `migrate` läuft
+      im `preStart`, bevor der Dienst startet.
+      `POLL_TYPES` → `PollType(models.TextChoices)`; Werte unverändert (Spaltenwerte im Bestand,
+      per Test festgehalten), das Formular zieht seine Choices daraus, die View vergleicht gegen das
+      Enum-Mitglied. `get_amount_used_unused()` zählt und summiert in der Datenbank
+      (`Sum()` → `None` bei einer Umfrage ohne Choices, eigener Test). `get_absolute_url()` ist kein
+      Zierrat – die Wähler-Mail baut ihren Link darauf.
+      **Die letzten zwei `xfail`-Marker sind weg**, offen ist nur noch B4 (braucht F5).
+      Ein `per-file-ignore` dazugekommen: `RUF012` für `vote/models.py`, weil eine Liste Djangos
+      dokumentierte Schnittstelle für `Meta.constraints` ist.
 - [ ] **3.7 `re_path` → `path`** mit `<slug:poll_identifier>`/Custom-Converter; URLs identisch halten (Regel 4).
 - [ ] **3.8 Rate-Limit / Zugangsschutz für `create` (B4).** Optionen für §12:
       (a) Django-Auth + Login-Zwang, (b) Shared Secret / Invite-Code, (c) IP-Rate-Limit,
@@ -562,7 +578,7 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
 | ~~F11~~ | ~~Wie wird deployt?~~ → **vollständig beantwortet**, Modul liegt vor. Analyse: **[notes/deployment.md](deployment.md)**. Wichtigstes Ergebnis: das Modul pinnt `rev = 3074dbb`, und die Django-Version kommt aus der nixpkgs des Colmena-Flakes – **zwei Änderungen im User-Repo nötig**, sonst erreicht das Upgrade Prod nicht. Löschcommit `4e15012` bestätigt risikofrei. | – |
 | ~~F14~~ | ~~Setzt Prod `DEBUG = False`?~~ → **ja**, explizit im generierten `demockrazy_config`. Kein Leak, kein Hotfix. | – |
 | **F15** | **Wie kommt Django in Prod ans `https`-Schema?** Node öffnet nur Port 80, kein `forceSSL`, kein `SECURE_PROXY_SSL_HEADER` im Modul – TLS wird vorgelagert terminiert. Setzt der Proxy `X-Forwarded-Proto`? Ohne diese Antwort keine TLS-/CSRF-Settings anfassen (Redirect-Schleife bzw. CSRF-403). | 2.7 |
-| ~~F12~~ | ~~Prod-Schema-Stand?~~ → **geliefert.** Prod hat zwei Migrations (2016), DB liegt unter `/var/lib/demockrazy/db.sqlite3`. Ausgewertet in [notes/phase-2-migrations.md](phase-2-migrations.md). Kleiner Rest: `type`-Spalte war in der Ausgabe abgeschnitten – `PRAGMA table_info(vote_poll);` für letzte Sicherheit. | – |
+| ~~F12~~ | ~~Prod-Schema-Stand?~~ → **geliefert.** Prod hat zwei Migrations (2016), DB liegt unter `/var/lib/demockrazy/db.sqlite3`. Ausgewertet in [notes/phase-2-migrations.md](phase-2-migrations.md). **Kleiner Rest inzwischen erledigt:** `PRAGMA table_info(vote_poll)` auf Prod bestätigt `type varchar(20) NOT NULL` an Position 8 und die Spaltenreihenfolge der zwei rekonstruierten Migrations. | – |
 | F4 | Highcharts-Lizenz: existiert eine kommerzielle Lizenz, oder ersetzen? (B8) | 4.3 |
 | F5 | Zugangsschutz für Poll-Erstellung – welche Variante? (B4/3.8) | 3.8, Ziel 2 |
 | F8 | Anonymität vs. Zustellstatus pro Empfänger – wie weit darf Ziel 2 das aufweichen? (§11.4) | Ziel 2 |
@@ -592,9 +608,10 @@ offen, in sinnvoller Reihenfolge:
   2.7      TLS-Hardening – braucht F15
 ```
 
-**Nächster Schritt:** 3.6 (Models, Unique-Constraints, Kollisionsprüfungen raus) – **dafür
-vorher die zwei SQL-Abfragen aus §12 auf Prod laufen lassen**, sonst kann die Unique-Migration
-dort auflaufen. Danach 3.7 (`re_path` → `path`). 3.8 braucht F5.
+**Nächster Schritt:** 3.7 (`re_path` → `path`, URLs identisch halten – Regel 4/5). Danach ist
+von Phase 3 nur noch 3.8 offen, und das braucht F5.
+**Vor dem Deploy:** F17 klären; die Migration `0003` schreibt `vote_poll` und `vote_token` neu
+(Details in [phase-2-migrations.md](phase-2-migrations.md)), Backup liegt vor (borg 03:00/04:00).
 **Die Vorarbeit für Ziel 2 (§11.1–3) ist mit 3.4 vollständig** – ein Batch-Versender ersetzt
 `mail.deliver()`. Was noch fehlt, ist die Spec und die Entscheidung zu F8.
 Details in [handover.md](handover.md) §9.

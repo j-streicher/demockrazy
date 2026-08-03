@@ -114,6 +114,29 @@ nix run nixpkgs#sqlite -- -readonly /var/lib/demockrazy/db.sqlite3 \
    SELECT identifier,   COUNT(*) FROM vote_poll  GROUP BY identifier   HAVING COUNT(*) > 1;"
 ```
 
+**Nachtrag 3.6 -- teils erledigt, gegen ein Prod-Abbild gemessen.** Die zwei
+`UniqueConstraint`s sind mit `0003_model_constraints_and_choices` dazugekommen. Wichtig dabei:
+**SQLite kann keinen Constraint an eine bestehende Tabelle anhängen, Django schreibt sie neu**
+(CREATE/INSERT/DROP/RENAME) -- ein `CREATE UNIQUE INDEX` gibt es hier nicht. Geprüft auf einer
+Datenbank mit genau dem obigen Prod-Schema (alte Indexnamen, nicht-aufschiebbare FKs) und Zeilen in
+allen drei Tabellen:
+
+- Migration läuft durch, **alle Zeilen überleben**, `PRAGMA foreign_key_check` ist leer,
+  die Spaltenreihenfolge von `vote_poll` bleibt unverändert.
+- `vote_poll` bekommt nur den Constraint (die Tabelle hat keine FKs).
+- **`vote_token` wird dabei normalisiert:** FK → `DEFERRABLE INITIALLY DEFERRED`, Index
+  `vote_token_582e9e5a` → `vote_token_poll_id_e1049aa3`. Das ist genau der Stand, den ein frisches
+  `migrate` erzeugt -- die Abweichung aus der Tabelle oben ist für `vote_token` damit **weg**.
+- **`vote_choice` bleibt unangetastet** und behält `vote_choice_582e9e5a` und seinen
+  nicht-aufschiebbaren FK. Prod ist danach also gemischt. Harmlos, aber zu wissen.
+- Duplikate gibt es in Prod keine (vom User geprüft), der Unique-Index kann nicht auflaufen.
+- Nebenbei bestätigt: `PRAGMA table_info(vote_poll)` auf Prod liefert genau die Reihenfolge, die
+  die zwei rekonstruierten Migrations erzeugen, und `type varchar(20) NOT NULL` an Position 8.
+  Damit ist der letzte Rest von F12 erledigt. (`PRAGMA` schreibt Typnamen groß, `.schema` klein --
+  kein Widerspruch, nur eine andere Darstellung.)
+
+Kein Nebenläufigkeitsrisiko: das Modul ruft `migrate` im `preStart`, bevor der Dienst startet.
+
 Falls die Index-Namen später wirklich stören: einmalig eine Data-/Schema-Migration mit
 `RunSQL`, die die alten Indizes dropt und unter den neuen Namen neu anlegt – aber nur mit
 Backup und nur, wenn es einen konkreten Anlass gibt. Nicht vorsorglich.

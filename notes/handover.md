@@ -1,7 +1,7 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: 2026-08-03, Branch `update/modernize-2026`, 37 Commits über `master` (Basis `3074dbb`).
+Stand: 2026-08-03, Branch `update/modernize-2026`, 39 Commits über `master` (Basis `3074dbb`).
 Arbeitsbaum ist sauber, alles committed, nichts gepusht.
 
 ---
@@ -35,7 +35,7 @@ insbesondere für Ziel 2 relevant (§7).
 ## 3. Zwei Ziele
 
 1. **Auf heutige Standards bringen.** Phase 0, 1 und 2 (außer 2.7) sind fertig, Phase 3 ist bis
-   3.5 durch, CI steht (5.3). Offen: 3.6–3.8, Phase 4, 5.4/5.5.
+   3.6 durch, CI steht (5.3). Offen: 3.7/3.8, Phase 4, 5.4/5.5.
 2. **Batch-Modus für Mails.** *Spec steht noch aus, der User erklärt sie später.* Nicht spekulativ
    bauen. Phase 3 so anlegen, dass es andockt (§7).
 
@@ -61,7 +61,7 @@ grün ist, ist dort grün.
 
 **Sollwerte, an denen du merkst, dass alles in Ordnung ist:**
 
-- `pytest` → **129 passed, 3 xfailed**
+- `pytest` → **141 passed, 1 xfailed**
 - `manage.py check` → **no issues (0 silenced)**
 - `makemigrations --check` → **No changes detected**
 - `ruff format --check` → alle Dateien unverändert
@@ -79,12 +79,16 @@ python3 manage.py runserver --settings=demockrazy.dev_settings
 weggefallen, weil die Bugs behoben wurden, deren Symptome sie waren. Keiner wurde mit `noqa`
 zugedeckt. **Das Ruff-Gate in der CI steht seit 5.3** – ein neuer Befund macht den Build rot.
 
-**Drei `xfail(strict=True)`-Tests** in [../vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py)
-beschreiben das *gewünschte* Verhalten für **B4** (braucht F5) und die zwei fehlenden
-Unique-Constraints (3.6). Sie schlagen heute fehl. **Wenn du einen Bug behebst, wird die Suite
-rot** – das ist Absicht und die Erinnerung, den Marker zu entfernen. Nicht der Marker ist das
-Problem. Die Tests für die behobenen B2, B3, B6, B11 und B12 stehen in derselben Datei ohne Marker
-als Regressionstests.
+**Ein `xfail(strict=True)`-Test** ist noch übrig, in
+[../vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py): **B4** – `/vote/create` nimmt
+500 Empfänger anstandslos an. Er schlägt heute fehl und braucht F5. **Wenn du den Bug behebst, wird
+die Suite rot** – das ist Absicht und die Erinnerung, den Marker zu entfernen. Nicht der Marker ist
+das Problem. Die Tests für die behobenen B2, B3, B6, B11, B12 und die zwei Unique-Constraints stehen
+in derselben Datei ohne Marker als Regressionstests.
+
+Zwei `per-file-ignores` in `pyproject.toml` sind ebenfalls Absicht und keine Nachlässigkeit:
+`E501` für `test_mail_service.py` (schreibt den Mail-Wortlaut als Literale aus) und `RUF012` für
+`vote/models.py` (eine Liste ist Djangos Schnittstelle für `Meta.constraints`).
 
 ## 6. Die Fallen – hier hätte ich Produktion kaputtgemacht
 
@@ -141,15 +145,25 @@ Die Spec kommt vom User. Was für *jede* Variante gilt und in Phase 3 entstehen 
 | **F13** | Wie groß sind Abstimmungen real (Empfänger pro Poll, parallele Polls)? Entscheidet SQLite-Tuning vs. Postgres (B13) und die Batch-Größen. | 5.4, Ziel 2 |
 | **F17** | Überschreibt das NixOS-Modul `VOTE_MAIL_SUBJECT`/`VOTE_MAIL_TEXT`/`VOTE_ADMIN_MAIL_*`? 3.4 hat sie aus `settings.py` entfernt, der Text kommt aus Templates. Ein Override dort wird nach dem Deploy still ignoriert. Prüfen mit `grep -rn 'VOTE_MAIL\|VOTE_ADMIN_MAIL'` im Colmena-Repo. | **vor dem Deploy** |
 
-Kleinigkeit, kein Blocker: die `type`-Spalte war in der Prod-Schema-Ausgabe abgeschnitten; aus dem
-Modell folgt `varchar(20) NOT NULL`, was der frische Migrationsstand exakt reproduziert. Für letzte
-Sicherheit `nix run nixpkgs#sqlite -- -readonly /var/lib/demockrazy/db.sqlite3 "PRAGMA table_info(vote_poll);"`.
+~~Kleinigkeit: die `type`-Spalte war in der Prod-Schema-Ausgabe abgeschnitten.~~ **Erledigt** –
+`PRAGMA table_info(vote_poll)` auf Prod bestätigt `type varchar(20) NOT NULL` an Position 8 und
+genau die Spaltenreihenfolge, die die zwei rekonstruierten Migrations erzeugen.
 
-Vor Phase 3.6 (Unique-Constraints) noch auf Prod zu prüfen. `sqlite3` liegt auf der Node nicht im
-Systemprofil -- das Modul installiert es nicht -- deshalb über `nix run`. **Immer mit `-readonly`** -- die
-Datei wird von vier uwsgi-Workern beschrieben, und ein Leser hat dort nichts zu suchen außer zu
-lesen. Ein Leser nimmt kurz eine SHARED-Lock (bei diesen Tabellengrößen Mikrosekunden); liegt ein
-hot journal herum, bricht die Verbindung mit `SQLITE_READONLY_ROLLBACK` ab statt aufzuräumen:
+### So liest man die Prod-Datenbank
+
+`sqlite3` liegt auf der Node nicht im Systemprofil -- das Modul installiert es nicht -- deshalb über
+`nix run`. **Immer mit `-readonly`:** die Datei wird von vier uwsgi-Workern beschrieben, und ein
+Leser hat dort nichts zu suchen außer zu lesen. Ein Leser nimmt kurz eine SHARED-Lock (bei diesen
+Tabellengrößen Mikrosekunden); liegt ein hot journal herum, bricht die Verbindung mit
+`SQLITE_READONLY_ROLLBACK` ab statt aufzuräumen.
+
+```bash
+nix run nixpkgs#sqlite -- -readonly /var/lib/demockrazy/db.sqlite3 "PRAGMA table_info(vote_poll);"
+```
+
+✅ **Die Duplikat-Prüfung vor 3.6 ist gelaufen** (vom User, 2026-08-03): weder `vote_token.token_string`
+noch `vote_poll.identifier` hat Duplikate, der Unique-Index in `0003` kann nicht auflaufen. Falls je
+ein weiterer Unique-Constraint dazukommt, ist das die Vorlage:
 
 ```bash
 nix run nixpkgs#sqlite -- -readonly /var/lib/demockrazy/db.sqlite3 \
@@ -157,31 +171,28 @@ nix run nixpkgs#sqlite -- -readonly /var/lib/demockrazy/db.sqlite3 \
    SELECT identifier,   COUNT(*) c FROM vote_poll  GROUP BY identifier   HAVING c>1;"
 ```
 
-Beide Ergebnisse müssen leer sein, sonst schlägt die Unique-Migration beim Anlegen des Index fehl.
-
 ## 9. Nächster Schritt
 
-**Phase 3 ist bis 3.5 durch, CI steht.** Behoben: **B2, B3, B6, B7, B11, B12, B15**.
-Mailversand und Poll-Erstellung sind Services ([vote/services/](../vote/services/)), der Versand
-hängt an `on_commit`. **Die Vorarbeit für Ziel 2 (§7.1–3) ist vollständig** – ein Batch-Versender
-ersetzt `mail.deliver()`. Was fehlt, ist die Spec und die Entscheidung zu F8.
+**Phase 3 ist bis 3.6 durch, CI steht.** Behoben: **B1, B2, B3, B5, B6, B7, B11, B12, B15** und die
+zwei fehlenden Unique-Constraints. Mailversand und Poll-Erstellung sind Services
+([vote/services/](../vote/services/)), der Versand hängt an `on_commit`, die Umfrage-Erstellung
+kostet konstant 5 Statements. **Die Vorarbeit für Ziel 2 (§7.1–3) ist vollständig** – ein
+Batch-Versender ersetzt `mail.deliver()`.
 
-**Als Nächstes 3.6 (Models).** `.count()` statt `len()`, Schleife statt Rekursion,
-`UniqueConstraint` auf `Token.token_string` und `Poll.identifier`, `POLL_TYPES` als `TextChoices`,
-`get_absolute_url()`, eigene Migration. Zwei Dinge dazu:
+**Als Nächstes 3.7:** `re_path` → `path` in [../demockrazy/urls.py](../demockrazy/urls.py) und
+[../vote/urls.py](../vote/urls.py). **Die URLs müssen zeichengleich bleiben** – es sind Mails mit
+`?token=`-Links unterwegs (Regel 5), abgesichert in `test_views.py::TestUrls`. Der
+`poll_identifier` ist `[a-zA-Z0-9]+`, dafür braucht es einen eigenen Converter; `slug` erlaubt
+zusätzlich `-` und `_` und wäre damit nicht dasselbe.
 
-1. **Vorher auf Prod prüfen** – die zwei SQL-Abfragen unten. Liegen dort Duplikate, schlägt die
-   Unique-Migration beim Anlegen des Index fehl.
-2. **Mit dem Constraint fallen die Kollisionsprüfungen weg.** `mk_token()` fragt heute pro Token
-   einmal die Datenbank; das ist nach 3.5 der einzige Teil, der noch linear wächst (Umfrage mit
-   200 Empfängern: 206 Queries, davon 200 diese Prüfung – ohne sie 6).
-   `test_poll_service.py::TestQueryCount` erwartet dann `6` statt `6 + num_tokens`.
+Danach ist von Phase 3 nur **3.8** offen (braucht F5).
 
-3.6 nimmt auch die zwei letzten `xfail`-Marker mit. Danach 3.7 (`re_path` → `path`, URLs
-identisch halten – Regel 5).
+**Vor dem Deploy:** F17 klären. Und wissen, dass `0003` die Tabellen `vote_poll` und `vote_token`
+neu schreibt – geprüft gegen ein Prod-Abbild, Daten unversehrt, Details in
+[phase-2-migrations.md](phase-2-migrations.md); `migrate` läuft im `preStart` vor dem Dienststart,
+Backup per borg liegt vor.
 
 Offen: **3.8** braucht F5, **4.3** braucht F4, **2.7** braucht F15, **5.4** braucht F13.
-**F17 vor dem Deploy klären.**
 
 ## 10. Arbeitsregeln (haben sich bewährt, bitte beibehalten)
 
