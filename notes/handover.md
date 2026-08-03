@@ -1,7 +1,7 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: 2026-08-03, Branch `update/modernize-2026`, 28 Commits über `master` (Basis `3074dbb`).
+Stand: 2026-08-03, Branch `update/modernize-2026`, 30 Commits über `master` (Basis `3074dbb`).
 Arbeitsbaum ist sauber, alles committed, nichts gepusht.
 
 ---
@@ -11,7 +11,7 @@ Arbeitsbaum ist sauber, alles committed, nichts gepusht.
 | Datei | Wofür |
 |---|---|
 | **dieses Dokument** | Orientierung, Arbeitsregeln, offene Fragen, nächster Schritt |
-| [plan.md](plan.md) | Der Plan mit allen Phasen, Bug-Nummern B1–B14, Fragen F1–F16. **Das Hauptdokument.** |
+| [plan.md](plan.md) | Der Plan mit allen Phasen, Bug-Nummern B1–B15, Fragen F1–F16. **Das Hauptdokument.** |
 | [deployment.md](deployment.md) | Wie Produktion wirklich läuft. **Vor jeder Settings-/Deploy-Änderung lesen.** |
 | [phase-2-migrations.md](phase-2-migrations.md) | Warum die Migrations so aussehen, wie sie aussehen |
 | [phase-0-baseline.md](phase-0-baseline.md) | Baseline-Messungen; enthält eine als überholt markierte Analyse |
@@ -34,8 +34,8 @@ insbesondere für Ziel 2 relevant (§7).
 
 ## 3. Zwei Ziele
 
-1. **Auf heutige Standards bringen.** Phase 0, 1 und 2 (außer 2.7) sind fertig, Phase 3 ist bei
-   3.1 und 3.2 durch, offen sind 3.3–3.8 sowie Phase 4 und 5.
+1. **Auf heutige Standards bringen.** Phase 0, 1 und 2 (außer 2.7) sind fertig, Phase 3 ist bis
+   3.3 durch, offen sind 3.4–3.8 sowie Phase 4 und 5.
 2. **Batch-Modus für Mails.** *Spec steht noch aus, der User erklärt sie später.* Nicht spekulativ
    bauen. Phase 3 so anlegen, dass es andockt (§7).
 
@@ -57,11 +57,11 @@ ruff check .
 
 **Sollwerte, an denen du merkst, dass alles in Ordnung ist:**
 
-- `pytest` → **103 passed, 4 xfailed**
+- `pytest` → **109 passed, 3 xfailed**
 - `manage.py check` → **no issues (0 silenced)**
 - `makemigrations --check` → **No changes detected**
 - `ruff format --check` → alle Dateien unverändert
-- `ruff check` → **genau 2 Fehler**, beide in `vote/views.py` (siehe §5)
+- `ruff check` → **All checks passed** (seit 3.3 sauber, siehe §5)
 
 Lokal starten (nicht mit `manage.py runserver` allein – siehe §6, Falle 3):
 
@@ -71,17 +71,16 @@ python3 manage.py runserver --settings=demockrazy.dev_settings
 
 ## 5. Was absichtlich rot ist – nicht „aufräumen"
 
-**Zwei Ruff-Befunde in `vote/views.py`** bleiben stehen, bis 3.3 sie richtig behebt:
-`F841 token_object` (in `poll()`) und `RUF059 amount_redeemed_tokens` (in `vote()`). Es sind
-Symptome der Bugs, nicht Stilfragen. **Nicht mit `noqa` zudecken und nicht mit `--unsafe-fixes`
-wegmachen.** Das CI-Gate für Ruff kommt erst in 5.3, wenn sie weg sind. Der dritte Befund
-(`F841 choice_objects`) ist mit 3.2 weggefallen.
+**`ruff check` ist seit 3.3 sauber** – alle drei absichtlich roten Befunde sind über 3.2 und 3.3
+weggefallen, weil die Bugs behoben wurden, deren Symptome sie waren. Keiner wurde mit `noqa`
+zugedeckt. **Damit ist die Voraussetzung für das Ruff-Gate in 5.3 erfüllt.**
 
-**Vier `xfail(strict=True)`-Tests** in [../vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py)
-beschreiben das *gewünschte* Verhalten für **B2, B4** und die zwei fehlenden Unique-Constraints.
-Sie schlagen heute fehl. **Wenn du einen Bug behebst, wird die Suite rot** – das ist Absicht und die
-Erinnerung, den Marker zu entfernen. Nicht der Marker ist das Problem. Die Tests für die schon
-behobenen B3, B6, B11 und B12 stehen in derselben Datei ohne Marker als Regressionstests.
+**Drei `xfail(strict=True)`-Tests** in [../vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py)
+beschreiben das *gewünschte* Verhalten für **B4** (braucht F5) und die zwei fehlenden
+Unique-Constraints (3.6). Sie schlagen heute fehl. **Wenn du einen Bug behebst, wird die Suite
+rot** – das ist Absicht und die Erinnerung, den Marker zu entfernen. Nicht der Marker ist das
+Problem. Die Tests für die behobenen B2, B3, B6, B11 und B12 stehen in derselben Datei ohne Marker
+als Regressionstests.
 
 ## 6. Die Fallen – hier hätte ich Produktion kaputtgemacht
 
@@ -146,18 +145,18 @@ SELECT identifier,   COUNT(*) c FROM vote_poll  GROUP BY identifier   HAVING c>1
 
 ## 9. Nächster Schritt
 
-Der User hat sich für **Phase 3** entschieden; **3.1 und 3.2 sind erledigt**:
-[vote/forms.py](../vote/forms.py) mit [Tests](../vote/tests/test_forms.py), `create()` läuft über
-das Formular, `manage()` liest den Token mit `.get()`. Damit sind **B3, B6, B11, B12** behoben und
-einer der drei roten Ruff-Befunde ist weg. Die drei Verschärfungen aus 3.1 (alle Felder Pflicht,
-Djangos Adressvalidator, `title` auf 200 Zeichen) hat der User bestätigt (F16).
+**Phase 3 ist bis 3.3 durch.** [vote/forms.py](../vote/forms.py) validiert die Umfrage-Erstellung,
+`create()`/`manage()`/`vote()`/`poll()` haben keine ungeprüften `request.POST`-Zugriffe mehr.
+Behoben: **B2, B3, B6, B11, B12** und das in 3.3 neu gefundene **B15**. `ruff check` ist sauber.
 
-**Als Nächstes 3.3:** `vote()` entzerren (B2) – `token_string` vor dem `try` lesen, Fehlerpfade
-explizit – und dabei das unbenutzte `token_object` in `poll()`. Das sind **die letzten zwei
-Ruff-Befunde**; danach ist `ruff check` sauber und 5.3 kann das CI-Gate scharf stellen.
-`test_b2_vote_without_token_field_shows_an_error` verliert dann seinen `xfail`-Marker.
+**Empfehlung 3.4 – Mailversand nach `vote/services/mail.py`.** Raus aus der Transaktion über
+`transaction.on_commit()` (B7), Mail-Texte als Django-Templates statt `%`-formatierter
+Settings-Strings. **Das ist die Schnittstelle, an der Ziel 2 andockt** (§7) – wenn die Batch-Spec
+absehbar ist, sie vorher hören, damit der Service gleich die richtige Form hat.
 
-Offen: **3.8** braucht F5, **Phase 4** braucht F4 für 4.3, **2.7** braucht F15.
+Kleine Alternative, jetzt unblockiert: **5.3** (CI-Gate für `ruff check` + `pytest`).
+
+Offen: **3.8** braucht F5, **Phase 4** braucht F4 für 4.3, **2.7** braucht F15, **5.4** braucht F13.
 
 ## 10. Arbeitsregeln (haben sich bewährt, bitte beibehalten)
 
