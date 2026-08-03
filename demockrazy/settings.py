@@ -20,64 +20,64 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # See https://docs.djangoproject.com/en/1.9/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = '%cs8fdyvv=@dbe7g^ltxt!=!c(033*tm$br3x%c%u@1%szg8#_'
+SECRET_KEY = "%cs8fdyvv=@dbe7g^ltxt!=!c(033*tm$br3x%c%u@1%szg8#_"
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = [ ]
+ALLOWED_HOSTS = []
 
 
 # Application definition
 
 INSTALLED_APPS = [
-    'vote.apps.VoteConfig',
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
+    "vote.apps.VoteConfig",
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
 ]
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = 'demockrazy.urls'
+ROOT_URLCONF = "demockrazy.urls"
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.debug',
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.debug",
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
     },
 ]
 
-WSGI_APPLICATION = 'demockrazy.wsgi.application'
+WSGI_APPLICATION = "demockrazy.wsgi.application"
 
 
 # Database
 # https://docs.djangoproject.com/en/1.9/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": os.path.join(BASE_DIR, "db.sqlite3"),
     }
 }
 ATOMIC_REQUESTS = True
@@ -88,16 +88,16 @@ ATOMIC_REQUESTS = True
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
 
@@ -105,9 +105,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/1.9/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = "en-us"
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = "UTC"
 
 USE_I18N = True
 
@@ -119,28 +119,28 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/1.9/howto/static-files/
 
-STATIC_URL = '/static/'
-STATIC_ROOT = os.path.join(BASE_DIR, 'static')
+STATIC_URL = "/static/"
+STATIC_ROOT = os.path.join(BASE_DIR, "static")
 
 EMAIL_HOST = ""
 EMAIL_PORT = 25
-#EMAIL_HOST_USER = "derp"
-#EMAIL_HOST_PASSWORD = "derp"
+# EMAIL_HOST_USER = "derp"
+# EMAIL_HOST_PASSWORD = "derp"
 EMAIL_USE_TLS = True
 EMAIL_USE_SSL = False
 
 VOTE_MAIL_FROM = "wahlleitung@demo.ckrazy"
-VOTE_BASE_URL = 'http://127.0.0.1:8000'
-VOTE_ADMIN_MAIL_SUBJECT= "[democrazy] Poll '%(title)s' created"
-VOTE_ADMIN_MAIL_TEXT = '''
+VOTE_BASE_URL = "http://127.0.0.1:8000"
+VOTE_ADMIN_MAIL_SUBJECT = "[democrazy] Poll '%(title)s' created"
+VOTE_ADMIN_MAIL_TEXT = """
 Hi, you just created a new poll with title '%(title)s' that is manageable at %(manage_url)s
 Your admin token is: %(creator_token)s
 
 Thank you for traveling with Deutsche Bahn"
 
-'''
+"""
 VOTE_MAIL_SUBJECT = "[demockrazy] Deine Stimme für '%(title)s'"
-VOTE_MAIL_TEXT = '''
+VOTE_MAIL_TEXT = """
 Hallo,
 
 Jemand hat eine Abstimmung mit dem Titel '%(title)s' auf %(vote_base_url)s erstellt.
@@ -158,11 +158,11 @@ Der Ersteller der Umfrage hat die möglichkeit diese vorzeitig zu beenden.
 XoXoXo
 Die Wahlleitung
 
-'''
+"""
 
 VOTE_SEND_MAILS = False
 
 try:
-  from .local_settings import *
+    from .local_settings import *
 except ImportError:
-  print("No local settings found..")
+    print("No local settings found..")

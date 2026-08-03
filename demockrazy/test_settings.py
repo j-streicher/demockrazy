@@ -8,7 +8,7 @@ danach überschrieben, damit die Suite unabhängig von der lokalen Konfiguration
 from .settings import *  # noqa: F403
 
 DEBUG = False
-SECRET_KEY = "test-only-not-a-secret"  # noqa: S105
+SECRET_KEY = "test-only-not-a-secret"
 ALLOWED_HOSTS = ["testserver"]
 
 DATABASES = {

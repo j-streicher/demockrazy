@@ -22,7 +22,7 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py313"
-extend-exclude = ["vote/static", "vote/migrations"]
+extend-exclude = ["vote/static", "vote/migrations", "notes"]
 
 [tool.ruff.lint]
 select = [
@@ -37,6 +37,13 @@ select = [
     "DTZ", # naive datetimes -- relevant, USE_TZ ist an
     "RUF",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# settings.py enthaelt die Mail-Texte als deutsche Prosa-Konstanten -- die Zeilen lassen sich
+# nicht sinnvoll umbrechen. Fallen weg, sobald die Texte echte Django-Templates sind (Plan 2.4).
+# Der `from .local_settings import *` am Dateiende ist der Prod-Konfigurationsmechanismus
+# und bleibt absichtlich stehen (Plan 2.4).
+"demockrazy/settings.py" = ["E501", "F403"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["demockrazy", "vote"]
