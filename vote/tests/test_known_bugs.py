@@ -1,10 +1,13 @@
 """Die in Phase 0 bestätigten Bugs, formuliert als das gewünschte Verhalten.
 
-Jeder Test hier ist mit `xfail(strict=True)` markiert: er beschreibt, was passieren *soll*, und
-schlägt heute fehl. Sobald Phase 3 den jeweiligen Bug behebt, wird der Test zu einem
-unerwarteten Erfolg -- was die Suite rot macht und daran erinnert, den Marker zu entfernen.
+Ein noch offener Bug steht hier mit `xfail(strict=True)`: der Test beschreibt, was passieren
+*soll*, und schlägt heute fehl. Sobald Phase 3 ihn behebt, wird er zu einem unerwarteten Erfolg --
+was die Suite rot macht und daran erinnert, den Marker zu entfernen.
 
-Die Nummern (B2, B3, ...) verweisen auf notes/plan.md §2.
+Behobene Bugs bleiben ohne Marker stehen und sind ab dann Regressionstests. Die Nummern
+(B2, B3, ...) bleiben als Verweis auf notes/plan.md §2 erhalten.
+
+Behoben: B3, B6, B11, B12 (Plan 3.2).
 """
 
 import pytest
@@ -37,7 +40,6 @@ def _create_payload(**overrides):
     return payload
 
 
-@pytest.mark.xfail(strict=True, reason="B3: create() liest request.POST ohne Methodenpruefung")
 @pytest.mark.django_db
 def test_b3_get_on_create_does_not_crash(lenient_client):
     """GET /vote/create soll das Formular zeigen oder umleiten, nicht mit 500 sterben."""
@@ -45,7 +47,6 @@ def test_b3_get_on_create_does_not_crash(lenient_client):
     assert response.status_code != 500
 
 
-@pytest.mark.xfail(strict=True, reason="B3: ungueltiger Umfragetyp wirft ein nacktes Exception")
 @pytest.mark.django_db
 def test_b3_invalid_poll_type_is_a_form_error(lenient_client):
     """Ein unbekannter type soll als Formularfehler zurueckkommen, nicht als 500."""
@@ -54,7 +55,6 @@ def test_b3_invalid_poll_type_is_a_form_error(lenient_client):
     assert not Poll.objects.filter(title="Bugtest").exists()
 
 
-@pytest.mark.xfail(strict=True, reason="B12: ValidationError aus parse_mails wird nicht gefangen")
 @pytest.mark.django_db
 def test_b12_invalid_mail_address_is_a_form_error(lenient_client):
     """Eine kaputte Adresse soll eine Fehlermeldung erzeugen und keine Umfrage anlegen."""
@@ -65,7 +65,6 @@ def test_b12_invalid_mail_address_is_a_form_error(lenient_client):
     assert not Poll.objects.filter(title="Bugtest").exists()
 
 
-@pytest.mark.xfail(strict=True, reason="B6: parse_mails dedupliziert nicht")
 @pytest.mark.django_db
 def test_b6_duplicate_addresses_get_one_token_each(client):
     """Dieselbe Adresse dreimal eingetragen darf nicht drei Stimmrechte ergeben."""
@@ -88,12 +87,14 @@ def test_b2_vote_without_token_field_shows_an_error(lenient_client, create_poll)
     assert response.status_code != 500
 
 
-@pytest.mark.xfail(strict=True, reason="B11: manage() liest request.POST['token'] ohne Guard")
 @pytest.mark.django_db
 def test_b11_manage_without_token_field_shows_an_error(lenient_client, create_poll):
     poll, _ = create_poll()
     response = lenient_client.post(f"/vote/{poll.identifier}/manage", {})
     assert response.status_code != 500
+    assert response.context["error_message"] == "Wrong management token"
+    poll.refresh_from_db()
+    assert poll.is_active is True, "eine Umfrage ohne Token darf nicht geschlossen werden"
 
 
 @pytest.mark.xfail(strict=True, reason="B4: create() ist unauthentifiziert und ohne Rate-Limit")

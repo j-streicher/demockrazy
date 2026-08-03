@@ -9,7 +9,7 @@
 
 | # | Ziel | Status |
 |---|------|--------|
-| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · offen: 3, 4, 5 |
+| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · Phase 3 läuft (3.1, 3.2 ✅) · offen: 3.3–3.8, 4, 5 |
 | 2 | Batch-Modus für Mails bauen | **Spec folgt vom User** – nur Vorarbeit leisten, siehe §11 |
 
 **Wichtig:** Ziel 2 wird vom User später erklärt. Ziel 1 nicht so umbauen, dass Ziel 2 blockiert wird –
@@ -94,21 +94,23 @@ Wiederherstellbar über `git revert 4e15012`.
 |---|---|---|
 | B1 | Migrations gitignored | ✅ **behoben** in 2.1 |
 | B2 | `UnboundLocalError` in `vote()` | offen → 3.3 |
-| B3 | `create()` crasht bei GET / ungültigem Typ | offen → 3.2 |
+| B3 | `create()` crasht bei GET / ungültigem Typ | ✅ **behoben** in 3.2 |
 | B4 | Kein Auth/Rate-Limit auf `/vote/create` | offen → 3.8, **braucht F5** |
 | B5 | Unsichere Settings-Defaults | ✅ **behoben** in 2.4 |
-| B6 | Doppelte Adressen → doppelte Tokens | offen → 3.1 |
+| B6 | Doppelte Adressen → doppelte Tokens | ✅ **behoben** in 3.1/3.2 |
 | B7 | Mailversand innerhalb der Transaktion | offen → 3.4 |
 | B8 | Highcharts proprietär lizenziert | offen → 4.3, **braucht F4** |
 | B9 | Token im URL-Query-String | offen, Entscheidung nötig |
 | B10 | Templating in Inline-JS | offen → 4.3 |
-| B11 | `manage()` crasht ohne `token`-Feld | offen → 3.2 |
-| B12 | `ValidationError` ungefangen | offen → 3.1/3.2 |
+| B11 | `manage()` crasht ohne `token`-Feld | ✅ **behoben** in 3.2 |
+| B12 | `ValidationError` ungefangen | ✅ **behoben** in 3.1/3.2 |
 | B13 | Prod läuft auf SQLite (Lock-Risiko) | offen → 5.4, **braucht F13** |
 | B14 | TLS-Hardening unvollständig | offen → 2.7, **braucht F15** |
 
-B2, B3, B4, B6, B11, B12 sind als `xfail(strict=True)` in
-[vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py) spezifiziert.
+Alle als `xfail(strict=True)` spezifiziert in
+[vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py); B3, B6, B11 und B12 stehen dort
+inzwischen ohne Marker als Regressionstests. **Offen sind noch B2, B4** und die zwei fehlenden
+Unique-Constraints.
 
 
 **B1 – Migrations sind gitignored.**
@@ -274,7 +276,8 @@ Die sicheren Defaults im Repo sind mit 2.4 erledigt, die 500-Pfade folgen in Pha
       unabhängig von `local_settings.py`). **Abweichung vom Plan:** die Suite ist pytest-only statt
       auch `manage.py test`-kompatibel – `xfail`-Marker funktionieren im unittest-Runner nicht, und
       die Bug-Spezifikation in 1.4 ist mir wichtiger als zwei Runner.
-- [x] **1.4 Testsuite** in [vote/tests/](../vote/tests/): **56 Tests grün, 9 xfailed.**
+- [x] **1.4 Testsuite** in [vote/tests/](../vote/tests/): **56 Tests grün, 9 xfailed** *(Stand bei
+      1.4; aktueller Sollwert steht in [handover.md](handover.md) §4)*.
       Models, alle sechs Views, Anonymitätsgarantien, plus ein URL-Form-Test als Absicherung von
       Regel 4. Die 9 Bugs stehen in [vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py)
       als `xfail(strict=True)` – sie beschreiben das Soll-Verhalten und machen die Suite rot, sobald
@@ -337,12 +340,39 @@ Tests für niemanden außer mir nutzbar und in CI wertlos. **Behoben in 2.1**, a
 
 ## 7. Phase 3 – Code-Modernisierung
 
-- [ ] **3.1 `vote/forms.py`** einführen: `PollCreateForm` mit `EmailField`-Validierung,
-      Choices-Parsing, Dedup der Mailadressen (B6). Ersetzt `parse_mails`/`parse_choices` und
-      den direkten `request.POST`-Zugriff.
-- [ ] **3.2 `create()`** auf Form + `require_POST`/GET-Handling umbauen (B3); Fehler als
-      Formularfehler rendern statt 500.
+- [x] **3.1 `vote/forms.py`** ✅ – `PollCreateForm` mit `EmailField`-Validierung, Choices-Parsing
+      über `parse_lines()` und Dedup der Mailadressen (B6). Feldnamen identisch zu den
+      `name`-Attributen von [index.html](../vote/templates/vote/index.html), damit die Vorlage
+      unverändert bleibt (Regel 4). `cleaned_data` liefert `choices`/`voter_mails` als Listen.
+      **Abweichung vom Plan:** das Formular ist *noch nicht verdrahtet* – der Umbau von `create()`
+      steckt komplett in 3.2. Sobald die View das Formular benutzt, kippen B3, B6 und B12
+      gleichzeitig von `xfail` auf grün; das gehört in denselben Commit wie die 500-Pfade, sonst
+      ist die Suite zwischendurch halb umgestellt und nicht mehr lesbar. Bis dahin deckt
+      [vote/tests/test_forms.py](../vote/tests/test_forms.py) das Formular ab (**+35 Tests**).
+      **Drei bewusste Verschärfungen** (Eingaben, die die View bisher annahm):
+      alle Felder sind Pflicht (leerer Titel / leere Choice- oder Empfängerliste ergaben eine
+      Umfrage, über die nicht abgestimmt werden kann, bzw. einen 500 beim SMTP-Aufruf);
+      Adressprüfung über Djangos Validator statt der Heuristik „genau ein `@`, dahinter ein Punkt"
+      (die z. B. `a b@example.org` durchließ); `title` auf die Spaltenbreite 200 begrenzt.
+      Dedup case-insensitiv über die ganze Adresse, erste Schreibweise gewinnt – Begründung im
+      Code. **Falls der User eine davon nicht will, ist das vor 3.2 zu klären.**
+- [x] **3.2 `create()` auf das Formular umgebaut** ✅ – `parse_mails`/`parse_choices` sind weg,
+      damit sind **B3, B6, B12** behoben; zusätzlich **B11** (`manage()` liest den Token jetzt mit
+      `.get()`, eigener Commit). Vier `xfail`-Marker entfernt, die Tests bleiben als
+      Regressionstests stehen.
+      **Kein `require_POST`:** ein GET auf `/vote/create` rendert das Formular statt eines 405.
+      Der Endpunkt ist der Sache nach POST-only, aber ein 405 ist für einen Menschen aus der
+      Browser-History eine Sackgasse.
+      [index.html](../vote/templates/vote/index.html) behält sein handgeschriebenes
+      Bootstrap-3-Markup (4.1 ersetzt es ohnehin) und bekommt nur, was das Formular braucht:
+      Fehlerlisten pro Feld und die Eingaben zurück ins Feld – ohne Letzteres kostet ein Tippfehler
+      in Adresse 200 die ganze Liste. Bei ungültiger Eingabe entsteht nichts und es geht **keine**
+      Mail raus, auch nicht an den Ersteller.
+      Nebeneffekt: einer der drei roten Ruff-Befunde ist weg (`F841 choice_objects`), **2 bleiben**
+      (`poll()`, `vote()`) → 3.3.
 - [ ] **3.3 `vote()`** entzerren (B2): `token_string` vor dem `try` lesen, Fehlerpfade explizit.
+      Dabei auch das unbenutzte `token_object` in `poll()` – das sind die **beiden verbliebenen
+      roten Ruff-Befunde**, danach kann 5.3 das CI-Gate scharf stellen.
 - [ ] **3.4 Mail-Versand in `vote/services/mail.py` herausziehen (B7).** Reine Funktionen, keine
       Request-Abhängigkeit, kein SMTP innerhalb der Transaktion → `transaction.on_commit()`.
       **Das ist die Schnittstelle, an der Ziel 2 andockt** (§11).
@@ -372,7 +402,10 @@ Tests für niemanden außer mir nutzbar und in CI wertlos. **Behoben in 2.1**, a
       `collectstatic --noinput` läuft laut Modul bei **jedem** Service-Start, die Umstellung ist
       damit gefahrlos.
 - [ ] **4.5 Template-Kleinkram:** `<th>/</td>`-Mismatch, `lang="de"` wo die Texte deutsch sind,
-      doppelt eingebundenes `bootstrap.css` in `base.html`.
+      doppelt eingebundenes `bootstrap.css` in `base.html`. Neu dazu: die handgeschriebenen
+      `<input>`/`<textarea>` in [index.html](../vote/templates/vote/index.html) tragen kein
+      `aria-describedby` auf die Fehlerliste, die Django daneben rendert (mit 3.2 entstanden, weil
+      das Markup bewusst nicht auf `{{ form.<feld> }}` umgestellt wurde).
 
 ## 9. Phase 5 – Deployment & CI
 
@@ -458,6 +491,7 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
 | F5 | Zugangsschutz für Poll-Erstellung – welche Variante? (B4/3.8) | 3.8, Ziel 2 |
 | F8 | Anonymität vs. Zustellstatus pro Empfänger – wie weit darf Ziel 2 das aufweichen? (§11.4) | Ziel 2 |
 | F13 | Wie groß sind Abstimmungen real (Empfänger pro Poll, parallele Polls)? Entscheidet SQLite-Tuning vs. Postgres (B13) und die Batch-Größen für Ziel 2. | 5.4, Ziel 2 |
+| ~~F16~~ | ~~Sind die drei Verschärfungen aus 3.1 gewollt?~~ → **ja**, vom User bestätigt (alle sechs Felder Pflicht, Djangos Adressvalidator, `title` auf 200 Zeichen). Seit 3.2 in der View wirksam. | – |
 
 ---
 
@@ -471,15 +505,17 @@ Phase 5  5.1 k8s-Cleanup ✅ · 5.2 Deployment verstanden ✅ · 5.3–5.5 offen
 Phase 6  README ✅ · Handover ✅
 
 offen, in sinnvoller Reihenfolge:
-  Phase 3  Code (Forms, 500-Pfade, Mail-Service, Models)
-             └─ behebt die 9 xfail-Tests und die 3 roten Ruff-Befunde
+  Phase 3  Code (3.1 Forms ✅ · 3.2 create()/manage() ✅ · offen: 3.3–3.8)
+             └─ 4 der 9 xfail-Tests und 1 der 3 roten Ruff-Befunde sind weg
+             └─ 3.3 beseitigt die letzten zwei Ruff-Befunde → Voraussetzung für 5.3
              └─ 3.8 braucht F5
              └─ liefert die Schnittstelle für ZIEL 2 (Batch-Mails, nach Spec)
   Phase 4  Frontend – unabhängig, parallelisierbar, 4.3 braucht F4
-  5.3      CI-Gate – erst sinnvoll, wenn Phase 3 die roten Ruff-Befunde beseitigt hat
+  5.3      CI-Gate – erst sinnvoll, wenn 3.3 die roten Ruff-Befunde beseitigt hat
   5.4      SQLite-Härtung – braucht F13
   2.7      TLS-Hardening – braucht F15
 ```
 
-**Nächster Schritt:** Phase 3, beginnend mit 3.1 (`vote/forms.py`). Nicht blockiert; nur 3.8
-braucht vorher F5. Details in [handover.md](handover.md) §9.
+**Nächster Schritt:** 3.3 – `vote()` entzerren (B2), dazu das unbenutzte `token_object` in
+`poll()`. Danach ist `ruff check` sauber und 5.3 kann das CI-Gate scharf stellen.
+Nicht blockiert; nur 3.8 braucht vorher F5. Details in [handover.md](handover.md) §9.

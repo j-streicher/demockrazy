@@ -7,6 +7,16 @@ from vote.models import Choice, Poll, Token
 
 from .conftest import CREATOR_MAIL, creator_message, voter_tokens
 
+#: Eine Eingabe, die genau an einer Stelle kaputt ist -- der Rest muss die Fehlerseite überleben.
+INVALID_PAYLOAD = {
+    "title": "Wiedervorlage",
+    "type": "simple_choice",
+    "description": "Wollen wir das?",
+    "choices": "Ja\nNein",
+    "creator_mail": CREATOR_MAIL,
+    "voter_mails": "gueltig@example.org\nKAPUTT",
+}
+
 
 class TestUrls:
     """Es sind Mails mit ?token=-Links auf bestehende Umfragen unterwegs.
@@ -104,6 +114,49 @@ class TestCreate:
         poll, _ = create_poll(poll_type="multiple_choice", choices="A\nB\nC")
         assert poll.type == "multiple_choice"
         assert poll.choice_set.count() == 3
+
+
+@pytest.mark.django_db
+class TestCreateFormErrors:
+    """Der Fehlerpfad von `create()`, seit es über `PollCreateForm` läuft (Plan 3.2)."""
+
+    def test_get_shows_the_form(self, client):
+        response = client.get("/vote/create")
+        assert response.status_code == 200
+        assert b'name="voter_mails"' in response.content
+
+    def test_invalid_input_renders_the_form_again(self, client):
+        response = client.post("/vote/create", INVALID_PAYLOAD)
+        assert response.status_code == 200
+        assert response.context["form"].errors
+
+    def test_invalid_input_creates_nothing(self, client):
+        client.post("/vote/create", INVALID_PAYLOAD)
+        assert not Poll.objects.exists()
+        assert not Choice.objects.exists()
+        assert not Token.objects.exists()
+
+    def test_invalid_input_sends_no_mail(self, client, mailoutbox):
+        """Auch nicht an den Ersteller -- sonst wäre eine Tippfehler-Schleife ein Mailversender."""
+        client.post("/vote/create", INVALID_PAYLOAD)
+        assert mailoutbox == []
+
+    def test_the_entered_values_survive_an_error(self, client):
+        """Wer 200 Adressen einfügt, soll sie nach einem Tippfehler nicht neu eintippen müssen."""
+        response = client.post("/vote/create", INVALID_PAYLOAD)
+        content = response.content.decode()
+        assert "Wiedervorlage" in content
+        assert "gueltig@example.org" in content
+        assert "Ja\nNein" in content
+
+    def test_the_selected_poll_type_survives_an_error(self, client):
+        response = client.post("/vote/create", INVALID_PAYLOAD | {"type": "multiple_choice"})
+        content = response.content.decode()
+        assert 'value="multiple_choice" selected' in content
+
+    def test_the_error_message_names_the_broken_address(self, client):
+        response = client.post("/vote/create", INVALID_PAYLOAD)
+        assert "KAPUTT" in response.content.decode()
 
 
 @pytest.mark.django_db
