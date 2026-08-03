@@ -9,7 +9,7 @@
 
 | # | Ziel | Status |
 |---|------|--------|
-| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · Phase 3 läuft (3.1–3.3 ✅) · offen: 3.4–3.8, 4, 5 |
+| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · Phase 3 bis 3.3 ✅ · CI ✅ · offen: 3.4–3.8, 4, 5.4, 5.5 |
 | 2 | Batch-Modus für Mails bauen | **Spec folgt vom User** – nur Vorarbeit leisten, siehe §11 |
 
 **Wichtig:** Ziel 2 wird vom User später erklärt. Ziel 1 nicht so umbauen, dass Ziel 2 blockiert wird –
@@ -282,7 +282,9 @@ Die sicheren Defaults im Repo sind mit 2.4 erledigt, die 500-Pfade folgen in Pha
       ausgenommen. *Nachtrag: beide bestehen nach 2.4 weiter* – `E501` fällt erst mit 3.4 weg
       (Mail-Texte werden Templates), `F403` bleibt, solange der `local_settings`-Import existiert.
       **3 Befunde bleiben absichtlich rot:** 2× `F841` + 1× `RUF059` in
-      [vote/views.py](../vote/views.py) – Symptome der Bugs, die Phase 3 richtig behebt. CI-Gate: 5.3.
+      [vote/views.py](../vote/views.py) – Symptome der Bugs, die Phase 3 richtig behebt.
+      *Nachtrag: alle drei sind mit 3.2 und 3.3 weggefallen, keiner per `noqa`. Das CI-Gate steht
+      seit 5.3.*
 - [x] **1.3 pytest + pytest-django** über `pyproject.toml`, eigene
       [demockrazy/test_settings.py](../demockrazy/test_settings.py) (locmem-Mails, In-Memory-SQLite,
       unabhängig von `local_settings.py`). **Abweichung vom Plan:** die Suite ist pytest-only statt
@@ -447,9 +449,21 @@ Deployment-Härtung). **5.1 und 5.2 sind erledigt**, offen bleiben CI, SQLite-H�
       muss der User `rev`+`sha256` bumpen **und** das Colmena-Flake auf `mf-next` haben.
       Beim `rev`-Bump auch `version = "2024-02-08"` im Derivation mitziehen. **Kein Rollout durch
       mich** (Regel 5) – nur benennen.
-- [ ] **5.3 CI neu aufbauen:** ohne Image-Build ein schlanker Workflow für `ruff check` + `pytest`
-      + `nix flake check`. `actions/checkout` und `install-nix-action` auf aktuelle Majors.
-      Voraussetzung fürs Ruff-Gate: die 3 absichtlich roten Befunde müssen via Phase 3 weg sein.
+- [x] **5.3 CI neu aufgebaut** ✅ – [.github/workflows/checks.yml](../.github/workflows/checks.yml)
+      fährt **genau die Verifikationsschleife aus [handover.md](handover.md) §4** plus
+      `nix flake check`. Nicht nur `ruff`+`pytest`: `makemigrations --check` gehört dazu, weil
+      Migrations-Drift sonst erst dem nächsten auffällt, der ein Modell anfasst.
+      Versionen gegen die GitHub-API geprüft, nicht erinnert: `actions/checkout@v7` (v7.0.1,
+      2026-07-20), `cachix/install-nix-action@v31` (v31.11.0, 2026-07-15). Flakes explizit
+      eingeschaltet statt auf den Action-Default zu bauen.
+      **Kein Binary-Cache-Schritt, gemessen statt vermutet:** Python 3.13.13, Django 5.2.15,
+      pytest, pytest-django und ruff sind alle aus `cache.nixos.org` substituierbar; nur der
+      `withPackages`-Symlink-Join wird gebaut (Sekunden). Ein Cachix-Account bringt hier nichts.
+      **Trigger `push` auf allen Branches, kein `pull_request`:** bei einem PR aus diesem Repo hängt
+      das Ergebnis am Commit und erscheint am PR; beide Trigger zusammen ergäben zwei Läufe pro
+      Push. Für Fork-PRs müsste der zweite Trigger dazu.
+      Der Vorgänger-Workflow baute nur die Images des abgeschalteten k8s-Deployments und ist mit
+      `4e15012` entfallen – seither hatte das Repo **gar keine** CI.
 - [ ] **5.4 SQLite-Betrieb absichern (B13).** WAL-Modus und `timeout` über
       `DATABASES['default']['OPTIONS']`. **Backup ist geklärt:** borg onsite 03:00 + offsite 04:00
       auf `/var/lib/demockrazy`. Verschärfend: das Modul startet **4 uwsgi-Prozesse** auf einer
@@ -522,7 +536,7 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
 Phase 0  Baseline, Prod-Fakten                                        ✅
 Phase 1  Tooling + Testsuite (das Sicherheitsnetz)                    ✅
 Phase 2  Migrations, Django 5.2, Settings                             ✅ außer 2.7 (braucht F15)
-Phase 5  5.1 k8s-Cleanup ✅ · 5.2 Deployment verstanden ✅ · 5.3–5.5 offen
+Phase 5  5.1 k8s-Cleanup ✅ · 5.2 Deployment verstanden ✅ · 5.3 CI ✅ · 5.4/5.5 offen
 Phase 6  README ✅ · Handover ✅
 
 offen, in sinnvoller Reihenfolge:
@@ -532,13 +546,12 @@ offen, in sinnvoller Reihenfolge:
              └─ 3.8 braucht F5
              └─ liefert die Schnittstelle für ZIEL 2 (Batch-Mails, nach Spec)
   Phase 4  Frontend – unabhängig, parallelisierbar, 4.3 braucht F4
-  5.3      CI-Gate – ✅ Voraussetzung erfüllt, `ruff check` ist seit 3.3 sauber
   5.4      SQLite-Härtung – braucht F13
   2.7      TLS-Hardening – braucht F15
 ```
 
 **Nächster Schritt:** 3.4 – den Mailversand nach `vote/services/mail.py` herausziehen (B7),
 raus aus der Transaktion via `transaction.on_commit()`, Mail-Texte als Templates. **Das ist die
-Schnittstelle, an der Ziel 2 andockt** (§11) – wenn die Batch-Spec bald kommt, lohnt es, sie vorher
-zu hören. Alternativ ist 5.3 (CI-Gate) jetzt unblockiert und klein.
+Schnittstelle, an der Ziel 2 andockt** (§11); die Batch-Spec vorher zu hören spart eine zweite
+Runde. Ohne Spec-Bedarf und unblockiert wären sonst 3.5–3.7, 5.5 oder Phase 4 (außer 4.3).
 Details in [handover.md](handover.md) §9.

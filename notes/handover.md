@@ -1,7 +1,7 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: 2026-08-03, Branch `update/modernize-2026`, 30 Commits über `master` (Basis `3074dbb`).
+Stand: 2026-08-03, Branch `update/modernize-2026`, 32 Commits über `master` (Basis `3074dbb`).
 Arbeitsbaum ist sauber, alles committed, nichts gepusht.
 
 ---
@@ -35,7 +35,7 @@ insbesondere für Ziel 2 relevant (§7).
 ## 3. Zwei Ziele
 
 1. **Auf heutige Standards bringen.** Phase 0, 1 und 2 (außer 2.7) sind fertig, Phase 3 ist bis
-   3.3 durch, offen sind 3.4–3.8 sowie Phase 4 und 5.
+   3.3 durch, CI steht (5.3). Offen: 3.4–3.8, Phase 4, 5.4/5.5.
 2. **Batch-Modus für Mails.** *Spec steht noch aus, der User erklärt sie später.* Nicht spekulativ
    bauen. Phase 3 so anlegen, dass es andockt (§7).
 
@@ -55,6 +55,10 @@ ruff format --check .
 ruff check .
 ```
 
+Genau diese fünf Befehle fährt seit 5.3 auch die CI
+([.github/workflows/checks.yml](../.github/workflows/checks.yml)), plus `nix flake check`. Wer hier
+grün ist, ist dort grün.
+
 **Sollwerte, an denen du merkst, dass alles in Ordnung ist:**
 
 - `pytest` → **109 passed, 3 xfailed**
@@ -73,7 +77,7 @@ python3 manage.py runserver --settings=demockrazy.dev_settings
 
 **`ruff check` ist seit 3.3 sauber** – alle drei absichtlich roten Befunde sind über 3.2 und 3.3
 weggefallen, weil die Bugs behoben wurden, deren Symptome sie waren. Keiner wurde mit `noqa`
-zugedeckt. **Damit ist die Voraussetzung für das Ruff-Gate in 5.3 erfüllt.**
+zugedeckt. **Das Ruff-Gate in der CI steht seit 5.3** – ein neuer Befund macht den Build rot.
 
 **Drei `xfail(strict=True)`-Tests** in [../vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py)
 beschreiben das *gewünschte* Verhalten für **B4** (braucht F5) und die zwei fehlenden
@@ -145,18 +149,23 @@ SELECT identifier,   COUNT(*) c FROM vote_poll  GROUP BY identifier   HAVING c>1
 
 ## 9. Nächster Schritt
 
-**Phase 3 ist bis 3.3 durch.** [vote/forms.py](../vote/forms.py) validiert die Umfrage-Erstellung,
-`create()`/`manage()`/`vote()`/`poll()` haben keine ungeprüften `request.POST`-Zugriffe mehr.
-Behoben: **B2, B3, B6, B11, B12** und das in 3.3 neu gefundene **B15**. `ruff check` ist sauber.
+**Phase 3 ist bis 3.3 durch, CI steht.** [vote/forms.py](../vote/forms.py) validiert die
+Umfrage-Erstellung, keine View greift mehr ungeprüft auf `request.POST` zu; behoben sind
+**B2, B3, B6, B11, B12, B15**. `ruff check` ist sauber, und
+[.github/workflows/checks.yml](../.github/workflows/checks.yml) hält das fest.
 
 **Empfehlung 3.4 – Mailversand nach `vote/services/mail.py`.** Raus aus der Transaktion über
 `transaction.on_commit()` (B7), Mail-Texte als Django-Templates statt `%`-formatierter
-Settings-Strings. **Das ist die Schnittstelle, an der Ziel 2 andockt** (§7) – wenn die Batch-Spec
-absehbar ist, sie vorher hören, damit der Service gleich die richtige Form hat.
+Settings-Strings (fällt zugleich das `E501`-per-file-ignore in `settings.py`).
+**Das ist die Schnittstelle, an der Ziel 2 andockt** (§7) – die Batch-Spec vorher zu hören spart
+eine zweite Runde. Was auch ohne Spec gilt, steht in §7.1–3; ein Modell für Zustellstatus
+**nicht** vorwegnehmen (F8).
 
-Kleine Alternative, jetzt unblockiert: **5.3** (CI-Gate für `ruff check` + `pytest`).
+Unblockiert und ohne Spec-Bedarf, falls 3.4 warten soll: **3.5** (bulk_create), **3.6** (Models,
+Unique-Constraints – vorher die zwei SQL-Abfragen unten auf Prod), **3.7** (`re_path` → `path`),
+**5.5** (`/healthz`), **Phase 4** außer 4.3.
 
-Offen: **3.8** braucht F5, **Phase 4** braucht F4 für 4.3, **2.7** braucht F15, **5.4** braucht F13.
+Offen: **3.8** braucht F5, **4.3** braucht F4, **2.7** braucht F15, **5.4** braucht F13.
 
 ## 10. Arbeitsregeln (haben sich bewährt, bitte beibehalten)
 
