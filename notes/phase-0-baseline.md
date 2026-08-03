@@ -78,7 +78,31 @@ Der Aufwand steckt nicht im Upgrade, sondern in den Altlasten (Migrations, Setti
 
 ## 0.3 Prod-Zustand
 
-### `DEBUG=True` in Produktion – **bestätigt** (Plan-Frage F1)
+> ### ⚠️ KORREKTUR 2026-08-03 – der Abschnitt unten beschreibt das FALSCHE Deployment
+>
+> Ich hatte `briefwahl.mayflower.cloud` / [k8s/settings.py](k8s/settings.py) für die Produktion
+> gehalten. Vom User klargestellt:
+>
+> - **Produktion ist `wahlcomputer.mayflower.de`**, konfiguriert über `demockrazy/local_settings.py`
+>   (gitignored). Dort ist **`DEBUG = False`** gesetzt.
+> - **Das k8s-Deployment ist abgeschaltet.** `k8s/`, `nix/*-image.nix`, `.sops.yaml` und der
+>   Image-Build in der CI sind toter Code (→ Plan 5.1).
+> - Der `SECRET_KEY` im weitergegebenen `local_settings.py` war vom User redigiert, **nicht** der
+>   deployte Wert. Kein Problem.
+>
+> **Der unten beschriebene Mailadressen-Leak über die 500-Pfade ist damit nicht
+> produktionsrelevant.** Die 500-Pfade selbst (B2/B3/B11/B12) bleiben Bugs und werden in Phase 3
+> gefixt – aber ohne Debug-Seiten sind sie hässlich, nicht gefährlich. Kein Hotfix nötig.
+>
+> Zwei neue Befunde aus dem echten Prod-Setup: **SQLite in Produktion** (B13, `DATABASES` wird nicht
+> überschrieben, in Kombination mit `ATOMIC_REQUESTS=True` Lock-Risiko) und **fehlende
+> Secure-Cookie-/HSTS-Flags** (B14).
+>
+> Der Abschnitt bleibt als Analyse stehen: er dokumentiert, was ein Django-Deployment mit
+> `DEBUG=True` preisgibt – relevant, falls das k8s-Setup je wiederbelebt wird, und als Begründung
+> für die sicheren Defaults in Phase 2.4.
+
+### `DEBUG=True` – galt für das inzwischen abgeschaltete k8s-Deployment (ursprüngliche Analyse)
 
 [k8s/settings.py](k8s/settings.py) importiert `from demockrazy.settings import *` und überschreibt
 `DEBUG` **nicht**. Effektive Prod-Settings, ausgewertet mit gesetzten Env-Variablen:
@@ -112,13 +136,25 @@ Informationspreisgabe personenbezogener Daten (Mailadressenlisten) plus Infrastr
 [k8s/settings.py](k8s/settings.py), sofort deploybar, ohne auf Phase 1/2 zu warten.
 Empfehlung: als eigener Hotfix-Commit vorziehen. Danach die 500-Pfade in Phase 3 richtig fixen.
 
-### Noch offen (braucht Cluster-Zugang – kann ich nicht selbst)
+### Noch offen (braucht Server-Zugang – kann ich nicht selbst)
 
-- Welches Image-Tag läuft aktuell in `briefwahl.mayflower.cloud`?
-- Schema-Stand der Prod-DB (`\d+ vote_*`) → Gegenprobe zu [notes/baseline-schema.sql](notes/baseline-schema.sql),
-  bevor die eingecheckte `0001_initial` in Phase 2.1 mit `--fake-initial` scharf gestellt wird.
-- Läuft der `django_migrations`-Eintrag `vote.0001_initial` dort schon (sollte er, wegen des
-  `makemigrations`-beim-Start-Hacks) und mit welchem Namen?
+**Prod-Schema-Stand** (Plan-Frage F12), Gegenprobe zu [notes/baseline-schema.sql](notes/baseline-schema.sql),
+bevor die eingecheckte `0001_initial` in Phase 2.1 scharf gestellt wird. Prod ist SQLite, also
+nur lesend auf dem Server:
+
+```bash
+sqlite3 db.sqlite3 ".schema vote_poll" ".schema vote_choice" ".schema vote_token" \
+  "SELECT app, name, applied FROM django_migrations WHERE app='vote';"
+```
+
+Daraus ergibt sich der Deploy-Pfad:
+- Eintrag `vote/0001_initial` vorhanden **und** Schema passt → `migrate` tut nichts, alles gut.
+- Kein Eintrag → `migrate` würde `CREATE TABLE` auf existierende Tabellen fahren ⇒ `--fake-initial`.
+- Anders benannter oder zusätzlicher Eintrag → einzeln bewerten, bevor irgendwas läuft.
+
+**Deployment-Mechanik** (Plan-Frage F11): wie `wahlcomputer.mayflower.de` gestartet wird, wo die
+`db.sqlite3` liegt und ob sie gesichert wird. Blockiert Phase 5.2/5.4 und damit die Frage, ob das
+Django-Upgrade dort überhaupt ankommt.
 
 ## 0.4 Schema-Snapshot
 
@@ -134,10 +170,13 @@ und `identifier` als Lookup-Key in jedem Request benutzt wird.
 
 ## Fazit / Empfehlung für die Reihenfolge
 
-1. **Vorziehen als Hotfix:** `DEBUG=False` in den Prod-Settings. Betrifft laufende Prod, ist ein
-   Einzeiler, braucht keine der anderen Phasen.
-2. Danach wie geplant Phase 1 (Tooling + Tests) → das Probe-Skript wird zur Testbasis (Plan 1.4).
-3. Phase 2 ist risikoärmer als angenommen: Django 4.2 → 5.2 ist verhaltensneutral. Der eigentliche
-   Blocker bleibt B1 (Migrations einchecken, `makemigrations` aus dem Container-Start).
-4. `nixpkgs`-Input-Entscheidung (F3) muss vor Phase 1.6 fallen — sie entscheidet, ob Django 5.2
-   überhaupt erreichbar ist.
+*(aktualisiert nach der Deployment-Klärung)*
+
+1. **Kein Hotfix nötig** – Prod läuft mit `DEBUG=False`.
+2. Phase 1 (Tooling + Tests) als Nächstes; das Probe-Skript wird zur Testbasis (Plan 1.4).
+   Nichts davon ist blockiert, `nixpkgs`-Entscheidung (F3) ist gefallen.
+3. Phase 2 ist risikoärmer als angenommen: Django 4.2 → 5.2 ist verhaltensneutral. Der Blocker
+   bleibt B1, und 2.1 braucht den Prod-Schema-Stand (F12).
+4. Phase 5 hat sich von „k8s modernisieren" zu „k8s entfernen" gedreht und ist damit deutlich
+   kleiner – dafür ist **F11 (wie wird eigentlich deployt?) jetzt der wichtigste offene Punkt**:
+   ohne die Antwort weiß ich nicht, ob das Upgrade in Produktion ankommt.
