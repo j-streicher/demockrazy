@@ -78,9 +78,16 @@ def create(request):
     poll.save()
     create_choice_objects(form.cleaned_data["choices"], poll)
     tokens = create_token_objects(poll, len(voter_mails))
-    mail.deliver(
-        mail.poll_created_messages(poll, form.cleaned_data["creator_mail"], voter_mails, tokens)
+    # Vollständig rendern, solange die Objekte da sind, aber erst nach dem Commit verschicken (B7):
+    # ATOMIC_REQUESTS umschließt den ganzen Request, ein synchrones send_mail() liefe also *in* der
+    # Transaktion. Bei einem Rollback wären die Mails mit den Tokens draußen, die Tokens selbst aber
+    # nicht in der Datenbank -- Wähler mit einem Link, der nie funktioniert. Umgekehrt hält ein
+    # hängender SMTP-Server sonst eine Schreibtransaktion offen, und auf SQLite blockiert das jeden
+    # anderen Schreiber (B13).
+    messages = mail.poll_created_messages(
+        poll, form.cleaned_data["creator_mail"], voter_mails, tokens
     )
+    transaction.on_commit(lambda: mail.deliver(messages))
     return render(request, "vote/create.html")
 
 
