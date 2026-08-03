@@ -1,7 +1,7 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: 2026-08-03, Branch `update/modernize-2026`, 32 Commits über `master` (Basis `3074dbb`).
+Stand: 2026-08-03, Branch `update/modernize-2026`, 35 Commits über `master` (Basis `3074dbb`).
 Arbeitsbaum ist sauber, alles committed, nichts gepusht.
 
 ---
@@ -11,7 +11,7 @@ Arbeitsbaum ist sauber, alles committed, nichts gepusht.
 | Datei | Wofür |
 |---|---|
 | **dieses Dokument** | Orientierung, Arbeitsregeln, offene Fragen, nächster Schritt |
-| [plan.md](plan.md) | Der Plan mit allen Phasen, Bug-Nummern B1–B15, Fragen F1–F16. **Das Hauptdokument.** |
+| [plan.md](plan.md) | Der Plan mit allen Phasen, Bug-Nummern B1–B15, Fragen F1–F17. **Das Hauptdokument.** |
 | [deployment.md](deployment.md) | Wie Produktion wirklich läuft. **Vor jeder Settings-/Deploy-Änderung lesen.** |
 | [phase-2-migrations.md](phase-2-migrations.md) | Warum die Migrations so aussehen, wie sie aussehen |
 | [phase-0-baseline.md](phase-0-baseline.md) | Baseline-Messungen; enthält eine als überholt markierte Analyse |
@@ -35,7 +35,7 @@ insbesondere für Ziel 2 relevant (§7).
 ## 3. Zwei Ziele
 
 1. **Auf heutige Standards bringen.** Phase 0, 1 und 2 (außer 2.7) sind fertig, Phase 3 ist bis
-   3.3 durch, CI steht (5.3). Offen: 3.4–3.8, Phase 4, 5.4/5.5.
+   3.4 durch, CI steht (5.3). Offen: 3.5–3.8, Phase 4, 5.4/5.5.
 2. **Batch-Modus für Mails.** *Spec steht noch aus, der User erklärt sie später.* Nicht spekulativ
    bauen. Phase 3 so anlegen, dass es andockt (§7).
 
@@ -61,7 +61,7 @@ grün ist, ist dort grün.
 
 **Sollwerte, an denen du merkst, dass alles in Ordnung ist:**
 
-- `pytest` → **109 passed, 3 xfailed**
+- `pytest` → **120 passed, 3 xfailed**
 - `manage.py check` → **no issues (0 silenced)**
 - `makemigrations --check` → **No changes detected**
 - `ruff format --check` → alle Dateien unverändert
@@ -114,15 +114,18 @@ Colmena-Flakes, nicht aus `pyproject.toml`. **Zwei Änderungen im Repo des Users
 
 Die Spec kommt vom User. Was für *jede* Variante gilt und in Phase 3 entstehen soll:
 
-1. Mail-Versand als aufrufbarer Service (`vote/services/mail.py`), nicht in `create()` eingebettet.
-2. Kein SMTP im Request und **nicht in der Transaktion** – `ATOMIC_REQUESTS = True` plus
-   synchrones `send_mail()` heißt heute: bei Rollback sind die Mails raus, die Tokens nicht in der
-   DB (B7). `transaction.on_commit()` ist der Zwischenschritt.
-3. Mail-Texte als Django-Templates statt `%`-formatierte Settings-Strings (aus 2.4 nach 3.4
-   verschoben, gehört zur Service-Extraktion).
+1. ✅ **Erledigt mit 3.4:** Mail-Versand ist ein Service ([vote/services/mail.py](../vote/services/mail.py)).
+   `poll_created_messages()` rendert, `deliver()` verschickt. **Ein Batch-Versender ersetzt
+   `deliver()`** und lässt das Rendern unberührt.
+2. ✅ **Erledigt mit 3.4:** Versand hängt an `transaction.on_commit()`, der Callback rührt die
+   Datenbank nicht an (B7).
+3. ✅ **Erledigt mit 3.4:** Mail-Texte liegen als Templates in `vote/templates/vote/mail/`,
+   Autoescaping aus, Wortlaut byteweise per Test festgenagelt.
 4. **Zielkonflikt, den nur der User auflösen kann (F8):** ein Batch-Modus mit Retry/Zustellstatus
    braucht „welche Adresse wurde erfolgreich zugestellt". Genau diese Zuordnung wird heute
    *absichtlich nicht* gespeichert. **Kein Modell dafür entwerfen, bevor das entschieden ist.**
+   Aus demselben Grund loggt `deliver()` weder Adresse noch Umfragekennung; der Text einer
+   SMTP-Exception kann die Adresse aber selbst enthalten. Mit F8 zu bewerten.
 5. **Missbrauchsschutz zuerst (B4/F5):** `/vote/create` hat keinerlei Auth und kein Rate-Limit.
    Jeder kann beliebig viele Mails über den Mayflower-SMTP verschicken. Ein Batch-Versender
    darüber wäre ein Spam-Werkzeug.
@@ -136,6 +139,7 @@ Die Spec kommt vom User. Was für *jede* Variante gilt und in Phase 3 entstehen 
 | **F5** | Zugangsschutz für `/vote/create` – Login, Invite-Code, IP-Rate-Limit, Empfänger-Deckel? | 3.8, Ziel 2 |
 | **F8** | Anonymität vs. Zustellstatus pro Empfänger – wie weit darf Ziel 2 das aufweichen? | Ziel 2 |
 | **F13** | Wie groß sind Abstimmungen real (Empfänger pro Poll, parallele Polls)? Entscheidet SQLite-Tuning vs. Postgres (B13) und die Batch-Größen. | 5.4, Ziel 2 |
+| **F17** | Überschreibt das NixOS-Modul `VOTE_MAIL_SUBJECT`/`VOTE_MAIL_TEXT`/`VOTE_ADMIN_MAIL_*`? 3.4 hat sie aus `settings.py` entfernt, der Text kommt aus Templates. Ein Override dort wird nach dem Deploy still ignoriert. Prüfen mit `grep -rn 'VOTE_MAIL\|VOTE_ADMIN_MAIL'` im Colmena-Repo. | **vor dem Deploy** |
 
 Kleinigkeit, kein Blocker: die `type`-Spalte war in der Prod-Schema-Ausgabe abgeschnitten; aus dem
 Modell folgt `varchar(20) NOT NULL`, was der frische Migrationsstand exakt reproduziert. Für letzte
@@ -149,23 +153,19 @@ SELECT identifier,   COUNT(*) c FROM vote_poll  GROUP BY identifier   HAVING c>1
 
 ## 9. Nächster Schritt
 
-**Phase 3 ist bis 3.3 durch, CI steht.** [vote/forms.py](../vote/forms.py) validiert die
-Umfrage-Erstellung, keine View greift mehr ungeprüft auf `request.POST` zu; behoben sind
-**B2, B3, B6, B11, B12, B15**. `ruff check` ist sauber, und
-[.github/workflows/checks.yml](../.github/workflows/checks.yml) hält das fest.
+**Phase 3 ist bis 3.4 durch, CI steht.** Behoben: **B2, B3, B6, B7, B11, B12, B15**.
+Der Mailversand ist ein Service und läuft nach dem Commit; **damit ist die Vorarbeit für Ziel 2
+(§7.1–3) vollständig** – ein Batch-Versender ersetzt `mail.deliver()`. Was fehlt, ist die Spec und
+die Entscheidung zu F8.
 
-**Empfehlung 3.4 – Mailversand nach `vote/services/mail.py`.** Raus aus der Transaktion über
-`transaction.on_commit()` (B7), Mail-Texte als Django-Templates statt `%`-formatierter
-Settings-Strings (fällt zugleich das `E501`-per-file-ignore in `settings.py`).
-**Das ist die Schnittstelle, an der Ziel 2 andockt** (§7) – die Batch-Spec vorher zu hören spart
-eine zweite Runde. Was auch ohne Spec gilt, steht in §7.1–3; ein Modell für Zustellstatus
-**nicht** vorwegnehmen (F8).
-
-Unblockiert und ohne Spec-Bedarf, falls 3.4 warten soll: **3.5** (bulk_create), **3.6** (Models,
-Unique-Constraints – vorher die zwei SQL-Abfragen unten auf Prod), **3.7** (`re_path` → `path`),
-**5.5** (`/healthz`), **Phase 4** außer 4.3.
+**Als Nächstes 3.5** (`bulk_create` für Tokens und Choices statt Save-Schleife) – klein,
+unblockiert. Dann **3.6** (Models: `.count()`, Schleife statt Rekursion, `UniqueConstraint`,
+`TextChoices`, `get_absolute_url()`; **vorher die zwei SQL-Abfragen unten auf Prod laufen lassen**,
+sonst schlägt die Unique-Migration dort fehl) und **3.7** (`re_path` → `path`, URLs identisch
+halten). 3.6 nimmt die zwei letzten `xfail`-Marker mit.
 
 Offen: **3.8** braucht F5, **4.3** braucht F4, **2.7** braucht F15, **5.4** braucht F13.
+**F17 vor dem Deploy klären.**
 
 ## 10. Arbeitsregeln (haben sich bewährt, bitte beibehalten)
 

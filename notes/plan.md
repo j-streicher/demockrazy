@@ -9,7 +9,7 @@
 
 | # | Ziel | Status |
 |---|------|--------|
-| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · Phase 3 bis 3.3 ✅ · CI ✅ · offen: 3.4–3.8, 4, 5.4, 5.5 |
+| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · Phase 3 bis 3.4 ✅ · CI ✅ · offen: 3.5–3.8, 4, 5.4, 5.5 |
 | 2 | Batch-Modus für Mails bauen | **Spec folgt vom User** – nur Vorarbeit leisten, siehe §11 |
 
 **Wichtig:** Ziel 2 wird vom User später erklärt. Ziel 1 nicht so umbauen, dass Ziel 2 blockiert wird –
@@ -99,7 +99,7 @@ Wiederherstellbar über `git revert 4e15012`.
 | B4 | Kein Auth/Rate-Limit auf `/vote/create` | offen → 3.8, **braucht F5** |
 | B5 | Unsichere Settings-Defaults | ✅ **behoben** in 2.4 |
 | B6 | Doppelte Adressen → doppelte Tokens | ✅ **behoben** in 3.1/3.2 |
-| B7 | Mailversand innerhalb der Transaktion | offen → 3.4 |
+| B7 | Mailversand innerhalb der Transaktion | ✅ **behoben** in 3.4 |
 | B8 | Highcharts proprietär lizenziert | offen → 4.3, **braucht F4** |
 | B9 | Token im URL-Query-String | offen, Entscheidung nötig |
 | B10 | Templating in Inline-JS | offen → 4.3 |
@@ -396,9 +396,31 @@ Tests für niemanden außer mir nutzbar und in CI wertlos. **Behoben in 2.1**, a
       Abschicken auf; das ist eine Anzeigefrage, keine Lücke, und eine Änderung würde ohne Gewinn
       das Verhalten verschieben. Ggf. in Phase 4 als UX-Punkt aufgreifen.
       **`ruff check` ist damit erstmals sauber** → Voraussetzung für 5.3 erfüllt.
-- [ ] **3.4 Mail-Versand in `vote/services/mail.py` herausziehen (B7).** Reine Funktionen, keine
-      Request-Abhängigkeit, kein SMTP innerhalb der Transaktion → `transaction.on_commit()`.
-      **Das ist die Schnittstelle, an der Ziel 2 andockt** (§11).
+- [x] **3.4 Mail-Versand in [vote/services/mail.py](../vote/services/mail.py) herausgezogen** ✅ (B7)
+      – reine Funktionen ohne Request-Abhängigkeit, Versand über `transaction.on_commit()`.
+      Die Nachrichten werden **vor** dem Commit fertig gerendert, damit der Callback ohne
+      Datenbankzugriff auskommt. **Das ist die Schnittstelle, an der Ziel 2 andockt** (§11):
+      `poll_created_messages()` baut die Liste, `deliver()` verschickt sie – ein Batch-Versender
+      ersetzt genau das zweite.
+      **Mail-Texte sind jetzt Templates** unter `vote/templates/vote/mail/` (der aus 2.4
+      verschobene Punkt); damit fällt das `E501`-per-file-ignore für `settings.py` weg.
+      In `settings.py` bleiben nur `VOTE_MAIL_FROM`, `VOTE_BASE_URL`, `VOTE_SEND_MAILS`.
+      **Wortlaut byteweise erhalten**, festgenagelt in
+      [test_mail_service.py](../vote/tests/test_mail_service.py) mit den alten Settings-Strings als
+      Literalen: inklusive führender/abschließender Leerzeile (deshalb enden die Templates ohne
+      Zeilenumbruch) und des überzähligen `"` nach „Deutsche Bahn". **Autoescaping in den
+      Mail-Templates aus** – sonst würde aus `Bier & Brezn` beim Empfänger `Bier &amp; Brezn`.
+      **Drei benannte Verhaltensänderungen:**
+      (a) die Zustellfehler-Liste auf der Bestätigungsseite ist weg – der Versand läuft nach dem
+      Commit, die Seite ist dann schon gerendert; Fehler gehen ins Log.
+      (b) Der Logaufruf enthält **bewusst weder Empfängeradresse noch Umfragekennung** (F8); der
+      Text einer SMTP-Exception kann die Adresse aber selbst enthalten – mit F8 zu bewerten.
+      (c) Wähler bekommen die Tokens in Listenreihenfolge statt rückwärts (`pop()` → `zip()`);
+      nicht beobachtbar, weil Tokens zufällig sind und die Zuordnung nirgends gespeichert wird.
+      **Testinfrastruktur:** `django_db` committet nie, also feuern `on_commit`-Callbacks nicht.
+      Die `create_poll`-Fixture führt sie über `django_capture_on_commit_callbacks` aus; die zwei
+      Tests, die *keine* Mail erwarten, ebenfalls – sonst wären sie inhaltsleer. Dazu ein Test mit
+      echter Transaktion als Beleg, dass der Pfad auch ohne diese Hilfe läuft.
 - [ ] **3.5 Poll-Erstellung in `vote/services/polls.py`**: Tokens/Choices bulk-erzeugen
       (`bulk_create` statt Save-Loop).
 - [ ] **3.6 Models aufräumen:** `.count()` statt `len()`, Schleife statt Rekursion in
@@ -490,11 +512,13 @@ Deployment-Härtung). **5.1 und 5.2 sind erledigt**, offen bleiben CI, SQLite-H�
 Spec kommt vom User. Bis dahin **nicht spekulativ implementieren**, aber Phase 3 so bauen, dass
 folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nötig:
 
-1. **Mail-Versand ist eine aufrufbare Service-Funktion**, nicht in `create()` eingebettet (3.4).
-2. **Kein SMTP im Request-Zyklus / nicht in der Transaktion** – `transaction.on_commit()` als
-   Zwischenschritt (B7).
-3. **Mail-Inhalte als Django-Templates** statt `%`-formatierte Settings-Strings (2.4) – sonst wird
-   jede Batch-Variante mit Personalisierung unschön.
+1. ~~**Mail-Versand ist eine aufrufbare Service-Funktion**~~ ✅ mit 3.4 erledigt:
+   `mail.poll_created_messages()` rendert, `mail.deliver()` verschickt. Ein Batch-Versender
+   ersetzt `deliver()` und lässt das Rendern unberührt.
+2. ~~**Kein SMTP im Request-Zyklus / nicht in der Transaktion**~~ ✅ mit 3.4 erledigt via
+   `transaction.on_commit()` (B7). Der Callback rührt die Datenbank nicht an.
+3. ~~**Mail-Inhalte als Django-Templates**~~ ✅ mit 3.4 erledigt – liegen unter
+   `vote/templates/vote/mail/`, Autoescaping aus, Wortlaut per Test festgenagelt.
 4. **Zustand pro Empfänger ist modellierbar.** Aktuell ist die Zuordnung Mail→Token *absichtlich*
    nicht persistiert (Anonymität!). Ein Batch-Modus mit Retry/Status braucht aber „welche Adresse
    wurde erfolgreich zugestellt“. **Das ist ein Konflikt mit dem Anonymitätsversprechen und muss
@@ -525,6 +549,7 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
 | F4 | Highcharts-Lizenz: existiert eine kommerzielle Lizenz, oder ersetzen? (B8) | 4.3 |
 | F5 | Zugangsschutz für Poll-Erstellung – welche Variante? (B4/3.8) | 3.8, Ziel 2 |
 | F8 | Anonymität vs. Zustellstatus pro Empfänger – wie weit darf Ziel 2 das aufweichen? (§11.4) | Ziel 2 |
+| **F17** | **Überschreibt das NixOS-Modul einen der vier Mail-Text-Settings?** 3.4 hat `VOTE_MAIL_SUBJECT`, `VOTE_MAIL_TEXT`, `VOTE_ADMIN_MAIL_SUBJECT`, `VOTE_ADMIN_MAIL_TEXT` aus `settings.py` entfernt – der Text kommt jetzt aus Templates. Setzt `demockrazy_config` (oder die `djangoSettings`-Option) einen davon, wird der Wert nach dem Deploy **stillschweigend ignoriert** und Prod verschickt den Repo-Wortlaut. Prüfung im Repo des Users: `grep -rn 'VOTE_MAIL\|VOTE_ADMIN_MAIL\|VOTE_BASE_URL\|VOTE_MAIL_FROM'`. Meine Modul-Analyse in [deployment.md](deployment.md) listet keinen dieser vier, und die alte `local_settings.py` überschrieb nur `VOTE_BASE_URL`/`VOTE_MAIL_FROM`/`VOTE_SEND_MAILS` – die drei sind bewusst geblieben. Trifft die Annahme nicht zu, gehört der Text ins Template. | **vor dem Deploy** |
 | F13 | Wie groß sind Abstimmungen real (Empfänger pro Poll, parallele Polls)? Entscheidet SQLite-Tuning vs. Postgres (B13) und die Batch-Größen für Ziel 2. | 5.4, Ziel 2 |
 | ~~F16~~ | ~~Sind die drei Verschärfungen aus 3.1 gewollt?~~ → **ja**, vom User bestätigt (alle sechs Felder Pflicht, Djangos Adressvalidator, `title` auf 200 Zeichen). Seit 3.2 in der View wirksam. | – |
 
@@ -550,8 +575,9 @@ offen, in sinnvoller Reihenfolge:
   2.7      TLS-Hardening – braucht F15
 ```
 
-**Nächster Schritt:** 3.4 – den Mailversand nach `vote/services/mail.py` herausziehen (B7),
-raus aus der Transaktion via `transaction.on_commit()`, Mail-Texte als Templates. **Das ist die
-Schnittstelle, an der Ziel 2 andockt** (§11); die Batch-Spec vorher zu hören spart eine zweite
-Runde. Ohne Spec-Bedarf und unblockiert wären sonst 3.5–3.7, 5.5 oder Phase 4 (außer 4.3).
+**Nächster Schritt:** 3.5 (`bulk_create` für Tokens/Choices) – klein und unblockiert. Danach
+3.6 (Models, Unique-Constraints; **vorher die zwei SQL-Abfragen aus §12 auf Prod laufen lassen**)
+und 3.7 (`re_path` → `path`). 3.8 braucht F5.
+**Die Vorarbeit für Ziel 2 (§11.1–3) ist mit 3.4 vollständig** – ein Batch-Versender ersetzt
+`mail.deliver()`. Was noch fehlt, ist die Spec und die Entscheidung zu F8.
 Details in [handover.md](handover.md) §9.
