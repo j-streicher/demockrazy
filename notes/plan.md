@@ -35,40 +35,36 @@ Produktiv ist `wahlcomputer.mayflower.de`, ausgerollt per **colmena** (Zielhost
 **eigenen NixOS-Modul `mayflower.demockrazy`** gestartet – das liegt vermutlich im
 Mayflower-nixpkgs-Fork und ist **der Grund, warum es `mf-stable`/`mf-next` überhaupt gibt**.
 
-Belegte Fakten:
-- **uwsgi über Unix-Socket:** nginx macht `uwsgi_pass unix:/run/demockrazy/uwsgi.socket`.
-- **Statische Dateien von nginx:** `location /static` mit `root = /var/lib/demockrazy/`
-  ⇒ `collectstatic` schreibt nach `/var/lib/demockrazy/static` (= `STATIC_ROOT` aus
-  `BASE_DIR/static`, also **`BASE_DIR = /var/lib/demockrazy`**).
-- **SQLite unter `/var/lib/demockrazy/db.sqlite3`**, eigener `demockrazy`-User/-Group.
-- **Backups laufen:** borg onsite 03:00 + offsite 04:00 auf `/var/lib/demockrazy`,
-  `borg`-User ist in der `demockrazy`-Gruppe. (Damit ist die Backup-Frage aus 5.4 beantwortet.)
-- Secrets über **sops-nix**: `secretKeyFile` und `mail.passwordFile` als Pfade.
-- Modul-Optionen: `enable`, `secretKeyFile`, `mail.{host,from,port,user,passwordFile}`,
-  `baseUrl`, `allowedHosts`.
+**Vollständige Analyse des Moduls: [notes/deployment.md](notes/deployment.md).** Kurzfassung:
 
-⚠️ **Die Settings werden vom Modul generiert, nicht von der `local_settings.py`, die ich gesehen
-habe.** Beweis: der Node konfiguriert `smtp.mayflower.de:587` mit User + Passwortdatei, die Datei
-unter `~/Desktop/democ-settings/` nennt `mail.mayflower.de:25` mit auskommentiertem User.
-Die Datei ist also veraltet oder war nie die deployte.
+- App läuft **aus dem Nix-Store** unter uwsgi (4 Prozesse), `ProtectSystem = "full"`,
+  nginx via `uwsgi_pass unix:/run/demockrazy/uwsgi.socket`.
+- `DJANGO_SETTINGS_MODULE=demockrazy_config` – ein **vom Modul generiertes** Settings-Modul, das
+  `from demockrazy.settings import *` macht und danach überschreibt. `local_settings.py` ist in
+  Produktion **nicht** im Spiel; die Datei unter `~/Desktop/democ-settings/` war veraltet
+  (sie nennt `mail.mayflower.de:25`, der Node konfiguriert `smtp.mayflower.de:587`).
+- **`BASE_DIR` ist der Store-Pfad, nicht `/var/lib/demockrazy`** – DB und `STATIC_ROOT` werden
+  *absolut* dorthin umgebogen, weil der Store read-only ist.
+- **`DEBUG = False` ist bestätigt** (explizit im generierten Modul) → F14 beantwortet.
+  Ebenso `CSRF_COOKIE_SECURE`/`SESSION_COOKIE_SECURE` und `LOGGING`.
+- **Backups laufen:** borg onsite 03:00 + offsite 04:00 auf `/var/lib/demockrazy` → 5.4 beantwortet.
+- `preStart` ruft `migrate` und `collectstatic --noinput` – kein `makemigrations`.
+- **Löschcommit `4e15012` ist bestätigt risikofrei:** das Modul konsumiert keine Flake-Outputs
+  dieses Repos, nur den Quelltext.
 
-**Konsequenz: der Befund „Prod setzt `DEBUG = False`" ist nicht mehr belegt.** Er stützte sich
-allein auf jene Datei. Ob das generierte Settings-File `DEBUG` setzt, ist offen → **F14**,
-blockiert 2.4. Das Modul hat *keine* `debug`-Option, was in beide Richtungen deutbar ist.
-
-**Noch offen:** wie der Quellcode nach `/var/lib/demockrazy` kommt (Store ist read-only, SQLite
-und `static/` brauchen aber Schreibrechte im `BASE_DIR`) und **ob das Modul etwas aus diesem Repo
-konsumiert** – letzteres ist die verbliebene Unsicherheit am Löschcommit `4e15012`.
+⚠️ **Wie das Upgrade Prod erreicht – zwei Änderungen im User-Repo, nicht hier:**
+1. Das Modul pinnt `rev = 3074dbb` (= Basis-Commit dieses Branches) per `fetchFromGitHub`.
+   Ohne `rev`+`sha256`-Bump ändert sich in Produktion **nichts**.
+2. Die **Django-Version kommt aus der nixpkgs des Colmena-Flakes**, nicht aus diesem Repo
+   (`pkgs.python3Packages.django`): `mf-stable` → 4.2.28 (EOL), `mf-next` → 5.2.15.
+   `pyproject.toml` dokumentiert die Anforderung, erzwingt sie nicht.
 
 **Das k8s-Deployment (`briefwahl.mayflower.cloud`) ist abgeschaltet.** Damit sind toter Code:
 [k8s/](k8s/) (Tanka/Jsonnet, Zalando-Postgres, k8s-libsonnet 1.25), [k8s/settings.py](k8s/settings.py),
 [nix/demockracy-image.nix](nix/demockracy-image.nix), [nix/nginx-image.nix](nix/nginx-image.nix),
 die `dockerImages`/`uwsgi`/`django_config`-Outputs und der `argocd-nix-flakes-plugin`-Input in
 [flake.nix](flake.nix), [.sops.yaml](.sops.yaml) sowie der Image-Build in
-[.github/workflows/build.yml](.github/workflows/build.yml). → siehe Phase 5.
-
-**Noch offen:** wie `wahlcomputer.mayflower.de` konkret gestartet wird (NixOS-Modul? uwsgi/gunicorn
-hinter nginx? systemd? welcher User, welcher Pfad zur `db.sqlite3`?). Das bestimmt Phase 5 komplett.
+[.github/workflows/build.yml](.github/workflows/build.yml). **Alles entfernt in `4e15012`.**
 
 ---
 
