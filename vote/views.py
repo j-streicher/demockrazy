@@ -5,7 +5,7 @@ from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 
 from .forms import PollCreateForm
-from .models import Choice, Poll, Token
+from .models import Choice, Poll, PollType, Token
 from .services import mail, polls
 
 
@@ -132,7 +132,7 @@ def vote(request, poll_identifier):
 
     try:
         with transaction.atomic():
-            if poll.type == "multiple_choice":
+            if poll.type == PollType.MULTIPLE_CHOICE:
                 record_multiple_choice()
             else:
                 record_simple_choice()

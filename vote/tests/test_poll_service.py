@@ -78,23 +78,19 @@ class TestCreatePoll:
 
 
 class TestQueryCount:
-    """Der Punkt von 3.5: die Zahl der Statements wächst nicht mehr mit der Umfragegröße."""
+    """Der Punkt von 3.5 und 3.6: die Zahl der Statements hängt nicht an der Umfragegröße.
 
-    def test_choices_cost_one_insert_no_matter_how_many(self, django_assert_num_queries):
-        with django_assert_num_queries(8):
-            create(choices=[f"c{i}" for i in range(2)])
-        with django_assert_num_queries(8):
-            create(choices=[f"c{i}" for i in range(50)])
+    2 Savepoint-Statements (`transaction.atomic`) + 3 INSERT (Umfrage, Choices, Tokens).
+    Kein SELECT mehr: 3.5 hat aus den Save-Schleifen zwei `bulk_create` gemacht, 3.6 hat die
+    Kollisionsprüfungen in `mk_identifier`/`mk_token` gestrichen -- die Eindeutigkeit erzwingt
+    jetzt der `UniqueConstraint`. Vor 3.5 waren es bei 200 Empfängern 404 Queries.
+    """
 
-    def test_tokens_cost_one_insert_no_matter_how_many(self, django_assert_num_queries):
-        """Ein INSERT für alle Tokens -- die Queries, die bleiben, sind SELECTs.
+    EXPECTED = 5
 
-        `mk_token()` fragt pro Token einmal nach einer Kollision. Das ist der Rest, der noch
-        linear wächst; er verschwindet mit dem UniqueConstraint aus 3.6, der die Prüfung
-        überflüssig macht. Deshalb hier als Formel und nicht als nackte Zahl.
-        """
-        for num_tokens in (2, 20):
-            # 2 Savepoint-Statements (transaction.atomic) + 1 SELECT mk_identifier
-            # + 3 INSERT (Umfrage, Choices, Tokens) + 1 SELECT je mk_token.
-            with django_assert_num_queries(6 + num_tokens):
-                create(num_tokens=num_tokens)
+    @pytest.mark.parametrize(
+        ("num_choices", "num_tokens"), [(2, 2), (50, 2), (2, 50), (50, 50), (2, 200)]
+    )
+    def test_is_constant(self, django_assert_num_queries, num_choices, num_tokens):
+        with django_assert_num_queries(self.EXPECTED):
+            create(choices=[f"c{i}" for i in range(num_choices)], num_tokens=num_tokens)

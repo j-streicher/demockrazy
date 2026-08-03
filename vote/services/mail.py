@@ -21,8 +21,9 @@ from django.urls import reverse
 logger = logging.getLogger(__name__)
 
 
-def _absolute_url(view_name, poll):
-    return settings.VOTE_BASE_URL + reverse(view_name, args=(poll.identifier,))
+def _absolute(path):
+    """Macht aus einem Django-Pfad eine Adresse, die in eine Mail gehört."""
+    return settings.VOTE_BASE_URL + path
 
 
 def _render(name, context):
@@ -38,7 +39,7 @@ def creator_message(poll, creator_mail, creator_token):
         "creator",
         {
             "title": poll.title,
-            "manage_url": _absolute_url("vote:polls:manage", poll),
+            "manage_url": _absolute(reverse("vote:polls:manage", args=(poll.identifier,))),
             "creator_token": creator_token,
         },
     )
@@ -52,9 +53,7 @@ def voter_message(poll, voter_mail, token_string):
         {
             "title": poll.title,
             "vote_base_url": settings.VOTE_BASE_URL,
-            "poll_url_with_token": _absolute_url("vote:polls:poll", poll)
-            + "?token="
-            + token_string,
+            "poll_url_with_token": _absolute(poll.get_absolute_url()) + "?token=" + token_string,
         },
     )
     return (subject, body, voter_mail)

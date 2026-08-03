@@ -79,8 +79,11 @@ bilden also den aktuellen Modellstand vollständig ab.
 
 ## Deploy-Pfad
 
-**`migrate` ist in Produktion ein garantierter No-Op.** Beide Migrationsnamen stehen schon in
-`django_migrations`, Django überspringt sie. **Kein `--fake-initial` nötig.**
+**`0001` und `0002` sind in Produktion ein garantierter No-Op.** Beide Migrationsnamen stehen schon
+in `django_migrations`, Django überspringt sie. **Kein `--fake-initial` nötig.**
+
+*Nachtrag 3.6: für `migrate` als Ganzes gilt das nicht mehr.* `0003_model_constraints_and_choices`
+wird angewendet und schreibt zwei Tabellen neu – siehe den Nachtrag weiter unten.
 
 Gegenprobe nach dem Deploy:
 
@@ -114,13 +117,75 @@ nix run nixpkgs#sqlite -- -readonly /var/lib/demockrazy/db.sqlite3 \
    SELECT identifier,   COUNT(*) FROM vote_poll  GROUP BY identifier   HAVING COUNT(*) > 1;"
 ```
 
+**Nachtrag 3.6 -- teils erledigt, gegen ein Prod-Abbild gemessen.** Die zwei
+`UniqueConstraint`s sind mit `0003_model_constraints_and_choices` dazugekommen. Wichtig dabei:
+**SQLite kann keinen Constraint an eine bestehende Tabelle anhängen, Django schreibt sie neu**
+(CREATE/INSERT/DROP/RENAME) -- ein `CREATE UNIQUE INDEX` gibt es hier nicht. Geprüft auf einer
+Datenbank mit genau dem obigen Prod-Schema (alte Indexnamen, nicht-aufschiebbare FKs) und Zeilen in
+allen drei Tabellen:
+
+- Migration läuft durch, **alle Zeilen überleben**, `PRAGMA foreign_key_check` ist leer,
+  die Spaltenreihenfolge von `vote_poll` bleibt unverändert.
+- `vote_poll` bekommt nur den Constraint (die Tabelle hat keine FKs).
+- **`vote_token` wird dabei normalisiert:** FK → `DEFERRABLE INITIALLY DEFERRED`, Index
+  `vote_token_582e9e5a` → `vote_token_poll_id_e1049aa3`. Das ist genau der Stand, den ein frisches
+  `migrate` erzeugt -- die Abweichung aus der Tabelle oben ist für `vote_token` damit **weg**.
+- **`vote_choice` bleibt unangetastet** und behält `vote_choice_582e9e5a` und seinen
+  nicht-aufschiebbaren FK. Prod ist danach also gemischt. Harmlos, aber zu wissen.
+- Duplikate gibt es in Prod keine (vom User geprüft), der Unique-Index kann nicht auflaufen.
+- Nebenbei bestätigt: `PRAGMA table_info(vote_poll)` auf Prod liefert genau die Reihenfolge, die
+  die zwei rekonstruierten Migrations erzeugen, und `type varchar(20) NOT NULL` an Position 8.
+  Damit ist der letzte Rest von F12 erledigt. (`PRAGMA` schreibt Typnamen groß, `.schema` klein --
+  kein Widerspruch, nur eine andere Darstellung.)
+
+Kein Nebenläufigkeitsrisiko: das Modul ruft `migrate` im `preStart`, bevor der Dienst startet.
+
 Falls die Index-Namen später wirklich stören: einmalig eine Data-/Schema-Migration mit
 `RunSQL`, die die alten Indizes dropt und unter den neuen Namen neu anlegt – aber nur mit
 Backup und nur, wenn es einen konkreten Anlass gibt. Nicht vorsorglich.
+
+## Werkzeug: eine Migration gegen ein Prod-Abbild testen
+
+Das hat in 3.6 eine falsche Annahme aufgedeckt und lohnt sich vor **jeder** Migration, die
+bestehende Tabellen anfasst. Der Trick ist, das Schema von 2016 nachzubauen (alte Indexnamen,
+nicht-aufschiebbare FKs) und die beiden Migrationsnamen von Hand in `django_migrations` zu setzen --
+dann verhält sich `migrate` wie auf der Node. Alles unterhalb des Scratchpads, nie im Repo:
+
+```bash
+DB=/tmp/prodlike.sqlite3 && rm -f "$DB"
+nix run nixpkgs#sqlite -- "$DB" <<'SQL'
+CREATE TABLE "vote_poll" ("id" integer NOT NULL PRIMARY KEY AUTOINCREMENT, "title" varchar(200) NOT NULL, "question_text" text NOT NULL, "pub_date" datetime NOT NULL, "creator_token" varchar(512) NOT NULL, "identifier" varchar(64) NOT NULL, "is_active" bool NOT NULL, "num_tokens" integer NULL, "type" varchar(20) NOT NULL);
+CREATE TABLE "vote_choice" ("id" integer NOT NULL PRIMARY KEY AUTOINCREMENT, "choice_text" text NOT NULL, "votes" integer NOT NULL, "poll_id" integer NOT NULL REFERENCES "vote_poll" ("id"));
+CREATE TABLE "vote_token" ("id" integer NOT NULL PRIMARY KEY AUTOINCREMENT, "token_string" varchar(128) NOT NULL, "poll_id" integer NOT NULL REFERENCES "vote_poll" ("id"));
+CREATE INDEX "vote_choice_582e9e5a" ON "vote_choice" ("poll_id");
+CREATE INDEX "vote_token_582e9e5a" ON "vote_token" ("poll_id");
+CREATE TABLE "django_migrations" ("id" integer NOT NULL PRIMARY KEY AUTOINCREMENT, "app" varchar(255) NOT NULL, "name" varchar(255) NOT NULL, "applied" datetime NOT NULL);
+INSERT INTO django_migrations (app, name, applied) VALUES ('vote','0001_initial','2016-06-09 16:47:52'),('vote','0002_auto_20160701_2022','2016-07-01 20:22:11');
+INSERT INTO vote_poll (title, question_text, pub_date, creator_token, identifier, is_active, num_tokens, type) VALUES ('Alte Umfrage','?','2016-07-02 10:00:00','CT','ALTIDENT',1,3,'simple_choice');
+INSERT INTO vote_choice (choice_text, votes, poll_id) VALUES ('Ja',7,1),('Nein',2,1);
+INSERT INTO vote_token (token_string, poll_id) VALUES ('ALTTOKEN1',1),('ALTTOKEN2',1);
+SQL
+
+DEMOCKRAZY_DB_PATH="$DB" python3 manage.py migrate vote
+nix run nixpkgs#sqlite -- -readonly "$DB" \
+  "SELECT * FROM vote_poll; SELECT * FROM vote_choice; SELECT * FROM vote_token;
+   PRAGMA foreign_key_check;" \
+  ".schema vote_poll" ".schema vote_token" ".schema vote_choice" \
+  "PRAGMA table_info(vote_poll);"
+```
+
+Worauf man schaut: **jede Zeile noch da** (die Stimmen 7/2 sind der Indikator),
+`foreign_key_check` **leer**, Spaltenreihenfolge von `vote_poll` **unverändert** -- und welche
+Tabellen Django neu geschrieben hat, erkennbar an geänderten Indexnamen und an
+`DEFERRABLE INITIALLY DEFERRED` in den FKs.
+
+Vorher immer `python3 manage.py sqlmigrate vote <nummer>` lesen. Genau daran ist in 3.6 aufgefallen,
+dass ein `UniqueConstraint` hier kein `CREATE UNIQUE INDEX` ist, sondern ein Tabellen-Neubau.
 
 ## Ergebnis
 
 - [notes/baseline-schema.sql](baseline-schema.sql) ist damit überholt (es zeigte den Stand
   einer *zusammengefassten* Migration) – bleibt als Phase-0-Artefakt liegen, die maßgebliche
   Referenz ist ab jetzt dieses Dokument.
-- Testsuite auf einem frischen `git clone` verifiziert: **56 grün, 9 xfailed.**
+- Testsuite auf einem frischen `git clone` verifiziert: **56 grün, 9 xfailed** *(Stand 2.1; der
+  aktuelle Sollwert steht in [handover.md](handover.md) §4)*.

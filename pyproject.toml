@@ -46,6 +46,10 @@ select = [
 # Dieser Test schreibt den Wortlaut der Mails als Literale aus, damit er weder an den Settings
 # noch an den Templates haengt. Umbrechen wuerde ihn genau um seinen Zweck bringen (Plan 3.4).
 "vote/tests/test_mail_service.py" = ["E501"]
+# RUF012 verlangt ClassVar-Annotationen fuer veraenderliche Klassenattribute. In Djangos `class
+# Meta` ist eine Liste die dokumentierte Schnittstelle (`constraints`, `indexes`, `ordering`) --
+# hier ist die Regel nicht anwendbar, nicht unbequem (Plan 3.6).
+"vote/models.py" = ["RUF012"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["demockrazy", "vote"]

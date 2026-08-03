@@ -77,6 +77,15 @@ nur den **Quelltext** (`cp -R .`). Die gelöschten `packages.uwsgi` / `packages.
 ⇒ **B14 war zu pauschal:** die beiden Cookie-Flags *sind* gesetzt. Es fehlen weiterhin
 `SECURE_SSL_REDIRECT`, `SECURE_HSTS_SECONDS` und `CSRF_TRUSTED_ORIGINS` – dazu unten.
 
+⚠️ **Offen für den Deploy (F17):** in dieser Tabelle steht **kein** `VOTE_MAIL_SUBJECT`,
+`VOTE_MAIL_TEXT`, `VOTE_ADMIN_MAIL_SUBJECT` oder `VOTE_ADMIN_MAIL_TEXT` – Schritt 3.4 hat diese vier
+aus `settings.py` entfernt, der Wortlaut kommt jetzt aus Templates in
+`vote/templates/vote/mail/`. Sollte das Modul (oder seine `djangoSettings`-Option) doch einen davon
+setzen, wird der Wert nach dem Deploy **stillschweigend ignoriert** und Produktion verschickt den
+Repo-Wortlaut. Im Colmena-Repo zu prüfen:
+`grep -rn 'VOTE_MAIL\|VOTE_ADMIN_MAIL'`. `VOTE_BASE_URL`, `VOTE_MAIL_FROM` und `VOTE_SEND_MAILS`
+sind **absichtlich geblieben** und weiter überschreibbar.
+
 `local_settings.py` ist **nirgends im Spiel**: `demockrazy_config` ersetzt diesen Mechanismus.
 Der `try/except` am Ende von [demockrazy/settings.py](../demockrazy/settings.py) greift trotzdem, weil
 `demockrazy_config` die Datei importiert – und schreibt bei **jedem Start**
@@ -108,11 +117,17 @@ Der `try/except` am Ende von [demockrazy/settings.py](../demockrazy/settings.py)
 
 ## Nebenbefunde
 
-- `preStart` ruft **`migrate`**, nicht `makemigrations` – gut. Aktuell ist das für `vote` ein
-  No-Op, weil am gepinnten Commit gar keine Migrationsdateien existieren (Django überspringt
-  Apps ohne Migrations). Nach dem `rev`-Bump findet es die beiden eingecheckten Migrations, deren
-  Namen schon in `django_migrations` stehen ⇒ **weiterhin No-Op.** Wie in
-  [notes/phase-2-migrations.md](phase-2-migrations.md) beschrieben.
+- `preStart` ruft **`migrate`**, nicht `makemigrations` – gut. Am gepinnten Commit ist das für
+  `vote` ein No-Op, weil dort gar keine Migrationsdateien existieren (Django überspringt Apps ohne
+  Migrations). **Nach dem `rev`-Bump ist es kein No-Op mehr** *(korrigiert 2026-08-03, nach 3.6)*:
+  `0001`/`0002` werden übersprungen, weil ihre Namen schon in `django_migrations` stehen, aber
+  **`0003_model_constraints_and_choices` wird angewendet und schreibt `vote_poll` und `vote_token`
+  neu** – so hängt SQLite einen `UniqueConstraint` an eine bestehende Tabelle.
+  Gegen ein Abbild des Prod-Schemas geprüft: Daten unversehrt, `PRAGMA foreign_key_check` leer,
+  Spaltenreihenfolge unverändert; Duplikate gibt es keine (auf Prod nachgesehen). Details in
+  [notes/phase-2-migrations.md](phase-2-migrations.md).
+  **Dass `migrate` im `preStart` läuft, ist dabei der entscheidende Umstand:** der Dienst ist zu
+  diesem Zeitpunkt noch nicht gestartet, es gibt also keine parallelen Schreiber auf der Datei.
 - `collectstatic --noinput` läuft bei jedem Start ⇒ die Umstellung auf
   `ManifestStaticFilesStorage` (4.4) ist gefahrlos möglich.
 - `version = "2024-02-08"` im Derivation ist nur Metadatum, aber beim `rev`-Bump gleich mitziehen.

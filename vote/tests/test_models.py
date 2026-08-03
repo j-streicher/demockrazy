@@ -3,8 +3,19 @@
 import string
 
 import pytest
+from django.core.exceptions import ValidationError
+from django.urls import reverse
 
-from vote.models import Choice, Poll, Token, mk_admin_token, mk_identifier, mk_token, rand_string
+from vote.models import (
+    Choice,
+    Poll,
+    PollType,
+    Token,
+    mk_admin_token,
+    mk_identifier,
+    mk_token,
+    rand_string,
+)
 
 ALLOWED = set(string.ascii_letters + string.digits)
 
@@ -84,6 +95,24 @@ class TestGetAmountUsedUnused:
         Choice.objects.create(poll=poll, choice_text="B", votes=5)
         assert poll.get_amount_used_unused() == (7, 0, 7)
 
+    def test_without_num_tokens_and_without_choices(self):
+        """Seit 3.6 summiert die Datenbank; `Sum()` liefert dann `None` statt `0`."""
+        poll = Poll.objects.create(title="P", question_text="?", num_tokens=None)
+        assert poll.get_amount_used_unused() == (0, 0, 0)
+
+    def test_counting_is_one_query_per_branch(self, django_assert_num_queries):
+        """`.count()`/`aggregate()` statt `len()`: die Zeilen bleiben in der Datenbank."""
+        poll = Poll.objects.create(title="P", question_text="?", num_tokens=3)
+        for _ in range(3):
+            Token.objects.create(poll=poll)
+        with django_assert_num_queries(1):
+            poll.get_amount_used_unused()
+
+        old = Poll.objects.create(title="Alt", question_text="?", num_tokens=None)
+        Choice.objects.create(poll=old, choice_text="A", votes=2)
+        with django_assert_num_queries(2):
+            old.get_amount_used_unused()
+
 
 @pytest.mark.django_db
 class TestDefaults:
@@ -106,3 +135,33 @@ class TestDefaults:
         poll.delete()
         assert Choice.objects.count() == 0
         assert Token.objects.count() == 0
+
+
+@pytest.mark.django_db
+class TestPollType:
+    """`POLL_TYPES` war eine Liste von Strings, seit 3.6 ist es eine `TextChoices` (Plan 3.6)."""
+
+    def test_values_are_unchanged(self):
+        """Die Werte stehen als Spaltenwerte im Bestand -- sie dürfen sich nicht bewegen."""
+        assert PollType.values == ["simple_choice", "multiple_choice"]
+
+    def test_default_is_simple_choice(self):
+        assert Poll.objects.create(title="P", question_text="?").type == PollType.SIMPLE_CHOICE
+
+    def test_an_unknown_type_is_a_validation_error(self):
+        """`choices` bringt die Prüfung ins Modell; vorher gab es sie nur im Formular."""
+        poll = Poll(title="P", question_text="?", type="quatsch")
+        with pytest.raises(ValidationError):
+            poll.full_clean()
+
+
+@pytest.mark.django_db
+class TestGetAbsoluteUrl:
+    def test_points_at_the_poll_page(self):
+        poll = Poll.objects.create(title="P", question_text="?", identifier="ABC")
+        assert poll.get_absolute_url() == "/vote/ABC/"
+
+    def test_matches_the_url_in_the_invitation_mail(self):
+        """Die Wähler-Mail baut ihren Link darauf auf (vote/services/mail.py)."""
+        poll = Poll.objects.create(title="P", question_text="?")
+        assert poll.get_absolute_url() == reverse("vote:polls:poll", args=(poll.identifier,))

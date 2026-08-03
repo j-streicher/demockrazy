@@ -14,7 +14,7 @@ from django import forms
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 
-from .models import POLL_TYPES
+from .models import PollType
 
 
 def parse_lines(text):
@@ -39,7 +39,7 @@ class PollCreateForm(forms.Form):
     """
 
     title = forms.CharField(max_length=200)
-    type = forms.ChoiceField(choices=[(poll_type, poll_type) for poll_type in POLL_TYPES])
+    type = forms.ChoiceField(choices=PollType.choices)
     description = forms.CharField(widget=forms.Textarea)
     choices = forms.CharField(widget=forms.Textarea)
     creator_mail = forms.EmailField()
