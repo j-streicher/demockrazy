@@ -16,11 +16,11 @@ def poll(request, poll_identifier):
     poll = get_object_or_404(Poll, identifier=poll_identifier)
     token = request.GET.get("token", "")
     error_message = None
-    if token:
-        try:
-            token_object = Token.objects.get(token_string=token)
-        except Token.DoesNotExist:
-            error_message = "This token is invalid. Maybe you voted already?"
+    # Wie bisher ohne Einschränkung auf diese Umfrage: ein Token einer *anderen* Umfrage gilt hier
+    # als gültig und fällt erst beim Abstimmen auf. Absichtlich nicht mitgeändert -- das ist eine
+    # Anzeigefrage und keine Lücke (vote() prüft die Zuordnung), siehe notes/plan.md 3.3.
+    if token and not Token.objects.filter(token_string=token).exists():
+        error_message = "This token is invalid. Maybe you voted already?"
     amount_redeemed_tokens, amount_remaining_tokens, amount_tokens_total = (
         poll.get_amount_used_unused()
     )
@@ -134,7 +134,16 @@ def create(request):
 
 
 def vote(request, poll_identifier):
-    def handle_vote_error(poll, request, message, token_string):
+    poll = get_object_or_404(Poll, identifier=poll_identifier)
+    if not poll.is_active:
+        return HttpResponseRedirect(reverse("vote:polls:result", args=(poll_identifier,)))
+
+    # Vor jedem try lesen: der Fehlerpfad zeigt den Token wieder im Formular an, und bisher stand
+    # diese Zeile *innerhalb* des try -- ein POST ohne Token-Feld lief damit in einen KeyError,
+    # dessen Handler auf die nie zugewiesene Variable zugriff (B2).
+    token_string = request.POST.get("token", "")
+
+    def render_error(message):
         amount_redeemed_tokens, amount_remaining_tokens, amount_tokens_total = (
             poll.get_amount_used_unused()
         )
@@ -151,43 +160,50 @@ def vote(request, poll_identifier):
             },
         )
 
-    def close_poll_if_all_tokens_redeemed(poll):
-        amount_redeemed_tokens, amount_remaining_tokens, amount_redeemed_tokens = (
-            poll.get_amount_used_unused()
-        )
+    def record_simple_choice():
+        """Genau eine Stimme. Fehlendes Feld → KeyError, unbrauchbarer Wert → ValueError."""
+        selected_choice = poll.choice_set.get(pk=request.POST["choice"])
+        selected_choice.votes = F("votes") + 1
+        selected_choice.save()
+
+    def record_multiple_choice():
+        """Jede Choice muss beantwortet sein; ein fehlendes Feld ist ein KeyError."""
+        for choice in poll.choice_set.all():
+            if request.POST[f"choice{choice.id}"] == "yes":
+                choice.votes = F("votes") + 1
+                choice.save()
+
+    def close_poll_if_all_tokens_redeemed():
+        _, amount_remaining_tokens, _ = poll.get_amount_used_unused()
         if amount_remaining_tokens == 0:
             poll.is_active = False
             poll.save()
 
-    poll = get_object_or_404(Poll, identifier=poll_identifier)
-    if not poll.is_active:
-        return HttpResponseRedirect(reverse("vote:polls:result", args=(poll_identifier,)))
+    try:
+        token = Token.objects.get(token_string=token_string, poll=poll)
+    except Token.DoesNotExist:
+        # Drei Fälle, eine Antwort: kein Token-Feld im POST, ein unbekannter Token, oder ein Token,
+        # der zu einer anderen Umfrage gehört. Alle drei hießen auch bisher "invalid token."
+        return render_error("invalid token.")
+
     try:
         with transaction.atomic():
-            token_string = request.POST["token"]
-            token = Token.objects.get(token_string=request.POST["token"])
-            if token.poll == poll:
-                if poll.type == "multiple_choice":
-                    for choice in Choice.objects.filter(poll=poll):
-                        if request.POST[f"choice{choice.id}"] == "yes":
-                            choice.votes = F("votes") + 1
-                            choice.save()
-                else:
-                    selected_choice = poll.choice_set.get(pk=request.POST["choice"])
-                    selected_choice.votes = F("votes") + 1
-                    selected_choice.save()
-                token.delete()
-                close_poll_if_all_tokens_redeemed(poll)
-                return HttpResponseRedirect(reverse("vote:polls:success", args=(poll_identifier,)))
+            if poll.type == "multiple_choice":
+                record_multiple_choice()
             else:
-                return handle_vote_error(poll, request, "invalid token.", token_string)
-
+                record_simple_choice()
+            token.delete()
+            close_poll_if_all_tokens_redeemed()
     except KeyError:
-        return handle_vote_error(poll, request, "Please fill out all fields.", token_string)
-    except Choice.DoesNotExist:
-        return handle_vote_error(poll, request, "You didn't select a choice.", token_string)
-    except Token.DoesNotExist:
-        return handle_vote_error(poll, request, "invalid token.", token_string)
+        # Ein Antwortfeld fehlt. Bei multiple_choice sind die vorherigen Choices dieser Runde schon
+        # hochgezählt -- der atomic()-Block nimmt sie zurück, der Token bleibt erhalten.
+        return render_error("Please fill out all fields.")
+    except (Choice.DoesNotExist, ValueError):
+        # Kein brauchbarer choice-Wert. Der ValueError kommt aus dem pk-Lookup, wenn der Wert keine
+        # Zahl ist -- das war bisher ein 500 (B15).
+        return render_error("You didn't select a choice.")
+
+    return HttpResponseRedirect(reverse("vote:polls:success", args=(poll_identifier,)))
 
 
 def success(request, poll_identifier):

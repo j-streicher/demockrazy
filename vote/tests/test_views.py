@@ -247,6 +247,25 @@ class TestVoteSimpleChoice:
         assert response.context["error_message"] == "You didn't select a choice."
         assert Token.objects.filter(token_string=tokens[0]).exists()
 
+    @pytest.mark.parametrize("value", ["abc", "", "1; DROP TABLE", "-1"])
+    def test_unusable_choice_id_keeps_token(self, client, create_poll, value):
+        """B15: ein nicht-numerischer Wert lief in einen ValueError aus dem pk-Lookup, also 500."""
+        poll, tokens = create_poll()
+        response = client.post(
+            f"/vote/{poll.identifier}/vote", {"token": tokens[0], "choice": value}
+        )
+        assert response.status_code == 200
+        assert response.context["error_message"] == "You didn't select a choice."
+        assert Token.objects.filter(token_string=tokens[0]).exists()
+        assert poll.choice_set.first().votes == 0
+
+    def test_get_does_not_crash(self, client, create_poll):
+        """Ohne POST-Daten gibt es keinen Token -- das ist eine Fehlermeldung, kein 500."""
+        poll, _ = create_poll()
+        response = client.get(f"/vote/{poll.identifier}/vote")
+        assert response.status_code == 200
+        assert response.context["error_message"] == "invalid token."
+
     def test_unknown_token_is_rejected(self, client, create_poll):
         poll, _ = create_poll()
         response = client.post(
