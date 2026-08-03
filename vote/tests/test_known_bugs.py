@@ -7,7 +7,9 @@ was die Suite rot macht und daran erinnert, den Marker zu entfernen.
 Behobene Bugs bleiben ohne Marker stehen und sind ab dann Regressionstests. Die Nummern
 (B2, B3, ...) bleiben als Verweis auf notes/plan.md §2 erhalten.
 
-Behoben: B3, B6, B11, B12 (Plan 3.2).
+Behoben: B3, B6, B11, B12 (Plan 3.2) · B2 (Plan 3.3).
+B15 ist erst in 3.3 aufgefallen und sofort behoben worden, hatte also nie einen Marker -- die
+Regressionstests dazu stehen in test_views.py bei den übrigen Stimmabgabe-Tests.
 """
 
 import pytest
@@ -74,9 +76,6 @@ def test_b6_duplicate_addresses_get_one_token_each(client):
     assert poll.token_set.count() == 1
 
 
-@pytest.mark.xfail(
-    strict=True, reason="B2: token_string wird im except-Zweig vor der Zuweisung gelesen"
-)
 @pytest.mark.django_db
 def test_b2_vote_without_token_field_shows_an_error(lenient_client, create_poll):
     """Fehlt das Token-Feld ganz, soll eine Fehlermeldung erscheinen, kein UnboundLocalError."""
@@ -85,6 +84,9 @@ def test_b2_vote_without_token_field_shows_an_error(lenient_client, create_poll)
         f"/vote/{poll.identifier}/vote", {"choice": poll.choice_set.first().id}
     )
     assert response.status_code != 500
+    assert response.context["error_message"] == "invalid token."
+    assert poll.choice_set.first().votes == 0, "ohne Token darf keine Stimme gezählt werden"
+    assert poll.token_set.count() == 2, "und kein Token verbraucht werden"
 
 
 @pytest.mark.django_db

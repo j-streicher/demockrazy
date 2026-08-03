@@ -9,7 +9,7 @@
 
 | # | Ziel | Status |
 |---|------|--------|
-| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · Phase 3 läuft (3.1, 3.2 ✅) · offen: 3.3–3.8, 4, 5 |
+| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · Phase 3 läuft (3.1–3.3 ✅) · offen: 3.4–3.8, 4, 5 |
 | 2 | Batch-Modus für Mails bauen | **Spec folgt vom User** – nur Vorarbeit leisten, siehe §11 |
 
 **Wichtig:** Ziel 2 wird vom User später erklärt. Ziel 1 nicht so umbauen, dass Ziel 2 blockiert wird –
@@ -71,7 +71,8 @@ Wiederherstellbar über `git revert 4e15012`.
 ## 2. Inventar (Stand bei Branch-Start, Commit `3074dbb`)
 
 > Historischer Ausgangszustand – **nicht** der aktuelle. Was inzwischen erledigt ist, steht in den
-> Phasen-Abschnitten; die Bug-Nummern (B1…B14) werden weiter referenziert und bleiben deshalb hier.
+> Phasen-Abschnitten; die Bug-Nummern (B1…B15) werden weiter referenziert und bleiben deshalb hier.
+> B15 ist später dazugekommen und deshalb kein Befund vom Branch-Start.
 
 ### Toolchain
 | Komponente | Ist | Bemerkung |
@@ -93,7 +94,7 @@ Wiederherstellbar über `git revert 4e15012`.
 | # | Kurz | Status |
 |---|---|---|
 | B1 | Migrations gitignored | ✅ **behoben** in 2.1 |
-| B2 | `UnboundLocalError` in `vote()` | offen → 3.3 |
+| B2 | `UnboundLocalError` in `vote()` | ✅ **behoben** in 3.3 |
 | B3 | `create()` crasht bei GET / ungültigem Typ | ✅ **behoben** in 3.2 |
 | B4 | Kein Auth/Rate-Limit auf `/vote/create` | offen → 3.8, **braucht F5** |
 | B5 | Unsichere Settings-Defaults | ✅ **behoben** in 2.4 |
@@ -106,11 +107,13 @@ Wiederherstellbar über `git revert 4e15012`.
 | B12 | `ValidationError` ungefangen | ✅ **behoben** in 3.1/3.2 |
 | B13 | Prod läuft auf SQLite (Lock-Risiko) | offen → 5.4, **braucht F13** |
 | B14 | TLS-Hardening unvollständig | offen → 2.7, **braucht F15** |
+| B15 | `choice`-Wert ohne Zahl → 500 | ✅ **behoben** in 3.3 (neu gefunden) |
 
 Alle als `xfail(strict=True)` spezifiziert in
-[vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py); B3, B6, B11 und B12 stehen dort
-inzwischen ohne Marker als Regressionstests. **Offen sind noch B2, B4** und die zwei fehlenden
-Unique-Constraints.
+[vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py); B2, B3, B6, B11 und B12 stehen
+dort inzwischen ohne Marker als Regressionstests. **Offen ist von den 500-Pfaden nur noch B4**
+(braucht F5) sowie die zwei fehlenden Unique-Constraints. B15 kam erst in 3.3 dazu und war sofort
+behoben, hatte also nie einen Marker.
 
 
 **B1 – Migrations sind gitignored.**
@@ -189,6 +192,15 @@ Kein Free-/Open-Source-Lizenzmodell für kommerzielle Nutzung. Vendored in
 Der Token ist das einzige Auth-Merkmal. Eine Änderung wäre nur **additiv** möglich (Regel 4:
 es sind Mails mit solchen Links unterwegs) – z. B. Token per POST/Session einlösen und den
 GET-Pfad weiter unterstützen. Braucht eine Entscheidung, ob der Aufwand lohnt.
+
+**B15 – `choice`-Wert ohne Zahl ergibt einen 500.** *(neu gefunden in 3.3)*
+`poll.choice_set.get(pk=request.POST["choice"])` wirft bei einem nicht-numerischen Wert
+(`"abc"`, `""`) einen `ValueError`, nicht `Choice.DoesNotExist` – und den fing niemand.
+Auslösbar von jedem, der einen gültigen Token hat, mit einem handgebauten POST. Kein Datenleck
+(Prod läuft mit `DEBUG=False`), aber ein 500 im Log statt einer Fehlermeldung.
+Gemessen, nicht vermutet: `"abc"`, `""` und `"1; DROP TABLE"` → 500, `"9"*20` → 200 mit
+Fehlermeldung (das ist eine Zahl, nur keine existierende ID).
+✅ **Behoben in 3.3** zusammen mit B2, weil es dieselbe Klasse ist: ungeprüfter POST-Zugriff.
 
 **B10 – Templating in Inline-JS.**
 [vote/templates/vote/results.html](../vote/templates/vote/results.html) interpoliert `choice_text`
@@ -370,9 +382,18 @@ Tests für niemanden außer mir nutzbar und in CI wertlos. **Behoben in 2.1**, a
       Mail raus, auch nicht an den Ersteller.
       Nebeneffekt: einer der drei roten Ruff-Befunde ist weg (`F841 choice_objects`), **2 bleiben**
       (`poll()`, `vote()`) → 3.3.
-- [ ] **3.3 `vote()`** entzerren (B2): `token_string` vor dem `try` lesen, Fehlerpfade explizit.
-      Dabei auch das unbenutzte `token_object` in `poll()` – das sind die **beiden verbliebenen
-      roten Ruff-Befunde**, danach kann 5.3 das CI-Gate scharf stellen.
+- [x] **3.3 `vote()` entzerrt** ✅ (B2) – `token_string` wird vor dem `try` mit `.get()` gelesen,
+      die Token-Abfrage ist aus dem großen `try` heraus in die Query gewandert (`poll=poll` fasst
+      „unbekannter Token" und „Token einer anderen Umfrage" zu einem Pfad zusammen; beide hießen
+      schon vorher `invalid token.`). Das Zählen sind zwei benannte Helfer, jede `except`-Klausel
+      deckt genau einen Fall ab. Der `atomic()`-Block bleibt um das Zählen – das ist, was die
+      Teilstimme bei unvollständigem `multiple_choice` zurücknimmt.
+      **Neu gefunden und gleich mitbehoben: B15** (nicht-numerischer `choice`-Wert → 500).
+      `poll()`: die unbenutzte Token-Abfrage ist ein `exists()`-Check. **Absichtlich weiter ohne
+      `poll=poll`** – ein fremder Token wird auf der Seite nicht angemeckert und fällt erst beim
+      Abschicken auf; das ist eine Anzeigefrage, keine Lücke, und eine Änderung würde ohne Gewinn
+      das Verhalten verschieben. Ggf. in Phase 4 als UX-Punkt aufgreifen.
+      **`ruff check` ist damit erstmals sauber** → Voraussetzung für 5.3 erfüllt.
 - [ ] **3.4 Mail-Versand in `vote/services/mail.py` herausziehen (B7).** Reine Funktionen, keine
       Request-Abhängigkeit, kein SMTP innerhalb der Transaktion → `transaction.on_commit()`.
       **Das ist die Schnittstelle, an der Ziel 2 andockt** (§11).
@@ -505,17 +526,19 @@ Phase 5  5.1 k8s-Cleanup ✅ · 5.2 Deployment verstanden ✅ · 5.3–5.5 offen
 Phase 6  README ✅ · Handover ✅
 
 offen, in sinnvoller Reihenfolge:
-  Phase 3  Code (3.1 Forms ✅ · 3.2 create()/manage() ✅ · offen: 3.3–3.8)
-             └─ 4 der 9 xfail-Tests und 1 der 3 roten Ruff-Befunde sind weg
-             └─ 3.3 beseitigt die letzten zwei Ruff-Befunde → Voraussetzung für 5.3
+  Phase 3  Code (3.1 Forms ✅ · 3.2 create()/manage() ✅ · 3.3 vote() ✅ · offen: 3.4–3.8)
+             └─ 6 der 9 xfail-Tests sind weg, alle 3 roten Ruff-Befunde ebenfalls
+             └─ 3.4 ist die Schnittstelle für Ziel 2
              └─ 3.8 braucht F5
              └─ liefert die Schnittstelle für ZIEL 2 (Batch-Mails, nach Spec)
   Phase 4  Frontend – unabhängig, parallelisierbar, 4.3 braucht F4
-  5.3      CI-Gate – erst sinnvoll, wenn 3.3 die roten Ruff-Befunde beseitigt hat
+  5.3      CI-Gate – ✅ Voraussetzung erfüllt, `ruff check` ist seit 3.3 sauber
   5.4      SQLite-Härtung – braucht F13
   2.7      TLS-Hardening – braucht F15
 ```
 
-**Nächster Schritt:** 3.3 – `vote()` entzerren (B2), dazu das unbenutzte `token_object` in
-`poll()`. Danach ist `ruff check` sauber und 5.3 kann das CI-Gate scharf stellen.
-Nicht blockiert; nur 3.8 braucht vorher F5. Details in [handover.md](handover.md) §9.
+**Nächster Schritt:** 3.4 – den Mailversand nach `vote/services/mail.py` herausziehen (B7),
+raus aus der Transaktion via `transaction.on_commit()`, Mail-Texte als Templates. **Das ist die
+Schnittstelle, an der Ziel 2 andockt** (§11) – wenn die Batch-Spec bald kommt, lohnt es, sie vorher
+zu hören. Alternativ ist 5.3 (CI-Gate) jetzt unblockiert und klein.
+Details in [handover.md](handover.md) §9.
