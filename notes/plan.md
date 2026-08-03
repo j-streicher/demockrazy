@@ -48,7 +48,10 @@ hinter nginx? systemd? welcher User, welcher Pfad zur `db.sqlite3`?). Das bestim
 
 ---
 
-## 2. Ist-Zustand / Inventar
+## 2. Inventar (Stand bei Branch-Start, Commit `3074dbb`)
+
+> Historischer Ausgangszustand – **nicht** der aktuelle. Was inzwischen erledigt ist, steht in den
+> Phasen-Abschnitten; die Bug-Nummern (B1…B14) werden weiter referenziert und bleiben deshalb hier.
 
 ### Toolchain
 | Komponente | Ist | Bemerkung |
