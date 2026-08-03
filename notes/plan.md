@@ -28,13 +28,37 @@ Flow: Jemand erstellt ohne Login eine Umfrage → System generiert pro Wähler-M
 Modelle: `Poll` (title, type, num_tokens, question_text, creator_token, identifier, is_active),
 `Choice` (poll, choice_text, votes), `Token` (poll, token_string) – alle in [vote/models.py](vote/models.py).
 
-**Deployment (Stand 2026-08-03, vom User bestätigt):**
+**Deployment (Stand 2026-08-03, aus der Colmena-Node-Config des Users):**
 
-Produktiv ist `wahlcomputer.mayflower.de`, konfiguriert über `demockrazy/local_settings.py`
-(nicht im Repo, gitignored – Referenzkopie liegt beim User unter `~/Desktop/democ-settings/`).
-Diese Variante überschreibt `DATABASES` **nicht** ⇒ läuft auf **SQLite** (`BASE_DIR/db.sqlite3`),
-setzt `DEBUG = False`, `ALLOWED_HOSTS = ['wahlcomputer.mayflower.de']`,
-SMTP über `mail.mayflower.de:25` mit STARTTLS, `VOTE_SEND_MAILS = True`.
+Produktiv ist `wahlcomputer.mayflower.de`, ausgerollt per **colmena** (Zielhost
+`wahlcomputer.dmz.muc.mayflower.zone`, Tags `ci-build`/`vm`). Die App wird von einem
+**eigenen NixOS-Modul `mayflower.demockrazy`** gestartet – das liegt vermutlich im
+Mayflower-nixpkgs-Fork und ist **der Grund, warum es `mf-stable`/`mf-next` überhaupt gibt**.
+
+Belegte Fakten:
+- **uwsgi über Unix-Socket:** nginx macht `uwsgi_pass unix:/run/demockrazy/uwsgi.socket`.
+- **Statische Dateien von nginx:** `location /static` mit `root = /var/lib/demockrazy/`
+  ⇒ `collectstatic` schreibt nach `/var/lib/demockrazy/static` (= `STATIC_ROOT` aus
+  `BASE_DIR/static`, also **`BASE_DIR = /var/lib/demockrazy`**).
+- **SQLite unter `/var/lib/demockrazy/db.sqlite3`**, eigener `demockrazy`-User/-Group.
+- **Backups laufen:** borg onsite 03:00 + offsite 04:00 auf `/var/lib/demockrazy`,
+  `borg`-User ist in der `demockrazy`-Gruppe. (Damit ist die Backup-Frage aus 5.4 beantwortet.)
+- Secrets über **sops-nix**: `secretKeyFile` und `mail.passwordFile` als Pfade.
+- Modul-Optionen: `enable`, `secretKeyFile`, `mail.{host,from,port,user,passwordFile}`,
+  `baseUrl`, `allowedHosts`.
+
+⚠️ **Die Settings werden vom Modul generiert, nicht von der `local_settings.py`, die ich gesehen
+habe.** Beweis: der Node konfiguriert `smtp.mayflower.de:587` mit User + Passwortdatei, die Datei
+unter `~/Desktop/democ-settings/` nennt `mail.mayflower.de:25` mit auskommentiertem User.
+Die Datei ist also veraltet oder war nie die deployte.
+
+**Konsequenz: der Befund „Prod setzt `DEBUG = False`" ist nicht mehr belegt.** Er stützte sich
+allein auf jene Datei. Ob das generierte Settings-File `DEBUG` setzt, ist offen → **F14**,
+blockiert 2.4. Das Modul hat *keine* `debug`-Option, was in beide Richtungen deutbar ist.
+
+**Noch offen:** wie der Quellcode nach `/var/lib/demockrazy` kommt (Store ist read-only, SQLite
+und `static/` brauchen aber Schreibrechte im `BASE_DIR`) und **ob das Modul etwas aus diesem Repo
+konsumiert** – letzteres ist die verbliebene Unsicherheit am Löschcommit `4e15012`.
 
 **Das k8s-Deployment (`briefwahl.mayflower.cloud`) ist abgeschaltet.** Damit sind toter Code:
 [k8s/](k8s/) (Tanka/Jsonnet, Zalando-Postgres, k8s-libsonnet 1.25), [k8s/settings.py](k8s/settings.py),
@@ -113,9 +137,13 @@ serialisiert Writer. Wenn nach dem Einladungsversand viele gleichzeitig abstimme
 Optionen für §12: SQLite mit WAL + `timeout` tunen (klein, reversibel) vs. Postgres (größer).
 Vorher messen, nicht raten – und klären, wie oft/wie groß Abstimmungen real sind.
 
-**B14 – Secure-Cookie-/TLS-Flags fehlen auch im Prod-Setup.**
-`VOTE_BASE_URL` ist `https://`, aber `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`,
-`SECURE_SSL_REDIRECT`, `SECURE_HSTS_SECONDS` und `CSRF_TRUSTED_ORIGINS` sind nicht gesetzt. → 2.7.
+**B14 – TLS-Hardening-Settings fehlen in Prod.** *(korrigiert 2026-08-03)*
+`SESSION_COOKIE_SECURE` und `CSRF_COOKIE_SECURE` **sind** gesetzt – das Modul macht das über
+`secureCookies` (Default `true`). Der Befund war insoweit zu pauschal.
+Es fehlen: `SECURE_SSL_REDIRECT`, `SECURE_HSTS_SECONDS`, `CSRF_TRUSTED_ORIGINS` und
+`SECURE_PROXY_SSL_HEADER`. **Nicht blind einschalten** – TLS endet vorgelagert, ohne Proxy-Header
+gibt `SECURE_SSL_REDIRECT` eine Redirect-Schleife. Gehört ins Modul, nicht in die Repo-Defaults.
+→ 2.7, blockiert durch F15. Details in [notes/deployment.md](notes/deployment.md).
 
 **B11 – `manage()` crasht bei POST ohne `token`-Feld.**
 [vote/views.py](vote/views.py) – `request.POST['token']` ohne Guard → `MultiValueDictKeyError` → 500.
@@ -243,22 +271,33 @@ niemanden außer mir nutzbar und in CI wertlos, solange 2.1 nicht erledigt ist.
 
 ## 6. Phase 2 – Django-Upgrade & Konfiguration
 
-- [ ] **2.1 Migrations einchecken (B1).** `migrations/` aus [.gitignore](.gitignore) entfernen,
-      `0001_initial` generieren, gegen [notes/baseline-schema.sql](notes/baseline-schema.sql) **und die
-      Prod-SQLite-DB** verifizieren, committen. Deploy-Pfad festlegen und dokumentieren:
-      `migrate` (wenn `django_migrations` den Eintrag schon hat) vs. `--fake-initial` (wenn nicht).
-      **Blockiert durch den offenen Prod-Schema-Stand aus 0.3.**
-- [ ] **2.2 `makemigrations` aus dem Deploy-Weg nehmen (B1).** Fällt größtenteils mit 5.1 weg
-      (uwsgi-Wrapper im Flake). Verbleibt: die [README.md](README.md) instruiert `makemigrations` als
-      Setup-Schritt – das muss zu `migrate` werden.
-- [ ] **2.3 Django auf 5.2.16 / Python 3.13** heben, in Nix **explizit pinnen** statt `ps.django`.
-      Deprecations abarbeiten: `USE_L10N` raus, `DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'`.
-      Laut Phase 0.2 verhaltensneutral – trotzdem die Testsuite aus 1.4 als Gegenprobe.
-- [ ] **2.4 Settings-Layout aufräumen.** Sichere Defaults im Repo (`DEBUG = False`, kein `SECRET_KEY`),
-      Konfiguration über Environment (B5). `local_settings.py` bleibt als Prod-Mechanismus erhalten
-      (Regel 3 – nicht ohne Not umstellen, Prod hängt daran), aber die Defaults dürfen nicht mehr
-      unsicher sein. **`local_settings.py.example` ins Repo**, damit der Prod-Mechanismus dokumentiert
-      ist – Inhalt aus `~/Desktop/democ-settings/`, ohne Secrets.
+- [x] **2.1 Migrations einchecken (B1)** ✅ – **Details: [notes/phase-2-migrations.md](notes/phase-2-migrations.md)**
+      Prod hatte **zwei** angewendete Migrations (`0001_initial` 2016-06-09,
+      `0002_auto_20160701_2022` 2016-07-01). Deshalb **beide unter ihren Originalnamen
+      rekonstruiert** statt eine zusammengefasste `0001_initial`. Beweis der Korrektheit: die
+      Spaltenreihenfolge von `vote_poll` stimmt danach exakt mit Prod überein
+      (`… is_active, num_tokens, type`), was eine zusammengefasste Migration nicht leistet.
+      `makemigrations --check` sauber. **Deploy: `migrate` ist ein garantierter No-Op,
+      kein `--fake-initial`.** Frischer Clone verifiziert: 56 grün, 9 xfailed.
+      Restrisiko dokumentiert: Prod-FKs ohne `DEFERRABLE`, alte Index-Namen → relevant für 3.6.
+- [x] **2.2 `makemigrations` aus dem Deploy-Weg** ✅ – im Flake mit 5.1 entfallen, in der
+      [README.md](README.md) beide Vorkommen ersetzt. Die README war ohnehin durch das Löschen von
+      `default.nix` kaputt (`nix-shell` gibt es nicht mehr), daher gleich neu geschrieben – das
+      verschiebt 6.1 nach vorn.
+- [x] **2.3 Django 5.2 / Python 3.13** ✅ – bereits mit 1.6 erledigt (mf-next: Django 5.2.15,
+      Python 3.13.13), Django in Nix nicht mehr unpinned. **Noch offen aus 2.3:**
+      `USE_L10N` entfernen und `DEFAULT_AUTO_FIELD` setzen (die 3 verbleibenden `models.W042`) –
+      gehört zu 2.4, weil es Settings anfasst.
+- [ ] **2.4 Settings-Layout aufräumen.** Sichere Defaults im Repo (`DEBUG = False`, kein
+      `SECRET_KEY`), `USE_L10N` raus, `DEFAULT_AUTO_FIELD` setzen (erledigt die 3 `models.W042`).
+      **Randbedingungen aus [notes/deployment.md](notes/deployment.md) – hier bricht man Prod:**
+      - `SECRET_KEY` **niemals** hart fehlschlagen lassen (kein `os.environ[...]`, kein `raise`).
+        `demockrazy_config` setzt ihn erst *nach* dem `import *`. Leerer Default, kein Raise.
+      - `local_settings.py` ist in Prod **nicht** im Spiel (`demockrazy_config` ersetzt es).
+        Der `try/except` bleibt für lokale Entwicklung, aber das `print("No local settings found..")`
+        raus – das landet bei jedem Prod-Start im Syslog.
+      - **Kein** `local_settings.py.example` mehr nötig; stattdessen den echten Mechanismus
+        (`DJANGO_SETTINGS_MODULE=demockrazy_config`) in der README erwähnen.
       Mail-Templates in echte Django-Templates ziehen (Vorarbeit für §11).
 - [ ] **2.5 `manage.py`** auf aktuelles Boilerplate.
 - [ ] **2.6 `python_files`/Deprecation-Warnungen** als Fehler in pytest schalten, damit die nächste
@@ -298,9 +337,11 @@ niemanden außer mir nutzbar und in CI wertlos, solange 2.1 nicht erledigt ist.
       Chart-Init in `results.html`.
 - [ ] **4.3 Highcharts ersetzen (B8)** durch Chart.js (MIT) oder ECharts (Apache-2.0),
       Daten über `{{ ...|json_script }}` statt Inline-Interpolation (B10).
-- [ ] **4.4 `collectstatic` + Whitenoise** mit gehashten Dateinamen (Cache-Busting).
-      Whitenoise ist bei der Nicht-Container-Deployform ohnehin die einfachere Variante –
-      Details hängen an 5.2.
+- [ ] **4.4 Cache-Busting für Static Files.** **Kein Whitenoise** – nginx serviced `/static` schon
+      direkt aus `/var/lib/demockrazy/static` (siehe §1), das soll so bleiben. Stattdessen
+      `STORAGES["staticfiles"]` auf `ManifestStaticFilesStorage` für gehashte Dateinamen.
+      Achtung: dann muss `collectstatic` Teil des Deploys sein (ist es laut Modul-Setup vermutlich
+      schon, sonst wäre `/static` leer) – vor dem Umstellen mit F11 abgleichen.
 - [ ] **4.5 Template-Kleinkram:** `<th>/</td>`-Mismatch, `lang="de"` wo die Texte deutsch sind,
       doppelt eingebundenes `bootstrap.css` in `base.html`.
 
@@ -375,8 +416,10 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
 | ~~F7~~ | ~~Postgres 14→17-Wartungsfenster?~~ → entfällt, Prod läuft auf SQLite. Ersetzt durch B13/5.4. | – |
 | ~~F9~~ | ~~`.sops.yaml`-Keys?~~ → entfällt, fällt mit 5.1 weg. | – |
 | **F10** | Darf der tote Deployment-Code raus ([k8s/](k8s/), [nix/](nix/), [.sops.yaml](.sops.yaml), Image-Outputs im Flake, Image-Build in der CI)? Git-History bleibt, also reversibel. | 5.1, 1.6 |
-| **F11** | **Wie wird `wahlcomputer.mayflower.de` konkret deployt und gestartet?** NixOS-Modul, systemd + venv, uwsgi/gunicorn hinter nginx, manuelles `git pull`? Wo liegt die `db.sqlite3`, wird sie gesichert? Wer darf ausrollen? | 5.2, 5.4, und faktisch das ganze Deploy-Ende von Ziel 1 |
-| **F12** | Prod-Schema-Stand: Ausgabe von `.schema vote_*` + `django_migrations` aus der Prod-SQLite (Kommando steht in [notes/phase-0-baseline.md](notes/phase-0-baseline.md)) | 2.1 |
+| ~~F11~~ | ~~Wie wird deployt?~~ → **vollständig beantwortet**, Modul liegt vor. Analyse: **[notes/deployment.md](notes/deployment.md)**. Wichtigstes Ergebnis: das Modul pinnt `rev = 3074dbb`, und die Django-Version kommt aus der nixpkgs des Colmena-Flakes – **zwei Änderungen im User-Repo nötig**, sonst erreicht das Upgrade Prod nicht. Löschcommit `4e15012` bestätigt risikofrei. | – |
+| ~~F14~~ | ~~Setzt Prod `DEBUG = False`?~~ → **ja**, explizit im generierten `demockrazy_config`. Kein Leak, kein Hotfix. | – |
+| **F15** | **Wie kommt Django in Prod ans `https`-Schema?** Node öffnet nur Port 80, kein `forceSSL`, kein `SECURE_PROXY_SSL_HEADER` im Modul – TLS wird vorgelagert terminiert. Setzt der Proxy `X-Forwarded-Proto`? Ohne diese Antwort keine TLS-/CSRF-Settings anfassen (Redirect-Schleife bzw. CSRF-403). | 2.7 |
+| ~~F12~~ | ~~Prod-Schema-Stand?~~ → **geliefert.** Prod hat zwei Migrations (2016), DB liegt unter `/var/lib/demockrazy/db.sqlite3`. Ausgewertet in [notes/phase-2-migrations.md](notes/phase-2-migrations.md). Kleiner Rest: `type`-Spalte war in der Ausgabe abgeschnitten – `PRAGMA table_info(vote_poll);` für letzte Sicherheit. | – |
 | F4 | Highcharts-Lizenz: existiert eine kommerzielle Lizenz, oder ersetzen? (B8) | 4.3 |
 | F5 | Zugangsschutz für Poll-Erstellung – welche Variante? (B4/3.8) | 3.8, Ziel 2 |
 | F8 | Anonymität vs. Zustellstatus pro Empfänger – wie weit darf Ziel 2 das aufweichen? (§11.4) | Ziel 2 |

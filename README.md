@@ -1,39 +1,79 @@
 # demockrazy
 
-A simple token based voting system
+A simple token based voting system.
 
+Someone creates a poll and supplies a list of voter mail addresses. Each address receives a
+single-use token by mail. Casting a vote consumes the token and deletes it, so there is no stored
+link between a voter and their vote. The poll closes automatically once every token has been used,
+and only then are the results visible. The creator gets a separate management token and can close
+the poll early.
 
-# Setup
+## Development setup
 
-clone the repository
+The dev environment is a Nix flake (`nix develop`, or automatically via `direnv` — see `.envrc`).
+It provides Python, Django, pytest, pytest-django and ruff.
 
-## on nixOS
-in root directory
+```bash
+nix develop
+./manage.py migrate --settings=demockrazy.dev_settings
+./manage.py runserver --settings=demockrazy.dev_settings
+```
 
-run `nix-shell`
+The app is then on <http://localhost:8000>. Mails are printed to the console.
 
+`demockrazy/settings.py` defaults to `DEBUG = False` and has no built-in `SECRET_KEY`, so a
+deployment that configures nothing comes up safely rather than conveniently — which is also why
+plain `runserver` refuses to start. `demockrazy/dev_settings.py` is the documented way around it;
+`DEMOCKRAZY_DEBUG=1 ./manage.py runserver` does the same via the environment.
 
-run `./manage.py makemigrations`
+Without Nix, install the dependencies from `pyproject.toml` (Django 5.2 and, for development,
+pytest, pytest-django and ruff) into a virtualenv; the `manage.py` commands are the same.
 
-run `./manage.py migrate`
+Do **not** run `makemigrations` as a setup step. The migrations are committed and reflect the
+schema that production actually runs — see `notes/phase-2-migrations.md` for why that matters.
 
-run `./manage.py runserver`
+## Tests and linting
 
+```bash
+pytest
+ruff check .
+ruff format --check .
+```
 
-app can be found on localhost, port 8000
+The suite runs against `demockrazy/test_settings.py` (in-memory SQLite, mails captured in
+`django.core.mail.outbox`), so it is independent of any local configuration.
 
-## on other distributions
+`vote/tests/test_known_bugs.py` holds known defects written as the behaviour that *should* hold,
+each marked `xfail(strict=True)`. Fixing one of them turns the suite red — that is the reminder to
+remove the marker.
 
-install django dependency
+## Configuration
 
-run `pip3 install --user django==2.2.27`
+`demockrazy/settings.py` holds the defaults. Three ways to override them, in the order they apply:
 
+- `DEMOCKRAZY_*` environment variables — `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`, `DB_PATH`,
+  `STATIC_ROOT`, `SEND_MAILS`.
+- An optional `demockrazy/local_settings.py`, imported at the end of `settings.py` if present.
+  Not in the repository.
+- A settings module that imports `demockrazy.settings` and overrides it, selected via
+  `DJANGO_SETTINGS_MODULE`. This is what production does.
 
-run `./manage.py makemigrations`
+With `VOTE_SEND_MAILS = False` (the default) no mail is sent — the messages are printed instead,
+which is what you want locally.
 
-run `./manage.py migrate`
+## Deployment
 
-run `./manage.py runserver`
+Production is `wahlcomputer.mayflower.de`, rolled out with colmena and running on SQLite. The
+`mayflower.demockrazy` NixOS module lives outside this repository; it pins this repo at a specific
+revision, generates a `demockrazy_config` settings module from its options, and runs the app under
+uwsgi behind nginx. Its `preStart` runs `migrate` and `collectstatic`.
 
+Two consequences worth knowing before changing anything here:
 
-app can be found on localhost, port 8000
+- Updating the application in production requires bumping `rev` and `sha256` in that module.
+  Nothing in this repository moves production on its own.
+- The Django version comes from the nixpkgs that evaluates the host, not from `pyproject.toml`.
+  This file documents the requirement; it does not enforce it.
+
+See `notes/deployment.md` for the full analysis, including two settings changes that would break
+production if made naively.
