@@ -28,13 +28,37 @@ Flow: Jemand erstellt ohne Login eine Umfrage → System generiert pro Wähler-M
 Modelle: `Poll` (title, type, num_tokens, question_text, creator_token, identifier, is_active),
 `Choice` (poll, choice_text, votes), `Token` (poll, token_string) – alle in [vote/models.py](vote/models.py).
 
-**Deployment (Stand 2026-08-03, vom User bestätigt):**
+**Deployment (Stand 2026-08-03, aus der Colmena-Node-Config des Users):**
 
-Produktiv ist `wahlcomputer.mayflower.de`, konfiguriert über `demockrazy/local_settings.py`
-(nicht im Repo, gitignored – Referenzkopie liegt beim User unter `~/Desktop/democ-settings/`).
-Diese Variante überschreibt `DATABASES` **nicht** ⇒ läuft auf **SQLite** (`BASE_DIR/db.sqlite3`),
-setzt `DEBUG = False`, `ALLOWED_HOSTS = ['wahlcomputer.mayflower.de']`,
-SMTP über `mail.mayflower.de:25` mit STARTTLS, `VOTE_SEND_MAILS = True`.
+Produktiv ist `wahlcomputer.mayflower.de`, ausgerollt per **colmena** (Zielhost
+`wahlcomputer.dmz.muc.mayflower.zone`, Tags `ci-build`/`vm`). Die App wird von einem
+**eigenen NixOS-Modul `mayflower.demockrazy`** gestartet – das liegt vermutlich im
+Mayflower-nixpkgs-Fork und ist **der Grund, warum es `mf-stable`/`mf-next` überhaupt gibt**.
+
+Belegte Fakten:
+- **uwsgi über Unix-Socket:** nginx macht `uwsgi_pass unix:/run/demockrazy/uwsgi.socket`.
+- **Statische Dateien von nginx:** `location /static` mit `root = /var/lib/demockrazy/`
+  ⇒ `collectstatic` schreibt nach `/var/lib/demockrazy/static` (= `STATIC_ROOT` aus
+  `BASE_DIR/static`, also **`BASE_DIR = /var/lib/demockrazy`**).
+- **SQLite unter `/var/lib/demockrazy/db.sqlite3`**, eigener `demockrazy`-User/-Group.
+- **Backups laufen:** borg onsite 03:00 + offsite 04:00 auf `/var/lib/demockrazy`,
+  `borg`-User ist in der `demockrazy`-Gruppe. (Damit ist die Backup-Frage aus 5.4 beantwortet.)
+- Secrets über **sops-nix**: `secretKeyFile` und `mail.passwordFile` als Pfade.
+- Modul-Optionen: `enable`, `secretKeyFile`, `mail.{host,from,port,user,passwordFile}`,
+  `baseUrl`, `allowedHosts`.
+
+⚠️ **Die Settings werden vom Modul generiert, nicht von der `local_settings.py`, die ich gesehen
+habe.** Beweis: der Node konfiguriert `smtp.mayflower.de:587` mit User + Passwortdatei, die Datei
+unter `~/Desktop/democ-settings/` nennt `mail.mayflower.de:25` mit auskommentiertem User.
+Die Datei ist also veraltet oder war nie die deployte.
+
+**Konsequenz: der Befund „Prod setzt `DEBUG = False`" ist nicht mehr belegt.** Er stützte sich
+allein auf jene Datei. Ob das generierte Settings-File `DEBUG` setzt, ist offen → **F14**,
+blockiert 2.4. Das Modul hat *keine* `debug`-Option, was in beide Richtungen deutbar ist.
+
+**Noch offen:** wie der Quellcode nach `/var/lib/demockrazy` kommt (Store ist read-only, SQLite
+und `static/` brauchen aber Schreibrechte im `BASE_DIR`) und **ob das Modul etwas aus diesem Repo
+konsumiert** – letzteres ist die verbliebene Unsicherheit am Löschcommit `4e15012`.
 
 **Das k8s-Deployment (`briefwahl.mayflower.cloud`) ist abgeschaltet.** Damit sind toter Code:
 [k8s/](k8s/) (Tanka/Jsonnet, Zalando-Postgres, k8s-libsonnet 1.25), [k8s/settings.py](k8s/settings.py),
@@ -304,9 +328,11 @@ niemanden außer mir nutzbar und in CI wertlos, solange 2.1 nicht erledigt ist.
       Chart-Init in `results.html`.
 - [ ] **4.3 Highcharts ersetzen (B8)** durch Chart.js (MIT) oder ECharts (Apache-2.0),
       Daten über `{{ ...|json_script }}` statt Inline-Interpolation (B10).
-- [ ] **4.4 `collectstatic` + Whitenoise** mit gehashten Dateinamen (Cache-Busting).
-      Whitenoise ist bei der Nicht-Container-Deployform ohnehin die einfachere Variante –
-      Details hängen an 5.2.
+- [ ] **4.4 Cache-Busting für Static Files.** **Kein Whitenoise** – nginx serviced `/static` schon
+      direkt aus `/var/lib/demockrazy/static` (siehe §1), das soll so bleiben. Stattdessen
+      `STORAGES["staticfiles"]` auf `ManifestStaticFilesStorage` für gehashte Dateinamen.
+      Achtung: dann muss `collectstatic` Teil des Deploys sein (ist es laut Modul-Setup vermutlich
+      schon, sonst wäre `/static` leer) – vor dem Umstellen mit F11 abgleichen.
 - [ ] **4.5 Template-Kleinkram:** `<th>/</td>`-Mismatch, `lang="de"` wo die Texte deutsch sind,
       doppelt eingebundenes `bootstrap.css` in `base.html`.
 
@@ -381,7 +407,8 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
 | ~~F7~~ | ~~Postgres 14→17-Wartungsfenster?~~ → entfällt, Prod läuft auf SQLite. Ersetzt durch B13/5.4. | – |
 | ~~F9~~ | ~~`.sops.yaml`-Keys?~~ → entfällt, fällt mit 5.1 weg. | – |
 | **F10** | Darf der tote Deployment-Code raus ([k8s/](k8s/), [nix/](nix/), [.sops.yaml](.sops.yaml), Image-Outputs im Flake, Image-Build in der CI)? Git-History bleibt, also reversibel. | 5.1, 1.6 |
-| **F11** | **Wie wird `wahlcomputer.mayflower.de` konkret deployt?** Teilantwort: **colmena mit eigenem Flake**, Zielhost ist ein Mayflower-Webserver, Datenverzeichnis `/var/lib/demockrazy`. Offen bleibt: welches NixOS-Modul die App startet, welcher WSGI-Server davor hängt, **was das Colmena-Flake aus diesem Repo konsumiert** (kritisch für 5.1) und ob die `db.sqlite3` gesichert wird. | 2.4, 5.2, 5.4 |
+| **F11** | **Wie wird deployt?** Weitgehend beantwortet (§1): colmena, Modul `mayflower.demockrazy`, uwsgi über Unix-Socket, nginx für `/static`, sops-nix für Secrets, borg-Backups laufen. **Verbleibender Rest: der Quelltext des Moduls `mayflower.demockrazy`** – daraus folgt F14 und ob das Modul etwas aus diesem Repo zieht (Risiko am Löschcommit `4e15012`). | 2.4, 5.1, 5.2 |
+| **F14** | **Setzt das vom Modul generierte Settings-File `DEBUG = False`?** Das Modul hat keine `debug`-Option. Falls nein, läuft Prod mit `DEBUG=True` und die Leak-Analyse aus [notes/phase-0-baseline.md](notes/phase-0-baseline.md) ist doch relevant – dann wird 2.4 wieder zum kritischen Pfad. | 2.4 |
 | ~~F12~~ | ~~Prod-Schema-Stand?~~ → **geliefert.** Prod hat zwei Migrations (2016), DB liegt unter `/var/lib/demockrazy/db.sqlite3`. Ausgewertet in [notes/phase-2-migrations.md](notes/phase-2-migrations.md). Kleiner Rest: `type`-Spalte war in der Ausgabe abgeschnitten – `PRAGMA table_info(vote_poll);` für letzte Sicherheit. | – |
 | F4 | Highcharts-Lizenz: existiert eine kommerzielle Lizenz, oder ersetzen? (B8) | 4.3 |
 | F5 | Zugangsschutz für Poll-Erstellung – welche Variante? (B4/3.8) | 3.8, Ziel 2 |
