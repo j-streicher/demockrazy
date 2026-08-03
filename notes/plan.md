@@ -9,7 +9,7 @@
 
 | # | Ziel | Status |
 |---|------|--------|
-| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | offen |
+| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0 + 1 ✅, k8s-Cleanup ✅ |
 | 2 | Batch-Modus für Mails bauen | **Spec folgt vom User** – nur Vorarbeit leisten, siehe §8 |
 
 **Wichtig:** Ziel 2 wird vom User später erklärt. Ziel 1 nicht so umbauen, dass Ziel 2 blockiert wird –
@@ -48,7 +48,10 @@ hinter nginx? systemd? welcher User, welcher Pfad zur `db.sqlite3`?). Das bestim
 
 ---
 
-## 2. Ist-Zustand / Inventar
+## 2. Inventar (Stand bei Branch-Start, Commit `3074dbb`)
+
+> Historischer Ausgangszustand – **nicht** der aktuelle. Was inzwischen erledigt ist, steht in den
+> Phasen-Abschnitten; die Bug-Nummern (B1…B14) werden weiter referenziert und bleiben deshalb hier.
 
 ### Toolchain
 | Komponente | Ist | Bemerkung |
@@ -205,23 +208,38 @@ Klärung des tatsächlichen Deployments (2026-08-03): Prod setzt `DEBUG = False`
 `local_settings.py`. **Kein Hotfix nötig, kein kritischer Pfad.** Die sicheren Defaults im Repo
 kommen regulär in Phase 2.4, die 500-Pfade in Phase 3.
 
-## 5. Phase 1 – Fundament: Dependencies, Tooling, Tests
+## 5. Phase 1 – Fundament ✅ ABGESCHLOSSEN 2026-08-03
 
-- [ ] **1.1 `pyproject.toml`** anlegen: Projekt-Metadaten, explizit gepinnte Dependencies
-      (`django`, `psycopg[binary]`), Dev-Extras (`pytest`, `pytest-django`, `ruff`).
-      Nix bleibt Source of Truth für den Build, aber die Deps müssen *lesbar deklariert* sein.
-- [ ] **1.2 Ruff** konfigurieren (`pyproject.toml`: lint + format, `DJ`-Regeln aktiv), einmal über
-      das Repo laufen lassen, Formatierung als **eigener Commit** (Diff-Rauschen isolieren).
-- [ ] **1.3 pytest + pytest-django** einrichten, `manage.py test` bleibt funktionsfähig.
-- [ ] **1.4 Tests gegen Ist-Verhalten** in `vote/tests/`:
-      Poll-Erstellung, Mail-Generierung (`locmem`-Backend), Abstimmen (simple + multiple),
-      Token-Verbrauch/Löschung, Auto-Close bei 0 Tokens, Manage-Token, Ergebnis-Redirects,
-      `get_amount_used_unused()` in allen drei Fällen. **Auch die Bugs B2/B3/B6 als
-      `xfail`-Tests** festhalten → werden in Phase 3 zu grünen Tests.
-- [ ] **1.5 `default.nix`** entfernen (oder auf flake-compat reduzieren) – Duplikat zum Flake.
-- [ ] **1.6 `flake.nix`**: `nixpkgs`-Input auf `github:NixOS/nixpkgs/nixos-26.05` (F3 entschieden),
-      `flake.lock` neu, `devShells` um `ruff` + `pytest` erweitern und um `tanka`/`jsonnet-bundler`/`sops`
-      **erleichtern** (die gehören zum abgeschalteten k8s-Deployment, siehe 5.1).
+- [x] **1.1 `pyproject.toml`** – Metadaten, `django>=5.2,<6.0`, Extras `postgres` (psycopg nur
+      relevant, falls B13 auf Postgres führt) und `dev`. Nix bleibt Source of Truth für den Build.
+- [x] **1.2 Ruff** konfiguriert (line-length 100, `F,E,W,I,UP,B,C4,DJ,DTZ,RUF`), safe autofixes +
+      `ruff format` als eigener Commit. `demockrazy/settings.py` hat `per-file-ignores` für `E501`
+      (deutsche Prosa in den Mail-Texten) und `F403` (der `local_settings`-Import) – beide fallen
+      mit 2.4 weg. `notes/` ist ausgenommen.
+      **3 Befunde bleiben absichtlich rot:** 2× `F841` + 1× `RUF059` in
+      [vote/views.py](vote/views.py) – Symptome der Bugs, die Phase 3 richtig behebt. CI-Gate: 5.3.
+- [x] **1.3 pytest + pytest-django** über `pyproject.toml`, eigene
+      [demockrazy/test_settings.py](demockrazy/test_settings.py) (locmem-Mails, In-Memory-SQLite,
+      unabhängig von `local_settings.py`). **Abweichung vom Plan:** die Suite ist pytest-only statt
+      auch `manage.py test`-kompatibel – `xfail`-Marker funktionieren im unittest-Runner nicht, und
+      die Bug-Spezifikation in 1.4 ist mir wichtiger als zwei Runner.
+- [x] **1.4 Testsuite** in [vote/tests/](vote/tests/): **56 Tests grün, 9 xfailed.**
+      Models, alle sechs Views, Anonymitätsgarantien, plus ein URL-Form-Test als Absicherung von
+      Regel 4. Die 9 Bugs stehen in [vote/tests/test_known_bugs.py](vote/tests/test_known_bugs.py)
+      als `xfail(strict=True)` – sie beschreiben das Soll-Verhalten und machen die Suite rot, sobald
+      Phase 3 sie fixt (= Erinnerung, den Marker zu entfernen).
+- [x] **1.5 `default.nix`** entfernt.
+- [x] **1.6 `flake.nix`** – Input auf **`github:mayflower/nixpkgs/mf-next`** (vom User empfohlen,
+      ist auf `26.05.20260724`; `mf-stable` ist so gut wie abgelöst). Liefert Python 3.13.13,
+      Django 5.2.15, ruff, pytest, pytest-django. devShell um `tanka`/`jsonnet-bundler`/`sops`
+      erleichtert. Damit ist Django 5.2 **schon in Phase 1 aktiv**, nicht erst in 2.3.
+
+### Befund aus 1.4, der 2.1 dringlicher macht
+
+Die Suite läuft nur, weil `vote/migrations/0001_initial.py` **lokal** existiert. Auf einem frischen
+Clone fallen **49 von 56 Tests** um, weil `migrations/` gitignored ist. Die Tests sind also für
+niemanden außer mir nutzbar und in CI wertlos, solange 2.1 nicht erledigt ist.
+⇒ **2.1 ist der nächste Schritt** und braucht F12 (Prod-Schema).
 
 ## 6. Phase 2 – Django-Upgrade & Konfiguration
 
