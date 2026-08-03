@@ -17,11 +17,15 @@ CREATOR_MAIL = "admin@example.org"
 
 
 @pytest.fixture
-def create_poll(client, mailoutbox):
+def create_poll(client, mailoutbox, django_capture_on_commit_callbacks):
     """Legt über die echte create-View eine Umfrage an und liefert (poll, tokens).
 
     Absichtlich über HTTP und nicht über die ORM-Objekte: die Token-Vergabe passiert in der
     View, und genau die soll getestet werden.
+
+    Der Versand hängt seit 3.4 an `transaction.on_commit` (B7). Ein `django_db`-Test läuft in
+    einer Transaktion, die nie committet wird -- ohne dieses Capture käme also nie eine Mail an,
+    und alles, was Tokens aus Mails liest, hätte nichts zu lesen.
     """
 
     def _create(
@@ -34,17 +38,18 @@ def create_poll(client, mailoutbox):
         creator_mail=CREATOR_MAIL,
     ):
         mailoutbox.clear()
-        response = client.post(
-            "/vote/create",
-            {
-                "title": title,
-                "type": poll_type,
-                "description": description,
-                "choices": choices,
-                "creator_mail": creator_mail,
-                "voter_mails": "\n".join(voters),
-            },
-        )
+        with django_capture_on_commit_callbacks(execute=True):
+            response = client.post(
+                "/vote/create",
+                {
+                    "title": title,
+                    "type": poll_type,
+                    "description": description,
+                    "choices": choices,
+                    "creator_mail": creator_mail,
+                    "voter_mails": "\n".join(voters),
+                },
+            )
         assert response.status_code == 200, "create sollte die Bestätigungsseite rendern"
         poll = Poll.objects.get(title=title)
         return poll, voter_tokens(mailoutbox, creator_mail=creator_mail)

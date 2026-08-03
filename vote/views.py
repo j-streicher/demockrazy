@@ -1,7 +1,3 @@
-from smtplib import SMTPException
-
-from django.conf import settings
-from django.core.mail import send_mail
 from django.db import transaction
 from django.db.models import F
 from django.http import HttpResponseRedirect
@@ -10,6 +6,7 @@ from django.urls import reverse
 
 from .forms import PollCreateForm
 from .models import Choice, Poll, Token
+from .services import mail
 
 
 def poll(request, poll_identifier):
@@ -58,52 +55,6 @@ def create(request):
             result.append(token)
         return result
 
-    def send_mail_or_print(args, print_only=False):
-        if print_only:
-            print(*args)
-        else:
-            send_mail(*args, fail_silently=False)
-
-    def send_creator_mail(poll, creator_mail, creator_token, print_only=False):
-        manage_url = settings.VOTE_BASE_URL + reverse("vote:polls:manage", args=(poll.identifier,))
-        args = (
-            settings.VOTE_ADMIN_MAIL_SUBJECT % {"title": poll.title},
-            settings.VOTE_ADMIN_MAIL_TEXT
-            % {"title": poll.title, "manage_url": manage_url, "creator_token": creator_token},
-            settings.VOTE_MAIL_FROM,
-            [creator_mail],
-        )
-        send_mail_or_print(args, print_only)
-
-    def send_mails_with_tokens(poll, voter_mails, tokens, print_only=False):
-        token_strings = [token.token_string for token in tokens]
-        errors = []
-        for voter_mail in voter_mails:
-            poll_url_with_token = (
-                settings.VOTE_BASE_URL
-                + reverse("vote:polls:poll", args=(poll.identifier,))
-                + "?token="
-                + token_strings.pop()
-            )
-            args = (
-                settings.VOTE_MAIL_SUBJECT % {"title": poll.title},
-                settings.VOTE_MAIL_TEXT
-                % {
-                    "title": poll.title,
-                    "poll_url_with_token": poll_url_with_token,
-                    "vote_base_url": settings.VOTE_BASE_URL,
-                },
-                settings.VOTE_MAIL_FROM,
-                [voter_mail],
-            )
-            try:
-                send_mail_or_print(args, print_only)
-            except SMTPException as e:
-                errors.append(str(e))
-            except UnicodeEncodeError as e:
-                errors.append(f"{voter_mail} " + str(e))
-        return errors
-
     if request.method != "POST":
         # Ein GET auf /vote/create lief bisher in einen MultiValueDictKeyError, also in einen 500
         # (B3). Bewusst kein 405: wer die URL aus der History oder einem Lesezeichen aufruft, soll
@@ -127,10 +78,17 @@ def create(request):
     poll.save()
     create_choice_objects(form.cleaned_data["choices"], poll)
     tokens = create_token_objects(poll, len(voter_mails))
-    print_only = not settings.VOTE_SEND_MAILS
-    send_creator_mail(poll, form.cleaned_data["creator_mail"], poll.creator_token, print_only)
-    errors = send_mails_with_tokens(poll, voter_mails, tokens, print_only)
-    return render(request, "vote/create.html", {"errors": errors})
+    # Vollständig rendern, solange die Objekte da sind, aber erst nach dem Commit verschicken (B7):
+    # ATOMIC_REQUESTS umschließt den ganzen Request, ein synchrones send_mail() liefe also *in* der
+    # Transaktion. Bei einem Rollback wären die Mails mit den Tokens draußen, die Tokens selbst aber
+    # nicht in der Datenbank -- Wähler mit einem Link, der nie funktioniert. Umgekehrt hält ein
+    # hängender SMTP-Server sonst eine Schreibtransaktion offen, und auf SQLite blockiert das jeden
+    # anderen Schreiber (B13).
+    messages = mail.poll_created_messages(
+        poll, form.cleaned_data["creator_mail"], voter_mails, tokens
+    )
+    transaction.on_commit(lambda: mail.deliver(messages))
+    return render(request, "vote/create.html")
 
 
 def vote(request, poll_identifier):

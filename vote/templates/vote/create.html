@@ -3,10 +3,9 @@
 {% block content %}
 <h1>poll created</h1>
 
-{% if errors %}
-  <b>Unfortunately, the following errors were encountered while dispatching mails.</b><br>
-  {% for error in errors %}
-    {{ error }}<br>
-  {% endfor %}
-{% endif %}
+{# Bis 3.4 stand hier eine Liste der Zustellfehler. Die kann es nicht mehr geben: der Versand
+   läuft nach dem Commit der Transaktion, diese Seite ist dann schon gerendert. Fehler stehen
+   jetzt im Log. Ein echter Zustellbericht für den Ersteller gehört zu Ziel 2 und braucht die
+   Entscheidung aus F8 (notes/plan.md §11.4). #}
+<p>The invitations are on their way.</p>
 {% endblock %}

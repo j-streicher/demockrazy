@@ -94,12 +94,62 @@ class TestCreate:
         _, tokens = create_poll(voters=("a@example.org", "b@example.org", "c@example.org"))
         assert len(set(tokens)) == 3
 
-    def test_no_mails_when_sending_is_disabled(self, client, mailoutbox, settings):
+    def test_no_mails_when_sending_is_disabled(
+        self, client, mailoutbox, settings, django_capture_on_commit_callbacks
+    ):
         settings.VOTE_SEND_MAILS = False
+        # Mit execute=True, sonst würde der Test auch bestehen, wenn der Versand nur nie läuft.
+        with django_capture_on_commit_callbacks(execute=True):
+            client.post(
+                "/vote/create",
+                {
+                    "title": "Ohne Mailversand",
+                    "type": "simple_choice",
+                    "description": "?",
+                    "choices": "Ja",
+                    "creator_mail": CREATOR_MAIL,
+                    "voter_mails": "a@example.org",
+                },
+            )
+        assert Poll.objects.filter(title="Ohne Mailversand").exists()
+        assert mailoutbox == []
+
+    def test_mails_go_out_only_after_the_commit(
+        self, client, mailoutbox, django_capture_on_commit_callbacks
+    ):
+        """B7: solange die Transaktion offen ist, darf keine Mail draußen sein.
+
+        Sonst hinterlässt ein Rollback Wähler mit einem Token-Link, den es in der Datenbank nie
+        gegeben hat -- und ein hängender SMTP-Server hält eine Schreibtransaktion offen.
+        """
+        with django_capture_on_commit_callbacks(execute=False) as callbacks:
+            client.post(
+                "/vote/create",
+                {
+                    "title": "Nach dem Commit",
+                    "type": "simple_choice",
+                    "description": "?",
+                    "choices": "Ja",
+                    "creator_mail": CREATOR_MAIL,
+                    "voter_mails": "a@example.org",
+                },
+            )
+            assert mailoutbox == [], "vor dem Commit darf nichts verschickt sein"
+        assert len(callbacks) == 1, "der Versand soll an genau einem on_commit-Callback hängen"
+        callbacks[0]()
+        assert [m.to for m in mailoutbox] == [[CREATOR_MAIL], ["a@example.org"]]
+
+    @pytest.mark.django_db(transaction=True)
+    def test_a_real_commit_sends_without_help(self, client, mailoutbox):
+        """Gegenprobe zum Test oben: hier committet die Transaktion wirklich.
+
+        Die übrige Suite führt die on_commit-Callbacks von Hand aus. Dieser Test ist der Beleg,
+        dass der Versand auch ohne diese Hilfe läuft -- also im Betrieb.
+        """
         client.post(
             "/vote/create",
             {
-                "title": "Ohne Mailversand",
+                "title": "Echter Commit",
                 "type": "simple_choice",
                 "description": "?",
                 "choices": "Ja",
@@ -107,8 +157,7 @@ class TestCreate:
                 "voter_mails": "a@example.org",
             },
         )
-        assert Poll.objects.filter(title="Ohne Mailversand").exists()
-        assert mailoutbox == []
+        assert [m.to for m in mailoutbox] == [[CREATOR_MAIL], ["a@example.org"]]
 
     def test_multiple_choice_poll(self, create_poll):
         poll, _ = create_poll(poll_type="multiple_choice", choices="A\nB\nC")
@@ -136,9 +185,13 @@ class TestCreateFormErrors:
         assert not Choice.objects.exists()
         assert not Token.objects.exists()
 
-    def test_invalid_input_sends_no_mail(self, client, mailoutbox):
+    def test_invalid_input_sends_no_mail(
+        self, client, mailoutbox, django_capture_on_commit_callbacks
+    ):
         """Auch nicht an den Ersteller -- sonst wäre eine Tippfehler-Schleife ein Mailversender."""
-        client.post("/vote/create", INVALID_PAYLOAD)
+        with django_capture_on_commit_callbacks(execute=True) as callbacks:
+            client.post("/vote/create", INVALID_PAYLOAD)
+        assert callbacks == [], "ein ungültiges Formular soll keinen Versand vormerken"
         assert mailoutbox == []
 
     def test_the_entered_values_survive_an_error(self, client):

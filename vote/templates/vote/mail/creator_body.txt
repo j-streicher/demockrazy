@@ -1,0 +1,7 @@
+{% autoescape off %}{# Wortlaut exakt wie der frühere settings.VOTE_ADMIN_MAIL_TEXT, inklusive des überzähligen Anführungszeichens und der Leerzeile am Ende. #}
+Hi, you just created a new poll with title '{{ title }}' that is manageable at {{ manage_url }}
+Your admin token is: {{ creator_token }}
+
+Thank you for traveling with Deutsche Bahn"
+
+{% endautoescape %}
