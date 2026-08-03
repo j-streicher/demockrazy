@@ -48,7 +48,7 @@ CREATE INDEX "vote_token_582e9e5a" ON "vote_token" ("poll_id");
 *Einschränkung: die `type`-Spalte war in der Terminalausgabe abgeschnitten (`"type...`). Position
 und Modelldefinition (`CharField(max_length=20, default="simple_choice")`) ergeben
 `varchar(20) NOT NULL`, was der frisch migrierte Stand exakt reproduziert. Für letzte Sicherheit:
-`PRAGMA table_info(vote_poll);`*
+`nix run nixpkgs#sqlite -- -readonly /var/lib/demockrazy/db.sqlite3 "PRAGMA table_info(vote_poll);"`*
 
 ## Die Lösung: Historie rekonstruieren statt zusammenfassen
 
@@ -108,9 +108,10 @@ Ebenso ist FK-Prüfzeitpunkt-Verhalten minimal anders (nicht aufgeschoben).
 `Poll.identifier` dazukommen): Constraints *hinzufügen* ist unkritisch, aber vorher prüfen, dass
 in Prod keine Duplikate liegen, sonst schlägt die Migration beim Anlegen des Unique-Index fehl:
 
-```sql
-SELECT token_string, COUNT(*) FROM vote_token GROUP BY token_string HAVING COUNT(*) > 1;
-SELECT identifier,   COUNT(*) FROM vote_poll  GROUP BY identifier   HAVING COUNT(*) > 1;
+```bash
+nix run nixpkgs#sqlite -- -readonly /var/lib/demockrazy/db.sqlite3 \
+  "SELECT token_string, COUNT(*) FROM vote_token GROUP BY token_string HAVING COUNT(*) > 1;
+   SELECT identifier,   COUNT(*) FROM vote_poll  GROUP BY identifier   HAVING COUNT(*) > 1;"
 ```
 
 Falls die Index-Namen später wirklich stören: einmalig eine Data-/Schema-Migration mit

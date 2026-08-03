@@ -143,13 +143,21 @@ Die Spec kommt vom User. Was für *jede* Variante gilt und in Phase 3 entstehen 
 
 Kleinigkeit, kein Blocker: die `type`-Spalte war in der Prod-Schema-Ausgabe abgeschnitten; aus dem
 Modell folgt `varchar(20) NOT NULL`, was der frische Migrationsstand exakt reproduziert. Für letzte
-Sicherheit `PRAGMA table_info(vote_poll);`.
+Sicherheit `nix run nixpkgs#sqlite -- -readonly /var/lib/demockrazy/db.sqlite3 "PRAGMA table_info(vote_poll);"`.
 
-Vor Phase 3.6 (Unique-Constraints) noch auf Prod zu prüfen:
-```sql
-SELECT token_string, COUNT(*) c FROM vote_token GROUP BY token_string HAVING c>1;
-SELECT identifier,   COUNT(*) c FROM vote_poll  GROUP BY identifier   HAVING c>1;
+Vor Phase 3.6 (Unique-Constraints) noch auf Prod zu prüfen. `sqlite3` liegt auf der Node nicht im
+Systemprofil -- das Modul installiert es nicht -- deshalb über `nix run`. **Immer mit `-readonly`** -- die
+Datei wird von vier uwsgi-Workern beschrieben, und ein Leser hat dort nichts zu suchen außer zu
+lesen. Ein Leser nimmt kurz eine SHARED-Lock (bei diesen Tabellengrößen Mikrosekunden); liegt ein
+hot journal herum, bricht die Verbindung mit `SQLITE_READONLY_ROLLBACK` ab statt aufzuräumen:
+
+```bash
+nix run nixpkgs#sqlite -- -readonly /var/lib/demockrazy/db.sqlite3 \
+  "SELECT token_string, COUNT(*) c FROM vote_token GROUP BY token_string HAVING c>1;
+   SELECT identifier,   COUNT(*) c FROM vote_poll  GROUP BY identifier   HAVING c>1;"
 ```
+
+Beide Ergebnisse müssen leer sein, sonst schlägt die Unique-Migration beim Anlegen des Index fehl.
 
 ## 9. Nächster Schritt
 
