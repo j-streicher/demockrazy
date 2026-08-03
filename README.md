@@ -15,11 +15,16 @@ It provides Python, Django, pytest, pytest-django and ruff.
 
 ```bash
 nix develop
-./manage.py migrate
-./manage.py runserver
+./manage.py migrate --settings=demockrazy.dev_settings
+./manage.py runserver --settings=demockrazy.dev_settings
 ```
 
-The app is then on <http://localhost:8000>.
+The app is then on <http://localhost:8000>. Mails are printed to the console.
+
+`demockrazy/settings.py` defaults to `DEBUG = False` and has no built-in `SECRET_KEY`, so a
+deployment that configures nothing comes up safely rather than conveniently — which is also why
+plain `runserver` refuses to start. `demockrazy/dev_settings.py` is the documented way around it;
+`DEMOCKRAZY_DEBUG=1 ./manage.py runserver` does the same via the environment.
 
 Without Nix, install the dependencies from `pyproject.toml` (Django 5.2 and, for development,
 pytest, pytest-django and ruff) into a virtualenv; the `manage.py` commands are the same.
@@ -44,15 +49,31 @@ remove the marker.
 
 ## Configuration
 
-`demockrazy/settings.py` holds the defaults and imports an optional `demockrazy/local_settings.py`
-at the end, which is where a deployment overrides `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`, the mail
-server and `VOTE_SEND_MAILS`. That file is not in the repository.
+`demockrazy/settings.py` holds the defaults. Three ways to override them, in the order they apply:
 
-With `VOTE_SEND_MAILS = False` (the default) no mail is sent — the messages are printed to stdout
-instead, which is what you want locally.
+- `DEMOCKRAZY_*` environment variables — `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`, `DB_PATH`,
+  `STATIC_ROOT`, `SEND_MAILS`.
+- An optional `demockrazy/local_settings.py`, imported at the end of `settings.py` if present.
+  Not in the repository.
+- A settings module that imports `demockrazy.settings` and overrides it, selected via
+  `DJANGO_SETTINGS_MODULE`. This is what production does.
+
+With `VOTE_SEND_MAILS = False` (the default) no mail is sent — the messages are printed instead,
+which is what you want locally.
 
 ## Deployment
 
-Production is `wahlcomputer.mayflower.de`, rolled out with colmena from a separate flake, running
-on SQLite. Deploying needs `./manage.py migrate` (a no-op on the current schema) and
-`./manage.py collectstatic`.
+Production is `wahlcomputer.mayflower.de`, rolled out with colmena and running on SQLite. The
+`mayflower.demockrazy` NixOS module lives outside this repository; it pins this repo at a specific
+revision, generates a `demockrazy_config` settings module from its options, and runs the app under
+uwsgi behind nginx. Its `preStart` runs `migrate` and `collectstatic`.
+
+Two consequences worth knowing before changing anything here:
+
+- Updating the application in production requires bumping `rev` and `sha256` in that module.
+  Nothing in this repository moves production on its own.
+- The Django version comes from the nixpkgs that evaluates the host, not from `pyproject.toml`.
+  This file documents the requirement; it does not enforce it.
+
+See `notes/deployment.md` for the full analysis, including two settings changes that would break
+production if made naively.
