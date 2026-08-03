@@ -78,7 +78,7 @@ nur den **Quelltext** (`cp -R .`). Die gelöschten `packages.uwsgi` / `packages.
 `SECURE_SSL_REDIRECT`, `SECURE_HSTS_SECONDS` und `CSRF_TRUSTED_ORIGINS` – dazu unten.
 
 `local_settings.py` ist **nirgends im Spiel**: `demockrazy_config` ersetzt diesen Mechanismus.
-Der `try/except` am Ende von [demockrazy/settings.py](demockrazy/settings.py) greift trotzdem, weil
+Der `try/except` am Ende von [demockrazy/settings.py](../demockrazy/settings.py) greift trotzdem, weil
 `demockrazy_config` die Datei importiert – und schreibt bei **jedem Start**
 `No local settings found..` ins Syslog. Kleines, echtes Ärgernis für 2.4.
 
@@ -112,7 +112,7 @@ Der `try/except` am Ende von [demockrazy/settings.py](demockrazy/settings.py) gr
   No-Op, weil am gepinnten Commit gar keine Migrationsdateien existieren (Django überspringt
   Apps ohne Migrations). Nach dem `rev`-Bump findet es die beiden eingecheckten Migrations, deren
   Namen schon in `django_migrations` stehen ⇒ **weiterhin No-Op.** Wie in
-  [notes/phase-2-migrations.md](notes/phase-2-migrations.md) beschrieben.
+  [notes/phase-2-migrations.md](phase-2-migrations.md) beschrieben.
 - `collectstatic --noinput` läuft bei jedem Start ⇒ die Umstellung auf
   `ManifestStaticFilesStorage` (4.4) ist gefahrlos möglich.
 - `version = "2024-02-08"` im Derivation ist nur Metadatum, aber beim `rev`-Bump gleich mitziehen.
