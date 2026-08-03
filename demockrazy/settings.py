@@ -154,35 +154,6 @@ EMAIL_USE_SSL = False
 
 VOTE_MAIL_FROM = "wahlleitung@demo.ckrazy"
 VOTE_BASE_URL = "http://127.0.0.1:8000"
-VOTE_ADMIN_MAIL_SUBJECT = "[democrazy] Poll '%(title)s' created"
-VOTE_ADMIN_MAIL_TEXT = """
-Hi, you just created a new poll with title '%(title)s' that is manageable at %(manage_url)s
-Your admin token is: %(creator_token)s
-
-Thank you for traveling with Deutsche Bahn"
-
-"""
-VOTE_MAIL_SUBJECT = "[demockrazy] Deine Stimme für '%(title)s'"
-VOTE_MAIL_TEXT = """
-Hallo,
-
-Jemand hat eine Abstimmung mit dem Titel '%(title)s' auf %(vote_base_url)s erstellt.
-Du wurdest eingeladen an dieser Abstimmung teilzunehmen.
-
-Dies ist dir über folgenden Link möglich:
-%(poll_url_with_token)s
-
-Nach Abgabe deiner Stimme wird der Token aus der Datenbank gelöscht.
-Dadurch gibt es keine Korrelation zwischen Token (Teilnehmer) und abgegebener Stimme.
-
-Die Umfrage wird automatisch beendet, sobald alle Tokens verbraucht wurden. Nach Beendigung sind die Umfrageergebnisse sichtbar.
-Der Ersteller der Umfrage hat die möglichkeit diese vorzeitig zu beenden.
-
-XoXoXo
-Die Wahlleitung
-
-"""
-
 VOTE_SEND_MAILS = _env_flag("DEMOCKRAZY_SEND_MAILS", default=False)
 
 
