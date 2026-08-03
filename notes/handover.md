@@ -1,8 +1,9 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: 2026-08-03, Branch `update/modernize-2026`, 39 Commits über `master` (Basis `3074dbb`).
-Arbeitsbaum ist sauber, alles committed, nichts gepusht.
+Stand: Ende 2026-08-03, Branch `update/modernize-2026`, 41 Commits über `master` (Basis `3074dbb`).
+Arbeitsbaum ist sauber, alles committed, **nichts gepusht** -- die CI hat also noch nie gelaufen,
+sie greift erst beim ersten Push.
 
 ---
 
@@ -72,6 +73,29 @@ Lokal starten (nicht mit `manage.py runserver` allein – siehe §6, Falle 3):
 ```bash
 python3 manage.py runserver --settings=demockrazy.dev_settings
 ```
+
+### Wo was liegt (Stand nach Phase 3.6)
+
+| Pfad | Inhalt |
+|---|---|
+| [../vote/models.py](../vote/models.py) | `Poll`, `Choice`, `Token`, `PollType`; die zwei `UniqueConstraint`s, `get_absolute_url()` |
+| [../vote/forms.py](../vote/forms.py) | `PollCreateForm` – Validierung der Erstellung, Dedup der Adressen, `parse_lines()` |
+| [../vote/views.py](../vote/views.py) | die sechs Views, nur noch Ablaufsteuerung |
+| [../vote/services/polls.py](../vote/services/polls.py) | `create_poll()` – Umfrage + Choices + Tokens per `bulk_create`, atomar |
+| [../vote/services/mail.py](../vote/services/mail.py) | `poll_created_messages()` rendert, `deliver()` verschickt |
+| [../vote/templates/vote/mail/](../vote/templates/vote/mail/) | die vier Mail-Templates; **enden absichtlich ohne Zeilenumbruch** |
+| [../vote/migrations/](../vote/migrations/) | `0001`+`0002` rekonstruieren Prod von 2016, `0003` bringt Constraints und `choices` |
+| [../vote/tests/](../vote/tests/) | `test_models`, `test_forms`, `test_views`, `test_mail_service`, `test_poll_service`, `test_known_bugs`, `conftest` |
+| [../demockrazy/settings.py](../demockrazy/settings.py) | Defaults; dazu `dev_settings.py` (runserver) und `test_settings.py` (pytest) |
+
+Zwei Dinge, die man beim ersten Blick in die Tests wissen will:
+
+- **`conftest.py::create_poll` führt die `on_commit`-Callbacks aus.** Ohne das käme in einem
+  `django_db`-Test nie eine Mail an, weil die Testtransaktion nicht committet (3.4). Wer einen
+  neuen Test schreibt, der Mails erwartet, braucht `django_capture_on_commit_callbacks`.
+- **`db.sqlite3` im Repo-Root ist ein veraltetes Phase-0-Artefakt** (gitignored) und hat noch die
+  Spaltenreihenfolge einer zusammengefassten Migration. Nicht als Referenz für das Prod-Schema
+  nehmen – dafür ist [phase-2-migrations.md](phase-2-migrations.md) zuständig.
 
 ## 5. Was absichtlich rot ist – nicht „aufräumen"
 
@@ -173,24 +197,40 @@ nix run nixpkgs#sqlite -- -readonly /var/lib/demockrazy/db.sqlite3 \
 
 ## 9. Nächster Schritt
 
-**Phase 3 ist bis 3.6 durch, CI steht.** Behoben: **B1, B2, B3, B5, B6, B7, B11, B12, B15** und die
-zwei fehlenden Unique-Constraints. Mailversand und Poll-Erstellung sind Services
-([vote/services/](../vote/services/)), der Versand hängt an `on_commit`, die Umfrage-Erstellung
-kostet konstant 5 Statements. **Die Vorarbeit für Ziel 2 (§7.1–3) ist vollständig** – ein
-Batch-Versender ersetzt `mail.deliver()`.
+**Phase 3 ist bis 3.6 durch, CI steht (5.3).** Behoben: **B1, B2, B3, B5, B6, B7, B11, B12, B15**
+und die zwei fehlenden Unique-Constraints. Mailversand und Poll-Erstellung sind Services, der
+Versand hängt an `on_commit`, die Umfrage-Erstellung kostet konstant 5 Statements.
+**Die Vorarbeit für Ziel 2 (§7.1–3) ist vollständig** – ein Batch-Versender ersetzt `mail.deliver()`.
 
-**Als Nächstes 3.7:** `re_path` → `path` in [../demockrazy/urls.py](../demockrazy/urls.py) und
-[../vote/urls.py](../vote/urls.py). **Die URLs müssen zeichengleich bleiben** – es sind Mails mit
-`?token=`-Links unterwegs (Regel 5), abgesichert in `test_views.py::TestUrls`. Der
-`poll_identifier` ist `[a-zA-Z0-9]+`, dafür braucht es einen eigenen Converter; `slug` erlaubt
-zusätzlich `-` und `_` und wäre damit nicht dasselbe.
+### 3.7 – `re_path` → `path` (nicht blockiert, klein)
 
-Danach ist von Phase 3 nur **3.8** offen (braucht F5).
+In [../demockrazy/urls.py](../demockrazy/urls.py) und [../vote/urls.py](../vote/urls.py).
+Das Wesentliche vorab, damit es nicht schiefgeht:
 
-**Vor dem Deploy:** F17 klären. Und wissen, dass `0003` die Tabellen `vote_poll` und `vote_token`
-neu schreibt – geprüft gegen ein Prod-Abbild, Daten unversehrt, Details in
-[phase-2-migrations.md](phase-2-migrations.md); `migrate` läuft im `preStart` vor dem Dienststart,
-Backup per borg liegt vor.
+- **Die URLs müssen zeichengleich bleiben** (Regel 5): `/vote/`, `/vote/create`,
+  `/vote/<id>/`, `/vote/<id>/vote`, `/vote/<id>/success`, `/vote/<id>/manage`, `/vote/<id>/results`.
+  `test_views.py::TestUrls` prüft genau diese sieben.
+- **`slug` ist kein Ersatz** für `(?P<poll_identifier>[a-zA-Z0-9]+)`: `slug` erlaubt zusätzlich `-`
+  und `_`, würde also mehr annehmen als heute. Es braucht einen eigenen Converter
+  (`regex = "[a-zA-Z0-9]+"`), am sinnvollsten in `vote/urls.py` und per `register_converter`.
+- Das `include(pollpatterns)`-Muster mit dem Namespace `polls` bleibt, wie es ist; die
+  `reverse()`-Namen (`vote:index`, `vote:create`, `vote:polls:*`) sind in Templates **und** im
+  Mail-Service verdrahtet.
+- Nach dem Umbau lohnt eine Gegenprobe mit einem Identifier, der ein `-` enthält: der muss weiter
+  404 geben und nicht plötzlich matchen.
+
+### Danach
+
+Von Phase 3 bleibt nur **3.8** (Zugangsschutz, braucht F5). Sonst unblockiert: **5.5** (`/healthz`),
+**Phase 4** außer 4.3 (Frontend: Bootstrap 5, jQuery raus, Cache-Busting, Template-Kleinkram).
+
+### Vor dem Deploy (nicht von mir, Regel 7)
+
+1. **F17 klären** – der `grep` im Colmena-Repo (§8).
+2. **`0003` ist kein No-Op.** Es schreibt `vote_poll` und `vote_token` neu; geprüft gegen ein
+   Prod-Abbild, Daten unversehrt ([phase-2-migrations.md](phase-2-migrations.md)). `migrate` läuft
+   im `preStart` vor dem Dienststart, es gibt also keine parallelen Schreiber; borg-Backup liegt vor.
+3. **`rev`+`sha256` im Modul bumpen** und das Colmena-Flake auf `mf-next` (§6, Falle 4).
 
 Offen: **3.8** braucht F5, **4.3** braucht F4, **2.7** braucht F15, **5.4** braucht F13.
 
@@ -216,6 +256,13 @@ Offen: **3.8** braucht F5, **4.3** braucht F4, **2.7** braucht F15, **5.4** brau
    weil die Analyse selbst noch nützlich ist.
 9. **Bei Unklarheit:** alles erledigen, was nicht davon abhängt, die Frage in `plan.md` §12
    festhalten und beim nächsten Bericht stellen.
+10. **Im Workspace bleiben.** Arbeiten *und suchen* nur in
+   `~/Desktop/wahlcomputer-update/demockrazy`. Nicht im übrigen Dateisystem stöbern, auch nicht,
+   um eine Frage schneller selbst zu klären. **Was von außen gebraucht wird, beim User erfragen** –
+   er liefert es und hat das ausdrücklich angeboten. So sind F12 (Prod-Schema), die Duplikat-Prüfung
+   vor 3.6 und der `PRAGMA`-Nachtrag gelaufen; F17 wartet noch darauf. Betrifft insbesondere: das
+   NixOS-Modul `mayflower.demockrazy`, das Colmena-Repo, alles auf der Prod-Node.
+   Ausnahme sind offensichtlich projektbezogene Werkzeugaufrufe (`nix`, `git`, PyPI-/nixpkgs-Abfragen).
 
 ## 11. Wichtige Erkenntnisse, die nicht offensichtlich sind
 
@@ -223,8 +270,12 @@ Offen: **3.8** braucht F5, **4.3** braucht F4, **2.7** braucht F15, **5.4** brau
   Versionen gegengeprüft: identische Statuscodes, Redirects, Mails, Tokenlängen. Kein
   Schema-Drift, keine neuen Deprecations. Das Risiko lag nie in der Version, sondern in den
   Altlasten.
-- **Prod-Migrationshistorie ist von 2016** und hat zwei Einträge. Die eingecheckten Migrations
-  reproduzieren sie namensgleich, deshalb ist `migrate` dort ein **garantierter No-Op**.
+- **Prod-Migrationshistorie ist von 2016** und hat zwei Einträge. Die eingecheckten `0001`/`0002`
+  reproduzieren sie namensgleich, werden dort also übersprungen. **Achtung, seit 3.6 gilt der
+  frühere Satz „`migrate` ist ein garantierter No-Op" nicht mehr:** `0003` wird angewendet und
+  **schreibt `vote_poll` und `vote_token` neu** (so hängt SQLite einen Constraint an). Gegen ein
+  Abbild des Prod-Schemas geprüft: Daten unversehrt, FKs konsistent, Spaltenreihenfolge unverändert
+  – [phase-2-migrations.md](phase-2-migrations.md).
 - **Das k8s-Setup (`briefwahl.mayflower.cloud`) ist abgeschaltet** und in `4e15012` entfernt.
   Bestätigt risikofrei: das Prod-Modul konsumiert keine Flake-Outputs dieses Repos, nur den
   Quelltext. Falls sich das doch als falsch erweist: `git revert 4e15012`.

@@ -64,6 +64,10 @@ remove the marker.
 With `VOTE_SEND_MAILS = False` (the default) no mail is sent — the messages are printed instead,
 which is what you want locally.
 
+The wording of the mails is not configuration: it lives in `vote/templates/vote/mail/`. Those
+templates disable autoescaping (they are plain text) and end without a trailing newline, both
+deliberately — `vote/tests/test_mail_service.py` pins the exact output.
+
 ## Deployment
 
 Production is `wahlcomputer.mayflower.de`, rolled out with colmena and running on SQLite. The

@@ -242,6 +242,11 @@ Noch offen:
    `ruff format --check .` · `ruff check .` – Sollwerte in [handover.md](handover.md) §4.
    Danach den Fortschritt hier im Plan abhaken.
 8. **Bei Unklarheit im Plan notieren**, in §12 sammeln, weiterarbeiten an dem, was nicht davon abhängt.
+9. **Im Workspace bleiben.** Arbeiten und suchen nur in `~/Desktop/wahlcomputer-update/demockrazy`.
+   Was von außen gebraucht wird – das NixOS-Modul, das Colmena-Repo, Ausgaben von der Prod-Node –
+   **beim User erfragen**, nicht im Dateisystem suchen. Er liefert es; so sind F12, die
+   Duplikat-Prüfung vor 3.6 und der `PRAGMA`-Nachtrag entstanden. Ausführlich in
+   [handover.md](handover.md) §10, Regel 10.
 
 ---
 
@@ -317,8 +322,10 @@ Tests für niemanden außer mir nutzbar und in CI wertlos. **Behoben in 2.1**, a
       rekonstruiert** statt eine zusammengefasste `0001_initial`. Beweis der Korrektheit: die
       Spaltenreihenfolge von `vote_poll` stimmt danach exakt mit Prod überein
       (`… is_active, num_tokens, type`), was eine zusammengefasste Migration nicht leistet.
-      `makemigrations --check` sauber. **Deploy: `migrate` ist ein garantierter No-Op,
-      kein `--fake-initial`.** Frischer Clone verifiziert: 56 grün, 9 xfailed.
+      `makemigrations --check` sauber. **Deploy: `0001`/`0002` sind in Prod ein garantierter No-Op,
+      kein `--fake-initial`.** *(Nachtrag 3.6: für `migrate` insgesamt gilt das nicht mehr – `0003`
+      wird angewendet und schreibt zwei Tabellen neu, siehe 3.6 und
+      [phase-2-migrations.md](phase-2-migrations.md).)* Frischer Clone verifiziert: 56 grün, 9 xfailed (Stand 2.1).
       Restrisiko dokumentiert: Prod-FKs ohne `DEFERRABLE`, alte Index-Namen → relevant für 3.6.
 - [x] **2.2 `makemigrations` aus dem Deploy-Weg** ✅ – im Flake mit 5.1 entfallen, in der
       [README.md](../README.md) beide Vorkommen ersetzt. Die README war ohnehin durch das Löschen von
