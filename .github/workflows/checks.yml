@@ -1,0 +1,53 @@
+# Führt dieselbe Verifikationsschleife aus, die lokal nach jeder Änderung läuft
+# (notes/handover.md §4). Was hier grün ist, ist auch lokal grün -- und umgekehrt.
+#
+# Der Vorgänger-Workflow baute nur Docker-Images für das abgeschaltete k8s-Deployment und ist
+# mit 4e15012 entfallen; getestet oder gelintet wurde nie (notes/plan.md 5.3).
+name: checks
+
+# Jeder Push auf jeden Branch, genau ein Lauf. Kein `pull_request`-Trigger: für einen PR aus
+# diesem Repo hängt das Ergebnis ohnehin am Commit und erscheint am PR, und beide Trigger
+# zusammen ergäben zwei Läufe pro Push. Für PRs aus einem Fork müsste er ergänzt werden.
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    # Alles Schwere (Python, Django, pytest, ruff) kommt aus cache.nixos.org -- nur der
+    # withPackages-Symlink-Join wird gebaut. Läuft das länger, ist etwas anderes kaputt.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          # Explizit, statt sich auf den Default der Action zu verlassen.
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: nix flake check
+        run: nix flake check -L
+
+      - name: ruff format
+        run: nix develop --command ruff format --check .
+
+      - name: ruff check
+        run: nix develop --command ruff check .
+
+      - name: django check
+        run: nix develop --command python3 manage.py check
+
+      - name: migrations are complete
+        run: nix develop --command python3 manage.py makemigrations --check --dry-run
+
+      - name: pytest
+        run: nix develop --command pytest
