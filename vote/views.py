@@ -1,7 +1,6 @@
 from smtplib import SMTPException
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
 from django.db import transaction
 from django.db.models import F
@@ -9,7 +8,8 @@ from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 
-from .models import POLL_TYPES, Choice, Poll, Token
+from .forms import PollCreateForm
+from .models import Choice, Poll, Token
 
 
 def poll(request, poll_identifier):
@@ -42,37 +42,13 @@ def poll(request, poll_identifier):
 
 
 def index(request):
-    return render(request, "vote/index.html")
+    return render(request, "vote/index.html", {"form": PollCreateForm()})
 
 
 def create(request):
-    def parse_mails(mails):
-        result = []
-        for mail in mails.split("\n"):
-            mail = mail.strip()
-            if not mail:
-                continue
-            if mail.count("@") != 1 or mail.split("@")[1].count(".") == 0:
-                raise ValidationError(f"Mail {mail} invalid")
-            result.append(mail)
-        return result
-
-    def parse_choices(choices):
-        result = []
-        for choice in choices.split("\n"):
-            choice = choice.strip()
-            if not choice:
-                continue
-            result.append(choice)
-        return result
-
     def create_choice_objects(choices, poll):
-        result = []
         for choice in choices:
-            choice_obj = Choice(poll=poll, choice_text=choice)
-            choice_obj.save()
-            result.append(choice_obj)
-        return result
+            Choice(poll=poll, choice_text=choice).save()
 
     def create_token_objects(poll, amount):
         result = []
@@ -128,26 +104,33 @@ def create(request):
                 errors.append(f"{voter_mail} " + str(e))
         return errors
 
-    p_title = request.POST["title"]
-    p_type = request.POST["type"]
-    if p_type not in POLL_TYPES:
-        raise Exception("Invalid poll type")
-    p_description = request.POST["description"]
-    creator_mail = request.POST["creator_mail"]
-    voter_mails = request.POST["voter_mails"]
-    choices = request.POST["choices"]
-    voter_mails = parse_mails(voter_mails)
-    choices = parse_choices(choices)
+    if request.method != "POST":
+        # Ein GET auf /vote/create lief bisher in einen MultiValueDictKeyError, also in einen 500
+        # (B3). Bewusst kein 405: wer die URL aus der History oder einem Lesezeichen aufruft, soll
+        # das Formular sehen und nicht in einer Sackgasse landen.
+        return render(request, "vote/index.html", {"form": PollCreateForm()})
+
+    form = PollCreateForm(request.POST)
+    if not form.is_valid():
+        # Eingabefehler gehören ins Formular, nicht in eine Fehlerseite (B3, B12). Das gebundene
+        # Formular trägt die Eingaben zurück in die Vorlage -- niemand soll 200 Adressen erneut
+        # eintippen müssen.
+        return render(request, "vote/index.html", {"form": form})
+
+    voter_mails = form.cleaned_data["voter_mails"]
     poll = Poll(
-        title=p_title, type=p_type, num_tokens=len(voter_mails), question_text=p_description
+        title=form.cleaned_data["title"],
+        type=form.cleaned_data["type"],
+        num_tokens=len(voter_mails),
+        question_text=form.cleaned_data["description"],
     )
     poll.save()
-    choice_objects = create_choice_objects(choices, poll)
+    create_choice_objects(form.cleaned_data["choices"], poll)
     tokens = create_token_objects(poll, len(voter_mails))
-    send_creator_mail(poll, creator_mail, poll.creator_token, not settings.VOTE_SEND_MAILS)
-    errors = send_mails_with_tokens(poll, voter_mails, tokens, not settings.VOTE_SEND_MAILS)
-    context = {"errors": errors}
-    return render(request, "vote/create.html", context)
+    print_only = not settings.VOTE_SEND_MAILS
+    send_creator_mail(poll, form.cleaned_data["creator_mail"], poll.creator_token, print_only)
+    errors = send_mails_with_tokens(poll, voter_mails, tokens, print_only)
+    return render(request, "vote/create.html", {"errors": errors})
 
 
 def vote(request, poll_identifier):
