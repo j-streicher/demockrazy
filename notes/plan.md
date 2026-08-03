@@ -9,7 +9,7 @@
 
 | # | Ziel | Status |
 |---|------|--------|
-| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0 + 1 ✅, k8s-Cleanup ✅ |
+| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · offen: 3, 4, 5 |
 | 2 | Batch-Modus für Mails bauen | **Spec folgt vom User** – nur Vorarbeit leisten, siehe §8 |
 
 **Wichtig:** Ziel 2 wird vom User später erklärt. Ziel 1 nicht so umbauen, dass Ziel 2 blockiert wird –
@@ -288,23 +288,30 @@ niemanden außer mir nutzbar und in CI wertlos, solange 2.1 nicht erledigt ist.
       Python 3.13.13), Django in Nix nicht mehr unpinned. **Noch offen aus 2.3:**
       `USE_L10N` entfernen und `DEFAULT_AUTO_FIELD` setzen (die 3 verbleibenden `models.W042`) –
       gehört zu 2.4, weil es Settings anfasst.
-- [ ] **2.4 Settings-Layout aufräumen.** Sichere Defaults im Repo (`DEBUG = False`, kein
-      `SECRET_KEY`), `USE_L10N` raus, `DEFAULT_AUTO_FIELD` setzen (erledigt die 3 `models.W042`).
-      **Randbedingungen aus [notes/deployment.md](notes/deployment.md) – hier bricht man Prod:**
-      - `SECRET_KEY` **niemals** hart fehlschlagen lassen (kein `os.environ[...]`, kein `raise`).
-        `demockrazy_config` setzt ihn erst *nach* dem `import *`. Leerer Default, kein Raise.
-      - `local_settings.py` ist in Prod **nicht** im Spiel (`demockrazy_config` ersetzt es).
-        Der `try/except` bleibt für lokale Entwicklung, aber das `print("No local settings found..")`
-        raus – das landet bei jedem Prod-Start im Syslog.
-      - **Kein** `local_settings.py.example` mehr nötig; stattdessen den echten Mechanismus
-        (`DJANGO_SETTINGS_MODULE=demockrazy_config`) in der README erwähnen.
-      Mail-Templates in echte Django-Templates ziehen (Vorarbeit für §11).
-- [ ] **2.5 `manage.py`** auf aktuelles Boilerplate.
-- [ ] **2.6 `python_files`/Deprecation-Warnungen** als Fehler in pytest schalten, damit die nächste
-      Django-Version nicht wieder überrascht.
-- [ ] **2.7 `manage.py check --deploy`** grün bekommen: `SECURE_HSTS_*`, `SECURE_SSL_REDIRECT`,
-      `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `X_FRAME_OPTIONS` in den Prod-Settings.
-      `LOGGING` auf strukturiertes stdout-Logging.
+- [x] **2.4 Settings-Defaults sicher gemacht** ✅
+      `DEBUG = False` als Default, kein `SECRET_KEY` im Repo, Konfiguration über `DEMOCKRAZY_*`.
+      `USE_L10N` raus, `DEFAULT_AUTO_FIELD = AutoField` (**nicht** `BigAutoField` – das hätte eine
+      `AlterField`-Migration erzeugt, die auf SQLite alle drei Tabellen neu schreibt, für null
+      Gewinn). Damit ist `manage.py check` **komplett sauber**, ohne Migrations-Drift.
+      Der `print("No local settings found..")` ist weg (lief bei jedem Prod-Start ins Syslog).
+      Neu: [demockrazy/dev_settings.py](demockrazy/dev_settings.py), weil `DEBUG=False` als Default
+      `runserver` blockiert – analog zu `test_settings.py`, in der README dokumentiert.
+      **Gegen Prod verifiziert:** das generierte `demockrazy_config` nachgebaut und dagegen geladen –
+      `SECRET_KEY` kommt aus der Datei, alle Overrides greifen, `check` sauber.
+      **Verschoben nach 3.4:** die Mail-Texte in echte Django-Templates ziehen. Sie sind kein
+      Settings-Thema, und der Umbau gehört zur Extraktion des Mail-Service – sonst fasse ich
+      `views.py` zweimal an. Die Testsuite deckt die Mailinhalte ab, der Move bleibt damit sicher.
+- [x] **2.5 `manage.py`** ✅ auf aktuelles Boilerplate, `setdefault` beibehalten (Prod setzt
+      `DJANGO_SETTINGS_MODULE=demockrazy_config` im systemd-Service).
+- [x] **2.6 Deprecation-Warnungen als Fehler** ✅ – schon mit 1.1 in `pyproject.toml` erledigt
+      (`filterwarnings = error::DeprecationWarning, error::PendingDeprecationWarning`).
+- [ ] **2.7 `check --deploy` grün bekommen – BLOCKIERT durch F15.**
+      Bereits erledigt bzw. gegenstandslos: `DEBUG`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`
+      (setzt das Modul), `LOGGING` (setzt das Modul), `ALLOWED_HOSTS`.
+      Offen: `SECURE_SSL_REDIRECT`, `SECURE_HSTS_SECONDS`, `CSRF_TRUSTED_ORIGINS`,
+      `SECURE_PROXY_SSL_HEADER`. **Nicht anfassen, bis F15 geklärt ist** – TLS endet vorgelagert,
+      ohne Proxy-Header erzeugt `SECURE_SSL_REDIRECT` eine Redirect-Schleife. Diese Werte gehören
+      ins NixOS-Modul (oder über dessen `djangoSettings`-Option), nicht in die Repo-Defaults.
 
 ## 7. Phase 3 – Code-Modernisierung
 
