@@ -7,7 +7,7 @@ was die Suite rot macht und daran erinnert, den Marker zu entfernen.
 Behobene Bugs bleiben ohne Marker stehen und sind ab dann Regressionstests. Die Nummern
 (B2, B3, ...) bleiben als Verweis auf notes/plan.md §2 erhalten.
 
-Behoben: B3, B6, B11, B12 (Plan 3.2) · B2 (Plan 3.3).
+Behoben: B3, B6, B11, B12 (Plan 3.2) · B2 (Plan 3.3) · die zwei Unique-Constraints (Plan 3.6).
 B15 ist erst in 3.3 aufgefallen und sofort behoben worden, hatte also nie einen Marker -- die
 Regressionstests dazu stehen in test_views.py bei den übrigen Stimmabgabe-Tests.
 """
@@ -114,10 +114,9 @@ def test_b4_poll_creation_is_not_wide_open(lenient_client):
     assert response.status_code in (400, 401, 403, 429)
 
 
-@pytest.mark.xfail(strict=True, reason="3.6: token_string hat keinen UNIQUE-Constraint")
 @pytest.mark.django_db
 def test_token_string_is_unique():
-    """mk_token() prueft auf Kollisionen, die Datenbank erzwingt es aber nicht."""
+    """Seit 3.6 erzwingt die Datenbank das, statt sich auf eine Vorabpruefung zu verlassen."""
     from django.db import IntegrityError
 
     poll = Poll.objects.create(title="P", question_text="?")
@@ -126,7 +125,6 @@ def test_token_string_is_unique():
         Token.objects.create(poll=poll, token_string="derselbe")
 
 
-@pytest.mark.xfail(strict=True, reason="3.6: identifier hat keinen UNIQUE-Constraint")
 @pytest.mark.django_db
 def test_poll_identifier_is_unique():
     from django.db import IntegrityError
