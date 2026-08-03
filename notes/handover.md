@@ -1,7 +1,7 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: 2026-08-03, Branch `update/modernize-2026`, 21 Commits über `master` (Basis `3074dbb`).
+Stand: 2026-08-03, Branch `update/modernize-2026`, 25 Commits über `master` (Basis `3074dbb`).
 Arbeitsbaum ist sauber, alles committed, nichts gepusht.
 
 ---
@@ -34,7 +34,8 @@ insbesondere für Ziel 2 relevant (§7).
 
 ## 3. Zwei Ziele
 
-1. **Auf heutige Standards bringen.** Phase 0, 1 und 2 (außer 2.7) sind fertig, Phase 3–5 offen.
+1. **Auf heutige Standards bringen.** Phase 0, 1 und 2 (außer 2.7) sind fertig, Phase 3 hat mit
+   3.1 begonnen, der Rest von 3 sowie 4 und 5 sind offen.
 2. **Batch-Modus für Mails.** *Spec steht noch aus, der User erklärt sie später.* Nicht spekulativ
    bauen. Phase 3 so anlegen, dass es andockt (§7).
 
@@ -56,7 +57,7 @@ ruff check .
 
 **Sollwerte, an denen du merkst, dass alles in Ordnung ist:**
 
-- `pytest` → **56 passed, 9 xfailed**
+- `pytest` → **91 passed, 9 xfailed**
 - `manage.py check` → **no issues (0 silenced)**
 - `makemigrations --check` → **No changes detected**
 - `ruff format --check` → alle Dateien unverändert
@@ -130,6 +131,7 @@ Die Spec kommt vom User. Was für *jede* Variante gilt und in Phase 3 entstehen 
 | **F5** | Zugangsschutz für `/vote/create` – Login, Invite-Code, IP-Rate-Limit, Empfänger-Deckel? | 3.8, Ziel 2 |
 | **F8** | Anonymität vs. Zustellstatus pro Empfänger – wie weit darf Ziel 2 das aufweichen? | Ziel 2 |
 | **F13** | Wie groß sind Abstimmungen real (Empfänger pro Poll, parallele Polls)? Entscheidet SQLite-Tuning vs. Postgres (B13) und die Batch-Größen. | 5.4, Ziel 2 |
+| **F16** | Sind die drei Verschärfungen aus 3.1 gewollt? Alle sechs Formularfelder Pflicht, Adressprüfung über Djangos Validator statt der alten Heuristik, `title` auf 200 Zeichen begrenzt. Betrifft nur Eingaben, aus denen bisher unbrauchbare Umfragen oder ein 500 wurden. | 3.2 |
 
 Kleinigkeit, kein Blocker: die `type`-Spalte war in der Prod-Schema-Ausgabe abgeschnitten; aus dem
 Modell folgt `varchar(20) NOT NULL`, was der frische Migrationsstand exakt reproduziert. Für letzte
@@ -143,13 +145,17 @@ SELECT identifier,   COUNT(*) c FROM vote_poll  GROUP BY identifier   HAVING c>1
 
 ## 9. Nächster Schritt
 
-Der User hatte die Wahl zwischen Phase 3 und Phase 4 angeboten bekommen und noch nicht entschieden.
+Der User hat sich für **Phase 3** entschieden; **3.1 ist erledigt**
+([vote/forms.py](../vote/forms.py) mit [Tests](../vote/tests/test_forms.py)).
 
-- **Phase 3 (empfohlen):** Forms, die sechs 500-Pfade, Mail-Service herausziehen, Models aufräumen.
-  Das behebt die 9 xfail-Tests und die 3 Ruff-Befunde und ist gleichzeitig die Vorarbeit für Ziel 2.
-  Nicht blockiert – nur 3.8 (Zugangsschutz) braucht F5.
-- **Phase 4:** Frontend. Braucht F4.
-- **2.7:** Braucht F15.
+**Als Nächstes 3.2:** `create()` auf `PollCreateForm` umbauen, GET-Pfad behandeln,
+`parse_mails`/`parse_choices` löschen. Dabei kippen B3, B6 und B12 von `xfail` auf grün – die drei
+Marker in [test_known_bugs.py](../vote/tests/test_known_bugs.py) müssen im selben Commit weg,
+sonst ist die Suite rot (`xfail(strict=True)`, siehe §5). Das Formular ist **absichtlich noch nicht
+verdrahtet**, damit dieser Sprung in einem Commit passiert.
+
+Offen: **F16** (sind die drei Verschärfungen aus 3.1 gewollt? – wird mit 3.2 wirksam),
+**3.8** braucht F5, **Phase 4** braucht F4 für 4.3, **2.7** braucht F15.
 
 Details je Schritt stehen in [plan.md](plan.md) §7–§10.
 
