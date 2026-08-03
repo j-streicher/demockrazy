@@ -164,11 +164,15 @@ aber die Anzeige. → `json_script` verwenden.
 - [x] **0.4 Schema-Snapshot** in [notes/baseline-schema.sql](notes/baseline-schema.sql).
       Nebenbefund: kein `UNIQUE` auf `vote_token.token_string`, kein Index auf `vote_poll.identifier`.
 
-## 4a. Hotfix vorziehen (unabhängig vom Rest)
+## 4a. `DEBUG=False` – Entscheidung: **kein separater Hotfix**
 
-- [ ] **H1 `DEBUG = False`** in [k8s/settings.py](k8s/settings.py). Einzeiler, betrifft die laufende
-      Produktion, wartet nicht auf Phase 1/2. Danach verifizieren, dass die bekannten 500-Pfade
-      generische Fehlerseiten liefern; die *Ursachen* fixt erst Phase 3.
+Vom User am 2026-08-03 entschieden: der Fix läuft **nicht** als vorgezogener Hotfix von `master`,
+sondern regulär in **Phase 2.4** in diesem Branch mit.
+
+Konsequenz, die ich im Blick behalten muss: bis zum Deploy des Update-Branches bleibt Prod auf
+`DEBUG=True`, d. h. der Mailadressen-Leak über die 500-Pfade (B5/B12) ist bis dahin offen.
+Damit wird **2.4 zum kritischen Pfad** – nicht auf Phase 3/4 warten lassen, und beim Deploy
+zuerst 2.4 + die Fixes zu B2/B3/B11/B12 aus Phase 3 zusammen ausrollen.
 
 ## 5. Phase 1 – Fundament: Dependencies, Tooling, Tests
 
@@ -184,8 +188,9 @@ aber die Anzeige. → `json_script` verwenden.
       `get_amount_used_unused()` in allen drei Fällen. **Auch die Bugs B2/B3/B6 als
       `xfail`-Tests** festhalten → werden in Phase 3 zu grünen Tests.
 - [ ] **1.5 `default.nix`** entfernen (oder auf flake-compat reduzieren) – Duplikat zum Flake.
-- [ ] **1.6 `flake.nix`**: `devShells` um `ruff`, `pytest` erweitern; `nixpkgs`-Input aktualisieren
-      (Ergebnis aus 0.1); `flake.lock` neu.
+- [ ] **1.6 `flake.nix`**: `nixpkgs`-Input auf `github:NixOS/nixpkgs/nixos-26.05` (F3 entschieden),
+      `flake.lock` neu, `devShells` um `ruff` + `pytest` erweitern. Danach `nix build` auf beide
+      Images gegenprüfen – der Sprung 23.11 → 26.05 zieht auch nginx/openssl/uwsgi mit.
 
 ## 6. Phase 2 – Django-Upgrade & Konfiguration
 
@@ -301,7 +306,7 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
 |---|-------|-----------|
 | ~~F1~~ | ~~Läuft Prod mit `DEBUG=True`?~~ → **ja, in 0.3 bestätigt.** Neue Frage: darf H1 (`DEBUG=False`) sofort raus? | H1 |
 | ~~F2~~ | ~~Django-Zielversion?~~ → **5.2.16 LTS**, das ist auch die einzige, die nixpkgs liefert | – |
-| **F3** | nixpkgs-Input: `mf-stable` hängt auf nixos-25.11 und liefert nur Django 4.2.28. Auf `NixOS/nixpkgs/nixos-26.05` wechseln (empfohlen), oder `mf-stable` intern anheben lassen? Gibt es einen Binary-Cache-/Backport-Grund für `mf-stable`? | 1.6, 2.3 |
+| ~~F3~~ | ~~nixpkgs-Input?~~ → **entschieden: Wechsel auf `github:NixOS/nixpkgs/nixos-26.05`.** Damit Django 5.2.16 / Python 3.13.14 / PG 17.10 ohne Overlays. Beim Umstellen darauf achten, ob CI-Buildzeiten durch fehlende Mayflower-Cache-Treffer steigen (→ 5.1 Nix-Cache). | – |
 | F4 | Highcharts-Lizenz: existiert eine kommerzielle Lizenz, oder ersetzen? (B8) | 4.3 |
 | F5 | Zugangsschutz für Poll-Erstellung – welche Variante? (B4/3.8) | 3.8, Ziel 2 |
 | F6 | uwsgi behalten oder auf gunicorn wechseln? (5.2) | 5.2 |
