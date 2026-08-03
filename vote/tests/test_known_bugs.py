@@ -7,7 +7,7 @@ was die Suite rot macht und daran erinnert, den Marker zu entfernen.
 Behobene Bugs bleiben ohne Marker stehen und sind ab dann Regressionstests. Die Nummern
 (B2, B3, ...) bleiben als Verweis auf notes/plan.md §2 erhalten.
 
-Behoben: B3, B6, B12 (Plan 3.2).
+Behoben: B3, B6, B11, B12 (Plan 3.2).
 """
 
 import pytest
@@ -87,12 +87,14 @@ def test_b2_vote_without_token_field_shows_an_error(lenient_client, create_poll)
     assert response.status_code != 500
 
 
-@pytest.mark.xfail(strict=True, reason="B11: manage() liest request.POST['token'] ohne Guard")
 @pytest.mark.django_db
 def test_b11_manage_without_token_field_shows_an_error(lenient_client, create_poll):
     poll, _ = create_poll()
     response = lenient_client.post(f"/vote/{poll.identifier}/manage", {})
     assert response.status_code != 500
+    assert response.context["error_message"] == "Wrong management token"
+    poll.refresh_from_db()
+    assert poll.is_active is True, "eine Umfrage ohne Token darf nicht geschlossen werden"
 
 
 @pytest.mark.xfail(strict=True, reason="B4: create() ist unauthentifiziert und ohne Rate-Limit")

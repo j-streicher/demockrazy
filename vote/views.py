@@ -201,7 +201,9 @@ def manage(request, poll_identifier):
     if not poll.is_active:
         return HttpResponseRedirect(reverse("vote:polls:result", args=(poll_identifier,)))
     if request.method == "POST":
-        token = request.POST["token"]
+        # .get() statt []: ein POST ohne Token-Feld war ein MultiValueDictKeyError, also ein 500
+        # (B11). Ein leerer Token ist einfach der falsche Token -- creator_token ist nie leer.
+        token = request.POST.get("token", "")
         if poll.creator_token == token:
             poll.is_active = False
             poll.save()
