@@ -47,6 +47,9 @@ The suite runs against `demockrazy/test_settings.py` (in-memory SQLite, mails ca
 each marked `xfail(strict=True)`. Fixing one of them turns the suite red — that is the reminder to
 remove the marker.
 
+`.github/workflows/checks.yml` runs the same commands on every push, plus `manage.py check`,
+`manage.py makemigrations --check --dry-run` and `nix flake check`.
+
 ## Configuration
 
 `demockrazy/settings.py` holds the defaults. Three ways to override them, in the order they apply:
