@@ -16,7 +16,6 @@ downloads/
 eggs/
 .eggs/
 lib/
-!k8s/lib/
 lib64/
 parts/
 sdist/
@@ -67,7 +66,5 @@ target/
 db.sqlite3
 migrations/
 static/
-
-k8s/vendor
 
 .direnv
