@@ -4,11 +4,11 @@ Erledigt 2026-08-03, Commit „Commit the migrations, reconstructing production'
 
 ## Das Problem
 
-`migrations/` stand in [.gitignore](.gitignore). [vote/migrations/](vote/migrations/) enthielt nur
+`migrations/` stand in [.gitignore](../.gitignore). [vote/migrations/](../vote/migrations/) enthielt nur
 `__init__.py`. Konsequenzen:
 
 - **Kein Nachweis im Repo, welches Schema in Produktion liegt.**
-- Jede Umgebung erzeugte sich ihre Migration selbst; die [README.md](README.md) instruierte das
+- Jede Umgebung erzeugte sich ihre Migration selbst; die [README.md](../README.md) instruierte das
   sogar ausdrücklich (`makemigrations` vor `migrate`).
 - Modelländerungen waren nicht reviewbar und nicht reproduzierbar.
 - Die Testsuite aus Phase 1 lief **nur lokal**: auf einem frischen Clone fielen 49 von 56 Tests um,
@@ -55,10 +55,10 @@ und Modelldefinition (`CharField(max_length=20, default="simple_choice")`) ergeb
 Nicht eine zusammengefasste `0001_initial`, sondern **beide Migrations unter ihren
 Originalnamen**:
 
-1. `type` und `num_tokens` temporär aus [vote/models.py](vote/models.py) entfernt
-   → `makemigrations vote --name initial` → [0001_initial.py](vote/migrations/0001_initial.py)
+1. `type` und `num_tokens` temporär aus [vote/models.py](../vote/models.py) entfernt
+   → `makemigrations vote --name initial` → [0001_initial.py](../vote/migrations/0001_initial.py)
 2. Modell wiederhergestellt → `makemigrations vote --name auto_20160701_2022`
-   → [0002_auto_20160701_2022.py](vote/migrations/0002_auto_20160701_2022.py)
+   → [0002_auto_20160701_2022.py](../vote/migrations/0002_auto_20160701_2022.py)
    (fügt `num_tokens` und `type` an)
 
 ### Warum das nachweislich richtig ist
@@ -119,7 +119,7 @@ Backup und nur, wenn es einen konkreten Anlass gibt. Nicht vorsorglich.
 
 ## Ergebnis
 
-- [notes/baseline-schema.sql](notes/baseline-schema.sql) ist damit überholt (es zeigte den Stand
+- [notes/baseline-schema.sql](baseline-schema.sql) ist damit überholt (es zeigte den Stand
   einer *zusammengefassten* Migration) – bleibt als Phase-0-Artefakt liegen, die maßgebliche
   Referenz ist ab jetzt dieses Dokument.
 - Testsuite auf einem frischen `git clone` verifiziert: **56 grün, 9 xfailed.**

@@ -35,7 +35,7 @@ tatsächlich liefert — nixpkgs führt kein Django 6.x). Damit ist Plan-Frage F
   (fehlendes `DEFAULT_AUTO_FIELD`). `check --deploy`: 9 Issues (siehe 0.3).
 - `nix build .#dockerImages.x86_64-linux.{default,nginx}` → **beide Images bauen fehlerfrei.**
   Im nginx-Image steckt nginx 1.24.0 / openssl 3.0.12 (ebenfalls alt, kommt mit dem Lock-Bump mit).
-- Happy Path funktional durchgetestet (Skript: [notes/baseline_probe.py](notes/baseline_probe.py),
+- Happy Path funktional durchgetestet (Skript: [notes/baseline_probe.py](baseline_probe.py),
   21 Fälle, läuft gegen eine temporäre Test-DB).
 
 ### Verhalten Django 4.2.9 vs. 5.2.16 – **identisch**
@@ -80,11 +80,13 @@ Der Aufwand steckt nicht im Upgrade, sondern in den Altlasten (Migrations, Setti
 
 > ### ⚠️ KORREKTUR 2026-08-03 – der Abschnitt unten beschreibt das FALSCHE Deployment
 >
-> Ich hatte `briefwahl.mayflower.cloud` / [k8s/settings.py](k8s/settings.py) für die Produktion
-> gehalten. Vom User klargestellt:
+> Ich hatte `briefwahl.mayflower.cloud` / `k8s/settings.py` für die Produktion gehalten.
+> Tatsächlich:
 >
-> - **Produktion ist `wahlcomputer.mayflower.de`**, konfiguriert über `demockrazy/local_settings.py`
->   (gitignored). Dort ist **`DEBUG = False`** gesetzt.
+> - **Produktion ist `wahlcomputer.mayflower.de`**, konfiguriert durch ein vom NixOS-Modul
+>   `mayflower.demockrazy` **generiertes** Settings-Modul `demockrazy_config`, das
+>   **`DEBUG = False`** setzt. (Zwischenschritt, ebenfalls korrigiert: ich nahm zunächst an, eine
+>   `local_settings.py` täte das – siehe [deployment.md](deployment.md).)
 > - **Das k8s-Deployment ist abgeschaltet.** `k8s/`, `nix/*-image.nix`, `.sops.yaml` und der
 >   Image-Build in der CI sind toter Code (→ Plan 5.1).
 > - Der `SECRET_KEY` im weitergegebenen `local_settings.py` war vom User redigiert, **nicht** der
@@ -104,7 +106,7 @@ Der Aufwand steckt nicht im Upgrade, sondern in den Altlasten (Migrations, Setti
 
 ### `DEBUG=True` – galt für das inzwischen abgeschaltete k8s-Deployment (ursprüngliche Analyse)
 
-[k8s/settings.py](k8s/settings.py) importiert `from demockrazy.settings import *` und überschreibt
+Das damalige `k8s/settings.py` importierte `from demockrazy.settings import *` und überschrieb
 `DEBUG` **nicht**. Effektive Prod-Settings, ausgewertet mit gesetzten Env-Variablen:
 
 ```
@@ -133,12 +135,12 @@ die Anonymität der Stimmen ist dadurch also nicht direkt gebrochen. Es ist eine
 Informationspreisgabe personenbezogener Daten (Mailadressenlisten) plus Infrastrukturdetails.
 
 → **`DEBUG=False` ist der erste Fix, unabhängig vom Rest des Plans.** Ein Einzeiler in
-[k8s/settings.py](k8s/settings.py), sofort deploybar, ohne auf Phase 1/2 zu warten.
+`k8s/settings.py`, sofort deploybar, ohne auf Phase 1/2 zu warten.
 Empfehlung: als eigener Hotfix-Commit vorziehen. Danach die 500-Pfade in Phase 3 richtig fixen.
 
 ### Noch offen (braucht Server-Zugang – kann ich nicht selbst)
 
-**Prod-Schema-Stand** (Plan-Frage F12), Gegenprobe zu [notes/baseline-schema.sql](notes/baseline-schema.sql),
+**Prod-Schema-Stand** (Plan-Frage F12), Gegenprobe zu [notes/baseline-schema.sql](baseline-schema.sql),
 bevor die eingecheckte `0001_initial` in Phase 2.1 scharf gestellt wird. Prod ist SQLite, also
 nur lesend auf dem Server:
 
@@ -158,7 +160,7 @@ Django-Upgrade dort überhaupt ankommt.
 
 ## 0.4 Schema-Snapshot
 
-Abgelegt: [notes/baseline-schema.sql](notes/baseline-schema.sql) – die drei `vote_*`-Tabellen
+Abgelegt: [notes/baseline-schema.sql](baseline-schema.sql) – die drei `vote_*`-Tabellen
 inkl. der beiden FK-Indizes, erzeugt aus `makemigrations` auf Django 4.2.9.
 Referenz für die Verifikation der eingecheckten Migration (Plan 2.1).
 

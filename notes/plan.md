@@ -9,11 +9,11 @@
 
 | # | Ziel | Status |
 |---|------|--------|
-| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0 + 1 ✅, k8s-Cleanup ✅ |
-| 2 | Batch-Modus für Mails bauen | **Spec folgt vom User** – nur Vorarbeit leisten, siehe §8 |
+| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · offen: 3, 4, 5 |
+| 2 | Batch-Modus für Mails bauen | **Spec folgt vom User** – nur Vorarbeit leisten, siehe §11 |
 
 **Wichtig:** Ziel 2 wird vom User später erklärt. Ziel 1 nicht so umbauen, dass Ziel 2 blockiert wird –
-im Gegenteil: die Mail-Logik so herausziehen, dass ein Batch-Versand sauber andocken kann (§8).
+im Gegenteil: die Mail-Logik so herausziehen, dass ein Batch-Versand sauber andocken kann (§11).
 
 ---
 
@@ -26,49 +26,45 @@ Flow: Jemand erstellt ohne Login eine Umfrage → System generiert pro Wähler-M
 → Umfrage schließt automatisch, wenn alle Tokens verbraucht sind → Ergebnisse werden sichtbar.
 
 Modelle: `Poll` (title, type, num_tokens, question_text, creator_token, identifier, is_active),
-`Choice` (poll, choice_text, votes), `Token` (poll, token_string) – alle in [vote/models.py](vote/models.py).
+`Choice` (poll, choice_text, votes), `Token` (poll, token_string) – alle in [vote/models.py](../vote/models.py).
 
 **Deployment (Stand 2026-08-03, aus der Colmena-Node-Config des Users):**
 
 Produktiv ist `wahlcomputer.mayflower.de`, ausgerollt per **colmena** (Zielhost
 `wahlcomputer.dmz.muc.mayflower.zone`, Tags `ci-build`/`vm`). Die App wird von einem
-**eigenen NixOS-Modul `mayflower.demockrazy`** gestartet – das liegt vermutlich im
-Mayflower-nixpkgs-Fork und ist **der Grund, warum es `mf-stable`/`mf-next` überhaupt gibt**.
+**eigenen NixOS-Modul `mayflower.demockrazy`** gestartet – das liegt **außerhalb dieses Repos** und
+erklärt, warum es den Mayflower-nixpkgs-Fork mit seinen `mayflower.*`-Modulen gibt.
 
-Belegte Fakten:
-- **uwsgi über Unix-Socket:** nginx macht `uwsgi_pass unix:/run/demockrazy/uwsgi.socket`.
-- **Statische Dateien von nginx:** `location /static` mit `root = /var/lib/demockrazy/`
-  ⇒ `collectstatic` schreibt nach `/var/lib/demockrazy/static` (= `STATIC_ROOT` aus
-  `BASE_DIR/static`, also **`BASE_DIR = /var/lib/demockrazy`**).
-- **SQLite unter `/var/lib/demockrazy/db.sqlite3`**, eigener `demockrazy`-User/-Group.
-- **Backups laufen:** borg onsite 03:00 + offsite 04:00 auf `/var/lib/demockrazy`,
-  `borg`-User ist in der `demockrazy`-Gruppe. (Damit ist die Backup-Frage aus 5.4 beantwortet.)
-- Secrets über **sops-nix**: `secretKeyFile` und `mail.passwordFile` als Pfade.
-- Modul-Optionen: `enable`, `secretKeyFile`, `mail.{host,from,port,user,passwordFile}`,
-  `baseUrl`, `allowedHosts`.
+**Vollständige Analyse des Moduls: [notes/deployment.md](deployment.md).** Kurzfassung:
 
-⚠️ **Die Settings werden vom Modul generiert, nicht von der `local_settings.py`, die ich gesehen
-habe.** Beweis: der Node konfiguriert `smtp.mayflower.de:587` mit User + Passwortdatei, die Datei
-unter `~/Desktop/democ-settings/` nennt `mail.mayflower.de:25` mit auskommentiertem User.
-Die Datei ist also veraltet oder war nie die deployte.
+- App läuft **aus dem Nix-Store** unter uwsgi (4 Prozesse), `ProtectSystem = "full"`,
+  nginx via `uwsgi_pass unix:/run/demockrazy/uwsgi.socket`.
+- `DJANGO_SETTINGS_MODULE=demockrazy_config` – ein **vom Modul generiertes** Settings-Modul, das
+  `from demockrazy.settings import *` macht und danach überschreibt. `local_settings.py` ist in
+  Produktion **nicht** im Spiel; die Datei unter `~/Desktop/democ-settings/` war veraltet
+  (sie nennt `mail.mayflower.de:25`, der Node konfiguriert `smtp.mayflower.de:587`).
+- **`BASE_DIR` ist der Store-Pfad, nicht `/var/lib/demockrazy`** – DB und `STATIC_ROOT` werden
+  *absolut* dorthin umgebogen, weil der Store read-only ist.
+- **`DEBUG = False` ist bestätigt** (explizit im generierten Modul) → F14 beantwortet.
+  Ebenso `CSRF_COOKIE_SECURE`/`SESSION_COOKIE_SECURE` und `LOGGING`.
+- **Backups laufen:** borg onsite 03:00 + offsite 04:00 auf `/var/lib/demockrazy` → 5.4 beantwortet.
+- `preStart` ruft `migrate` und `collectstatic --noinput` – kein `makemigrations`.
+- **Löschcommit `4e15012` ist bestätigt risikofrei:** das Modul konsumiert keine Flake-Outputs
+  dieses Repos, nur den Quelltext.
 
-**Konsequenz: der Befund „Prod setzt `DEBUG = False`" ist nicht mehr belegt.** Er stützte sich
-allein auf jene Datei. Ob das generierte Settings-File `DEBUG` setzt, ist offen → **F14**,
-blockiert 2.4. Das Modul hat *keine* `debug`-Option, was in beide Richtungen deutbar ist.
+⚠️ **Wie das Upgrade Prod erreicht – zwei Änderungen im User-Repo, nicht hier:**
+1. Das Modul pinnt `rev = 3074dbb` (= Basis-Commit dieses Branches) per `fetchFromGitHub`.
+   Ohne `rev`+`sha256`-Bump ändert sich in Produktion **nichts**.
+2. Die **Django-Version kommt aus der nixpkgs des Colmena-Flakes**, nicht aus diesem Repo
+   (`pkgs.python3Packages.django`): `mf-stable` → 4.2.28 (EOL), `mf-next` → 5.2.15.
+   `pyproject.toml` dokumentiert die Anforderung, erzwingt sie nicht.
 
-**Noch offen:** wie der Quellcode nach `/var/lib/demockrazy` kommt (Store ist read-only, SQLite
-und `static/` brauchen aber Schreibrechte im `BASE_DIR`) und **ob das Modul etwas aus diesem Repo
-konsumiert** – letzteres ist die verbliebene Unsicherheit am Löschcommit `4e15012`.
-
-**Das k8s-Deployment (`briefwahl.mayflower.cloud`) ist abgeschaltet.** Damit sind toter Code:
-[k8s/](k8s/) (Tanka/Jsonnet, Zalando-Postgres, k8s-libsonnet 1.25), [k8s/settings.py](k8s/settings.py),
-[nix/demockracy-image.nix](nix/demockracy-image.nix), [nix/nginx-image.nix](nix/nginx-image.nix),
-die `dockerImages`/`uwsgi`/`django_config`-Outputs und der `argocd-nix-flakes-plugin`-Input in
-[flake.nix](flake.nix), [.sops.yaml](.sops.yaml) sowie der Image-Build in
-[.github/workflows/build.yml](.github/workflows/build.yml). → siehe Phase 5.
-
-**Noch offen:** wie `wahlcomputer.mayflower.de` konkret gestartet wird (NixOS-Modul? uwsgi/gunicorn
-hinter nginx? systemd? welcher User, welcher Pfad zur `db.sqlite3`?). Das bestimmt Phase 5 komplett.
+**Das k8s-Deployment (`briefwahl.mayflower.cloud`) ist abgeschaltet.** War toter Code und ist
+**in `4e15012` entfernt**: `k8s/` (Tanka/Jsonnet, Zalando-Postgres, k8s-libsonnet 1.25) inkl.
+`k8s/settings.py`, `nix/demockracy-image.nix`, `nix/nginx-image.nix`, die Flake-Outputs
+`dockerImages`/`packages.uwsgi`/`packages.django_config`/`apps`, der
+`argocd-nix-flakes-plugin`-Input und der GHCR-Image-Build in `.github/workflows/build.yml`.
+Wiederherstellbar über `git revert 4e15012`.
 
 ---
 
@@ -85,32 +81,52 @@ hinter nginx? systemd? welcher User, welcher Pfad zur `db.sqlite3`?). Das bestim
 | Python | `python3` aus nixpkgs 23.11 → 3.11 | System hat 3.14.4 |
 | Dependency-Manifest | **keines** (kein `pyproject.toml`, kein `requirements.txt`) | nur Nix + README-Prosa |
 | Linter/Formatter | keiner | |
-| Tests | [vote/tests.py](vote/tests.py) ist leer | keine Testabdeckung |
+| Tests | `vote/tests.py` enthielt nur einen Kommentar | keine Testabdeckung |
 | `default.nix` | Legacy `with import <nixpkgs> {}`, `stdenv.mkDerivation` als Shell-Hack | Duplikat zum Flake |
 | CI | `actions/checkout@v3`, `cachix/install-nix-action@v18`, `docker/login-action` auf altem SHA | nur Build, kein Test/Lint |
 | Frontend | Bootstrap 3.3.6 (2016), jQuery 2.2.4 (2016), Highcharts 4.2.5 (2016) – alle vendored | |
-| Datenbank (Prod) | **SQLite**, `BASE_DIR/db.sqlite3` | + `ATOMIC_REQUESTS=True` → Lock-Risiko, siehe B13 |
+| Datenbank (Prod) | **SQLite**, `/var/lib/demockrazy/db.sqlite3` | + `ATOMIC_REQUESTS=True` → Lock-Risiko, siehe B13 |
 | k8s / Docker / sops | k8s-libsonnet 1.25, PG 14, GHCR-Images | **toter Code** – Deployment abgeschaltet, siehe Phase 5 |
 
-### Blocker & Bugs (nach Priorität)
+### Bug-Register
+
+| # | Kurz | Status |
+|---|---|---|
+| B1 | Migrations gitignored | ✅ **behoben** in 2.1 |
+| B2 | `UnboundLocalError` in `vote()` | offen → 3.3 |
+| B3 | `create()` crasht bei GET / ungültigem Typ | offen → 3.2 |
+| B4 | Kein Auth/Rate-Limit auf `/vote/create` | offen → 3.8, **braucht F5** |
+| B5 | Unsichere Settings-Defaults | ✅ **behoben** in 2.4 |
+| B6 | Doppelte Adressen → doppelte Tokens | offen → 3.1 |
+| B7 | Mailversand innerhalb der Transaktion | offen → 3.4 |
+| B8 | Highcharts proprietär lizenziert | offen → 4.3, **braucht F4** |
+| B9 | Token im URL-Query-String | offen, Entscheidung nötig |
+| B10 | Templating in Inline-JS | offen → 4.3 |
+| B11 | `manage()` crasht ohne `token`-Feld | offen → 3.2 |
+| B12 | `ValidationError` ungefangen | offen → 3.1/3.2 |
+| B13 | Prod läuft auf SQLite (Lock-Risiko) | offen → 5.4, **braucht F13** |
+| B14 | TLS-Hardening unvollständig | offen → 2.7, **braucht F15** |
+
+B2, B3, B4, B6, B11, B12 sind als `xfail(strict=True)` in
+[vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py) spezifiziert.
+
 
 **B1 – Migrations sind gitignored.**
-`.gitignore:60` schließt `migrations/` aus, [vote/migrations/](vote/migrations/) enthält nur `__init__.py`.
+`.gitignore:60` schließt `migrations/` aus, [vote/migrations/](../vote/migrations/) enthält nur `__init__.py`.
 Es gibt damit **keinen Nachweis im Repo, welches Schema in Produktion liegt**; jedes System erzeugt
-sich seine Migration selbst (die [README.md](README.md) instruiert genau das: `makemigrations` vor
+sich seine Migration selbst (die [README.md](../README.md) instruiert genau das: `makemigrations` vor
 `migrate`). Modelländerungen sind so nicht reproduzierbar und nicht reviewbar.
-**Das muss zuerst weg.** Voraussetzung: Prod-Schema + `django_migrations`-Inhalt (Phase 0.3, offen).
-
-*Hinweis:* Der zusätzliche `makemigrations`-beim-Containerstart im uwsgi-Wrapper von
-[flake.nix](flake.nix) gehörte zum abgeschalteten k8s-Deployment und fällt mit Phase 5.1 weg.
+✅ **Behoben in 2.1** – siehe [notes/phase-2-migrations.md](phase-2-migrations.md).
+Der zusätzliche `makemigrations`-beim-Containerstart im uwsgi-Wrapper des Flakes gehörte zum
+k8s-Deployment und ist mit `4e15012` weg.
 
 **B2 – `UnboundLocalError` in `vote()`.**
-[vote/views.py](vote/views.py) – `token_string = request.POST['token']` steht *innerhalb* des `try`.
+[vote/views.py](../vote/views.py) – `token_string = request.POST['token']` steht *innerhalb* des `try`.
 Fehlt `token` im POST, wirft es `KeyError` → der Handler greift auf das nie zugewiesene
 `token_string` zu → 500 statt Fehlermeldung.
 
 **B3 – `create()` akzeptiert GET und crasht.**
-[vote/views.py](vote/views.py) greift direkt auf `request.POST[...]` zu, ohne `require_POST`.
+[vote/views.py](../vote/views.py) greift direkt auf `request.POST[...]` zu, ohne `require_POST`.
 `GET /vote/create` → `MultiValueDictKeyError` → 500. Ebenso `raise Exception('Invalid poll type')` → 500.
 
 **B4 – Kein Auth, kein Rate-Limit auf `/vote/create`.**
@@ -118,16 +134,16 @@ Jeder im Netz kann beliebig viele Umfragen anlegen und damit **beliebig viele Ma
 SMTP-Account von Mayflower versenden**. Offenes Mail-Relay in der Praxis.
 Vor Ziel 2 (Batch-Versand) zwingend zu adressieren, sonst skaliert man den Missbrauch mit.
 
-**B5 – Unsichere Defaults in [demockrazy/settings.py](demockrazy/settings.py).**
+**B5 – Unsichere Defaults in [demockrazy/settings.py](../demockrazy/settings.py).**
 `DEBUG = True` und ein hardcodierter `SECRET_KEY` im öffentlichen Repo als Default.
-**Produktion ist davon nicht betroffen** – `local_settings.py` setzt `DEBUG = False` und einen
-eigenen `SECRET_KEY` (vom User bestätigt). Das Risiko ist also, dass ein *neues* Deployment ohne
-`local_settings.py` still mit unsicheren Defaults hochkommt. Fix: sichere Defaults
-(`DEBUG = False`, kein Key im Repo), Konfiguration über Environment (Phase 2.4).
+Produktion war nie betroffen – das generierte `demockrazy_config` setzt beides.
+Das Risiko war, dass ein *neues* Deployment still mit unsicheren Defaults hochkommt.
+✅ **Behoben in 2.4.**
 
-*Historie: Ich hatte in Phase 0.3 zunächst „Prod läuft mit DEBUG=True" befundet – das galt für
-[k8s/settings.py](k8s/settings.py) und `briefwahl.mayflower.cloud`, das inzwischen abgeschaltet ist.
-Der dort beschriebene Mailadressen-Leak über die 500-Pfade ist damit nicht produktionsrelevant.*
+*Historie, zweimal korrigiert: In Phase 0.3 hatte ich „Prod läuft mit DEBUG=True" befundet – das
+galt für `k8s/settings.py` und das abgeschaltete `briefwahl.mayflower.cloud`. Danach nahm ich an,
+`local_settings.py` setze `DEBUG = False`; tatsächlich tut das das NixOS-Modul (§1). Der
+Mailadressen-Leak über die 500-Pfade war also nie produktionsrelevant.*
 
 **B13 – Produktion läuft auf SQLite.**
 `local_settings.py` überschreibt `DATABASES` nicht ⇒ `django.db.backends.sqlite3`.
@@ -143,10 +159,10 @@ Vorher messen, nicht raten – und klären, wie oft/wie groß Abstimmungen real 
 Es fehlen: `SECURE_SSL_REDIRECT`, `SECURE_HSTS_SECONDS`, `CSRF_TRUSTED_ORIGINS` und
 `SECURE_PROXY_SSL_HEADER`. **Nicht blind einschalten** – TLS endet vorgelagert, ohne Proxy-Header
 gibt `SECURE_SSL_REDIRECT` eine Redirect-Schleife. Gehört ins Modul, nicht in die Repo-Defaults.
-→ 2.7, blockiert durch F15. Details in [notes/deployment.md](notes/deployment.md).
+→ 2.7, blockiert durch F15. Details in [notes/deployment.md](deployment.md).
 
 **B11 – `manage()` crasht bei POST ohne `token`-Feld.**
-[vote/views.py](vote/views.py) – `request.POST['token']` ohne Guard → `MultiValueDictKeyError` → 500.
+[vote/views.py](../vote/views.py) – `request.POST['token']` ohne Guard → `MultiValueDictKeyError` → 500.
 Gleiche Klasse wie B3, eigene Stelle.
 
 **B12 – `ValidationError` aus `parse_mails()` wird nicht gefangen.**
@@ -163,31 +179,35 @@ die Tokens aber nicht in der DB. Umgekehrt blockiert ein hängender SMTP-Server 
 
 **B8 – Highcharts 4.2.5 ist proprietär lizenziert.**
 Kein Free-/Open-Source-Lizenzmodell für kommerzielle Nutzung. Vendored in
-[vote/static/highcharts-custom.js](vote/static/highcharts-custom.js) in einem MIT-Repo.
+[vote/static/highcharts-custom.js](../vote/static/highcharts-custom.js) in einem MIT-Repo.
 → Durch Chart.js (MIT) oder ECharts (Apache-2.0) ersetzen. **Lizenzfrage an User weitergeben.**
 
 **B9 – Token im URL-Query-String.**
-`?token=…` landet im nginx-`access_log` (`access_log /dev/stdout` → k8s-Logs), im Referer und in
-der Browser-History. Der Token ist das einzige Auth-Merkmal.
+`?token=…` landet im nginx-Access-Log des Hosts, im Referer und in der Browser-History.
+Der Token ist das einzige Auth-Merkmal. Eine Änderung wäre nur **additiv** möglich (Regel 4:
+es sind Mails mit solchen Links unterwegs) – z. B. Token per POST/Session einlösen und den
+GET-Pfad weiter unterstützen. Braucht eine Entscheidung, ob der Aufwand lohnt.
 
 **B10 – Templating in Inline-JS.**
-[vote/templates/vote/results.html](vote/templates/vote/results.html) interpoliert `choice_text`
+[vote/templates/vote/results.html](../vote/templates/vote/results.html) interpoliert `choice_text`
 direkt in ein JS-String-Literal. Django-Autoescaping verhindert hier zwar einen Ausbruch, mangelt
 aber die Anzeige. → `json_script` verwenden.
 
 ### Kleinere Punkte
-- `USE_L10N` ist seit Django 5.0 entfernt → Warnung/Fehler.
-- Kein `DEFAULT_AUTO_FIELD` → Django-Warnung seit 3.2.
-- `re_path` überall, wo `path()`-Converter reichen ([demockrazy/urls.py](demockrazy/urls.py), [vote/urls.py](vote/urls.py)).
-- `len(Token.objects.filter(...))` statt `.count()` in `Poll.get_amount_used_unused()`.
-- `mk_token()`/`mk_identifier()` rekursiv statt Schleife (theoretischer Stack-Overflow).
-- `manage.py` ohne den modernen `try/except ImportError`-Block.
-- nginx-Image serviced `vote/static` direkt aus dem Source-Tree – kein `collectstatic`,
-  keine gehashten Dateinamen, kein Cache-Busting.
-- README empfiehlt `pip3 install --user django==2.2.27`.
-- Templates: `<th>…</td>`-Mismatch in `results.html`; Bootstrap-3-Markup durchgehend.
-- Keine `LOGGING`-Konfiguration, keine Health-/Readiness-Probe im Deployment.
-- Kein `HttpResponseNotAllowed`-Handling, kein `SECURE_*`/HSTS/`CSRF_COOKIE_SECURE` in Prod-Settings.
+
+Erledigt: `USE_L10N` (2.4) · `DEFAULT_AUTO_FIELD` (2.4) · `manage.py`-Boilerplate (2.5) ·
+README/`pip3 install django==2.2.27` (2.2) · `LOGGING` (setzt das Prod-Modul) ·
+Static-Handling aus dem Source-Tree (mit den Docker-Images in `4e15012` weg).
+
+Noch offen:
+- `re_path` überall, wo `path()`-Converter reichen ([demockrazy/urls.py](../demockrazy/urls.py),
+  [vote/urls.py](../vote/urls.py)) → 3.7.
+- `len(Token.objects.filter(...))` statt `.count()` in `Poll.get_amount_used_unused()` → 3.6.
+- `mk_token()`/`mk_identifier()` rekursiv statt Schleife (theoretischer Stack-Overflow) → 3.6.
+- Kein Cache-Busting für Static Files → 4.4.
+- Templates: `<th>…</td>`-Mismatch in `results.html`; Bootstrap-3-Markup durchgehend → 4.1/4.5.
+- Kein `HttpResponseNotAllowed`-Handling → 3.2.
+- Kein `/healthz` → 5.5.
 
 ---
 
@@ -200,41 +220,43 @@ aber die Anzeige. → `json_script` verwenden.
    Feature-Änderungen (z. B. Mail-Texte, Token-Längen, URL-Struktur).
 4. **URLs stabil halten.** Es existieren verschickte Mails mit `?token=…`-Links auf bestehende
    Polls. `/vote/<identifier>/…` darf sich nicht ändern; Migration von B9 nur additiv.
-5. **Keine Prod-Deployment-Schritte ohne Rückfrage.** k8s/Jsonnet/CI-Änderungen vorbereiten,
-   aber Rollout ist Sache des Users.
+5. **Keine Prod-Deployment-Schritte ohne Rückfrage.** Das NixOS-Modul liegt außerhalb dieses
+   Repos; Änderungen daran benennen, aber nicht selbst machen. Rollout ist Sache des Users.
 6. **Versionsnummern nie aus dem Gedächtnis setzen** – immer gegen nixpkgs / PyPI verifizieren
    (Phase 0, Schritt 0.1). Das gilt für Django, Python, nixpkgs-Release, k8s-libsonnet, Actions.
-7. **Nach jeder Phase:** `ruff check`, `pytest`, `manage.py check --deploy`, `nix build` – und den
-   Fortschritt hier im Plan abhaken.
-8. **Bei Unklarheit im Plan notieren**, in §9 sammeln, weiterarbeiten an dem, was nicht davon abhängt.
+7. **Nach jeder Änderung:** `pytest` · `manage.py check` · `makemigrations --check --dry-run` ·
+   `ruff format --check .` · `ruff check .` – Sollwerte in [handover.md](handover.md) §4.
+   Danach den Fortschritt hier im Plan abhaken.
+8. **Bei Unklarheit im Plan notieren**, in §12 sammeln, weiterarbeiten an dem, was nicht davon abhängt.
 
 ---
 
 ## 4. Phase 0 – Baseline ✅ ABGESCHLOSSEN 2026-08-03
 
-**Volle Ergebnisse: [notes/phase-0-baseline.md](notes/phase-0-baseline.md)** – hier die Kurzfassung.
+**Volle Ergebnisse: [notes/phase-0-baseline.md](phase-0-baseline.md)** – hier die Kurzfassung.
 
 - [x] **0.1 Versionslage verifiziert.** Ist: Python 3.11.6 / Django 4.2.9. `mf-stable`-HEAD (Juni 2026)
       bringt nur Django 4.2.28 → **immer noch EOL**. Django 5.2.16 gibt es erst ab `nixos-26.05`
-      (dort auch Python 3.13.14, PG 17.10). → F2 entschieden: **Django 5.2 LTS**. F3 bleibt offen.
+      (dort auch Python 3.13.14, PG 17.10). → F2 entschieden: **Django 5.2 LTS**.
+      F3 wurde danach zugunsten von `mf-next` entschieden (siehe 1.6).
 - [x] **0.2 Läuft.** Beide Docker-Images bauen fehlerfrei. 21-Fall-Funktionsprobe
-      ([notes/baseline_probe.py](notes/baseline_probe.py)) auf 4.2.9 **und** 5.2.16 gefahren:
+      ([notes/baseline_probe.py](baseline_probe.py)) auf 4.2.9 **und** 5.2.16 gefahren:
       **Verhalten identisch**, kein Schema-Drift, keine neuen Deprecations. Das Django-Upgrade ist
       damit verhaltensneutral – das Risiko steckt in den Altlasten, nicht in der Version.
-- [x] **0.3 Prod-Zustand: `DEBUG=True` bestätigt.** [k8s/settings.py](k8s/settings.py) überschreibt
+- [x] **0.3 Prod-Zustand.** ⚠️ **Dieser Befund galt dem falschen Deployment** – siehe Korrektur
+      unter §1. Damals: `k8s/settings.py` überschreibt
       `DEBUG` nicht. Zusammen mit den 500-Pfaden ⇒ von außen auslösbare Django-Debug-Fehlerseiten,
       die **Wähler-Mailadressen** preisgeben (Passwörter/`SECRET_KEY` cleanst Django zuverlässig).
-      → **Hotfix vorziehen, §4a.** Offen (braucht Cluster-Zugang): laufendes Image-Tag,
-      Prod-Schema-Stand, Inhalt von `django_migrations`.
-- [x] **0.4 Schema-Snapshot** in [notes/baseline-schema.sql](notes/baseline-schema.sql).
+      Damals als Hotfix eingeplant (§4a) – hat sich mit der Deployment-Klärung erledigt.
+- [x] **0.4 Schema-Snapshot** in [notes/baseline-schema.sql](baseline-schema.sql).
       Nebenbefund: kein `UNIQUE` auf `vote_token.token_string`, kein Index auf `vote_poll.identifier`.
 
 ## 4a. ~~Hotfix `DEBUG=False`~~ – **entfällt**
 
-Ursprünglich als vorgezogener Hotfix geplant, weil Prod scheinbar mit `DEBUG=True` lief. Nach
-Klärung des tatsächlichen Deployments (2026-08-03): Prod setzt `DEBUG = False` in
-`local_settings.py`. **Kein Hotfix nötig, kein kritischer Pfad.** Die sicheren Defaults im Repo
-kommen regulär in Phase 2.4, die 500-Pfade in Phase 3.
+Ursprünglich als vorgezogener Hotfix geplant, weil Prod scheinbar mit `DEBUG=True` lief – das galt
+aber dem abgeschalteten k8s-Deployment. Tatsächlich setzt das vom NixOS-Modul generierte
+`demockrazy_config` **`DEBUG = False`** (§1). **Kein Hotfix nötig, kein kritischer Pfad.**
+Die sicheren Defaults im Repo sind mit 2.4 erledigt, die 500-Pfade folgen in Phase 3.
 
 ## 5. Phase 1 – Fundament ✅ ABGESCHLOSSEN 2026-08-03
 
@@ -242,18 +264,19 @@ kommen regulär in Phase 2.4, die 500-Pfade in Phase 3.
       relevant, falls B13 auf Postgres führt) und `dev`. Nix bleibt Source of Truth für den Build.
 - [x] **1.2 Ruff** konfiguriert (line-length 100, `F,E,W,I,UP,B,C4,DJ,DTZ,RUF`), safe autofixes +
       `ruff format` als eigener Commit. `demockrazy/settings.py` hat `per-file-ignores` für `E501`
-      (deutsche Prosa in den Mail-Texten) und `F403` (der `local_settings`-Import) – beide fallen
-      mit 2.4 weg. `notes/` ist ausgenommen.
+      (deutsche Prosa in den Mail-Texten) und `F403` (der `local_settings`-Import). `notes/` ist
+      ausgenommen. *Nachtrag: beide bestehen nach 2.4 weiter* – `E501` fällt erst mit 3.4 weg
+      (Mail-Texte werden Templates), `F403` bleibt, solange der `local_settings`-Import existiert.
       **3 Befunde bleiben absichtlich rot:** 2× `F841` + 1× `RUF059` in
-      [vote/views.py](vote/views.py) – Symptome der Bugs, die Phase 3 richtig behebt. CI-Gate: 5.3.
+      [vote/views.py](../vote/views.py) – Symptome der Bugs, die Phase 3 richtig behebt. CI-Gate: 5.3.
 - [x] **1.3 pytest + pytest-django** über `pyproject.toml`, eigene
-      [demockrazy/test_settings.py](demockrazy/test_settings.py) (locmem-Mails, In-Memory-SQLite,
+      [demockrazy/test_settings.py](../demockrazy/test_settings.py) (locmem-Mails, In-Memory-SQLite,
       unabhängig von `local_settings.py`). **Abweichung vom Plan:** die Suite ist pytest-only statt
       auch `manage.py test`-kompatibel – `xfail`-Marker funktionieren im unittest-Runner nicht, und
       die Bug-Spezifikation in 1.4 ist mir wichtiger als zwei Runner.
-- [x] **1.4 Testsuite** in [vote/tests/](vote/tests/): **56 Tests grün, 9 xfailed.**
+- [x] **1.4 Testsuite** in [vote/tests/](../vote/tests/): **56 Tests grün, 9 xfailed.**
       Models, alle sechs Views, Anonymitätsgarantien, plus ein URL-Form-Test als Absicherung von
-      Regel 4. Die 9 Bugs stehen in [vote/tests/test_known_bugs.py](vote/tests/test_known_bugs.py)
+      Regel 4. Die 9 Bugs stehen in [vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py)
       als `xfail(strict=True)` – sie beschreiben das Soll-Verhalten und machen die Suite rot, sobald
       Phase 3 sie fixt (= Erinnerung, den Marker zu entfernen).
 - [x] **1.5 `default.nix`** entfernt.
@@ -262,16 +285,16 @@ kommen regulär in Phase 2.4, die 500-Pfade in Phase 3.
       Django 5.2.15, ruff, pytest, pytest-django. devShell um `tanka`/`jsonnet-bundler`/`sops`
       erleichtert. Damit ist Django 5.2 **schon in Phase 1 aktiv**, nicht erst in 2.3.
 
-### Befund aus 1.4, der 2.1 dringlicher macht
+### Befund aus 1.4 ✅ abgearbeitet
 
-Die Suite läuft nur, weil `vote/migrations/0001_initial.py` **lokal** existiert. Auf einem frischen
-Clone fallen **49 von 56 Tests** um, weil `migrations/` gitignored ist. Die Tests sind also für
-niemanden außer mir nutzbar und in CI wertlos, solange 2.1 nicht erledigt ist.
-⇒ **2.1 ist der nächste Schritt** und braucht F12 (Prod-Schema).
+Die Suite lief zunächst nur, weil `vote/migrations/0001_initial.py` **lokal** existierte – auf einem
+frischen Clone fielen **49 von 56 Tests** um, weil `migrations/` gitignored war. Damit waren die
+Tests für niemanden außer mir nutzbar und in CI wertlos. **Behoben in 2.1**, auf einem frischen
+`git clone` verifiziert.
 
 ## 6. Phase 2 – Django-Upgrade & Konfiguration
 
-- [x] **2.1 Migrations einchecken (B1)** ✅ – **Details: [notes/phase-2-migrations.md](notes/phase-2-migrations.md)**
+- [x] **2.1 Migrations einchecken (B1)** ✅ – **Details: [notes/phase-2-migrations.md](phase-2-migrations.md)**
       Prod hatte **zwei** angewendete Migrations (`0001_initial` 2016-06-09,
       `0002_auto_20160701_2022` 2016-07-01). Deshalb **beide unter ihren Originalnamen
       rekonstruiert** statt eine zusammengefasste `0001_initial`. Beweis der Korrektheit: die
@@ -281,30 +304,36 @@ niemanden außer mir nutzbar und in CI wertlos, solange 2.1 nicht erledigt ist.
       kein `--fake-initial`.** Frischer Clone verifiziert: 56 grün, 9 xfailed.
       Restrisiko dokumentiert: Prod-FKs ohne `DEFERRABLE`, alte Index-Namen → relevant für 3.6.
 - [x] **2.2 `makemigrations` aus dem Deploy-Weg** ✅ – im Flake mit 5.1 entfallen, in der
-      [README.md](README.md) beide Vorkommen ersetzt. Die README war ohnehin durch das Löschen von
+      [README.md](../README.md) beide Vorkommen ersetzt. Die README war ohnehin durch das Löschen von
       `default.nix` kaputt (`nix-shell` gibt es nicht mehr), daher gleich neu geschrieben – das
       verschiebt 6.1 nach vorn.
 - [x] **2.3 Django 5.2 / Python 3.13** ✅ – bereits mit 1.6 erledigt (mf-next: Django 5.2.15,
-      Python 3.13.13), Django in Nix nicht mehr unpinned. **Noch offen aus 2.3:**
-      `USE_L10N` entfernen und `DEFAULT_AUTO_FIELD` setzen (die 3 verbleibenden `models.W042`) –
-      gehört zu 2.4, weil es Settings anfasst.
-- [ ] **2.4 Settings-Layout aufräumen.** Sichere Defaults im Repo (`DEBUG = False`, kein
-      `SECRET_KEY`), `USE_L10N` raus, `DEFAULT_AUTO_FIELD` setzen (erledigt die 3 `models.W042`).
-      **Randbedingungen aus [notes/deployment.md](notes/deployment.md) – hier bricht man Prod:**
-      - `SECRET_KEY` **niemals** hart fehlschlagen lassen (kein `os.environ[...]`, kein `raise`).
-        `demockrazy_config` setzt ihn erst *nach* dem `import *`. Leerer Default, kein Raise.
-      - `local_settings.py` ist in Prod **nicht** im Spiel (`demockrazy_config` ersetzt es).
-        Der `try/except` bleibt für lokale Entwicklung, aber das `print("No local settings found..")`
-        raus – das landet bei jedem Prod-Start im Syslog.
-      - **Kein** `local_settings.py.example` mehr nötig; stattdessen den echten Mechanismus
-        (`DJANGO_SETTINGS_MODULE=demockrazy_config`) in der README erwähnen.
-      Mail-Templates in echte Django-Templates ziehen (Vorarbeit für §11).
-- [ ] **2.5 `manage.py`** auf aktuelles Boilerplate.
-- [ ] **2.6 `python_files`/Deprecation-Warnungen** als Fehler in pytest schalten, damit die nächste
-      Django-Version nicht wieder überrascht.
-- [ ] **2.7 `manage.py check --deploy`** grün bekommen: `SECURE_HSTS_*`, `SECURE_SSL_REDIRECT`,
-      `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, `X_FRAME_OPTIONS` in den Prod-Settings.
-      `LOGGING` auf strukturiertes stdout-Logging.
+      Python 3.13.13), Django in Nix nicht mehr unpinned. Die zugehörigen Deprecations
+      (`USE_L10N`, `DEFAULT_AUTO_FIELD`) sind in 2.4 mitgemacht.
+- [x] **2.4 Settings-Defaults sicher gemacht** ✅
+      `DEBUG = False` als Default, kein `SECRET_KEY` im Repo, Konfiguration über `DEMOCKRAZY_*`.
+      `USE_L10N` raus, `DEFAULT_AUTO_FIELD = AutoField` (**nicht** `BigAutoField` – das hätte eine
+      `AlterField`-Migration erzeugt, die auf SQLite alle drei Tabellen neu schreibt, für null
+      Gewinn). Damit ist `manage.py check` **komplett sauber**, ohne Migrations-Drift.
+      Der `print("No local settings found..")` ist weg (lief bei jedem Prod-Start ins Syslog).
+      Neu: [demockrazy/dev_settings.py](../demockrazy/dev_settings.py), weil `DEBUG=False` als Default
+      `runserver` blockiert – analog zu `test_settings.py`, in der README dokumentiert.
+      **Gegen Prod verifiziert:** das generierte `demockrazy_config` nachgebaut und dagegen geladen –
+      `SECRET_KEY` kommt aus der Datei, alle Overrides greifen, `check` sauber.
+      **Verschoben nach 3.4:** die Mail-Texte in echte Django-Templates ziehen. Sie sind kein
+      Settings-Thema, und der Umbau gehört zur Extraktion des Mail-Service – sonst fasse ich
+      `views.py` zweimal an. Die Testsuite deckt die Mailinhalte ab, der Move bleibt damit sicher.
+- [x] **2.5 `manage.py`** ✅ auf aktuelles Boilerplate, `setdefault` beibehalten (Prod setzt
+      `DJANGO_SETTINGS_MODULE=demockrazy_config` im systemd-Service).
+- [x] **2.6 Deprecation-Warnungen als Fehler** ✅ – schon mit 1.1 in `pyproject.toml` erledigt
+      (`filterwarnings = error::DeprecationWarning, error::PendingDeprecationWarning`).
+- [ ] **2.7 `check --deploy` grün bekommen – BLOCKIERT durch F15.**
+      Bereits erledigt bzw. gegenstandslos: `DEBUG`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`
+      (setzt das Modul), `LOGGING` (setzt das Modul), `ALLOWED_HOSTS`.
+      Offen: `SECURE_SSL_REDIRECT`, `SECURE_HSTS_SECONDS`, `CSRF_TRUSTED_ORIGINS`,
+      `SECURE_PROXY_SSL_HEADER`. **Nicht anfassen, bis F15 geklärt ist** – TLS endet vorgelagert,
+      ohne Proxy-Header erzeugt `SECURE_SSL_REDIRECT` eine Redirect-Schleife. Diese Werte gehören
+      ins NixOS-Modul (oder über dessen `djangoSettings`-Option), nicht in die Repo-Defaults.
 
 ## 7. Phase 3 – Code-Modernisierung
 
@@ -316,7 +345,7 @@ niemanden außer mir nutzbar und in CI wertlos, solange 2.1 nicht erledigt ist.
 - [ ] **3.3 `vote()`** entzerren (B2): `token_string` vor dem `try` lesen, Fehlerpfade explizit.
 - [ ] **3.4 Mail-Versand in `vote/services/mail.py` herausziehen (B7).** Reine Funktionen, keine
       Request-Abhängigkeit, kein SMTP innerhalb der Transaktion → `transaction.on_commit()`.
-      **Das ist die Schnittstelle, an der Ziel 2 andockt** (§8).
+      **Das ist die Schnittstelle, an der Ziel 2 andockt** (§11).
 - [ ] **3.5 Poll-Erstellung in `vote/services/polls.py`**: Tokens/Choices bulk-erzeugen
       (`bulk_create` statt Save-Loop).
 - [ ] **3.6 Models aufräumen:** `.count()` statt `len()`, Schleife statt Rekursion in
@@ -324,7 +353,7 @@ niemanden außer mir nutzbar und in CI wertlos, solange 2.1 nicht erledigt ist.
       `Poll.identifier`, `db_index` wo sinnvoll, `POLL_TYPES` als `TextChoices`,
       `get_absolute_url()`. → eigene Migration.
 - [ ] **3.7 `re_path` → `path`** mit `<slug:poll_identifier>`/Custom-Converter; URLs identisch halten (Regel 4).
-- [ ] **3.8 Rate-Limit / Zugangsschutz für `create` (B4).** Optionen für §9:
+- [ ] **3.8 Rate-Limit / Zugangsschutz für `create` (B4).** Optionen für §12:
       (a) Django-Auth + Login-Zwang, (b) Shared Secret / Invite-Code, (c) IP-Rate-Limit,
       (d) Deckel auf Empfängerzahl pro Poll. **Entscheidung braucht den User.**
 
@@ -332,7 +361,7 @@ niemanden außer mir nutzbar und in CI wertlos, solange 2.1 nicht erledigt ist.
 
 - [ ] **4.1 Bootstrap 3.3.6 → 5.3.x** (vendored, kein CDN – CSP-freundlich): `base.html`,
       Navbar, `form-group` → `mb-3`, `nav-pills`/`badge` in
-      [token_state.html](vote/templates/vote/token_state.html), Alerts.
+      [token_state.html](../vote/templates/vote/token_state.html), Alerts.
 - [ ] **4.2 jQuery entfernen** – Bootstrap 5 braucht es nicht, die einzige Nutzung ist der
       Chart-Init in `results.html`.
 - [ ] **4.3 Highcharts ersetzen (B8)** durch Chart.js (MIT) oder ECharts (Apache-2.0),
@@ -340,46 +369,51 @@ niemanden außer mir nutzbar und in CI wertlos, solange 2.1 nicht erledigt ist.
 - [ ] **4.4 Cache-Busting für Static Files.** **Kein Whitenoise** – nginx serviced `/static` schon
       direkt aus `/var/lib/demockrazy/static` (siehe §1), das soll so bleiben. Stattdessen
       `STORAGES["staticfiles"]` auf `ManifestStaticFilesStorage` für gehashte Dateinamen.
-      Achtung: dann muss `collectstatic` Teil des Deploys sein (ist es laut Modul-Setup vermutlich
-      schon, sonst wäre `/static` leer) – vor dem Umstellen mit F11 abgleichen.
+      `collectstatic --noinput` läuft laut Modul bei **jedem** Service-Start, die Umstellung ist
+      damit gefahrlos.
 - [ ] **4.5 Template-Kleinkram:** `<th>/</td>`-Mismatch, `lang="de"` wo die Texte deutsch sind,
       doppelt eingebundenes `bootstrap.css` in `base.html`.
 
 ## 9. Phase 5 – Deployment & CI
 
-**Komplett neu geschnitten**, nachdem sich das k8s-Deployment als abgeschaltet erwiesen hat.
-Aus „k8s modernisieren" wird „k8s entfernen" – das streicht die aufwändigsten Punkte des alten
-Plans (k8s-libsonnet-Bump, PG14→17-Migration mit Wartungsfenster, sops-Keys, Deployment-Härtung)
-und ersetzt sie durch Aufräumen.
+Ursprünglich „k8s modernisieren", nach der Klärung des Deployments zu „k8s entfernen" geworden –
+das strich die aufwändigsten Punkte (k8s-libsonnet-Bump, PG14→17 mit Wartungsfenster, sops-Keys,
+Deployment-Härtung). **5.1 und 5.2 sind erledigt**, offen bleiben CI, SQLite-Härtung und `/healthz`.
 
-- [ ] **5.1 Toten Deployment-Code entfernen.** **Braucht ein Go vom User** (§12 F10).
-      Betrifft: [k8s/](k8s/), [nix/](nix/) (beide Image-Definitionen), [.sops.yaml](.sops.yaml),
-      die Flake-Outputs `dockerImages`/`packages.uwsgi`/`packages.django_config`/`apps` und den
-      `argocd-nix-flakes-plugin`-Input, sowie den Image-Build-Job in
-      [.github/workflows/build.yml](.github/workflows/build.yml).
-      Nebeneffekt: erledigt B1s `makemigrations`-beim-Start und die uwsgi-Frage (alte 5.2) von selbst.
-      Git-History bleibt – wiederherstellbar, falls das k8s-Setup je zurückkommt.
-- [ ] **5.2 Prod-Deployment dokumentieren und dann erst anfassen.** Wie läuft
-      `wahlcomputer.mayflower.de` konkret? (§12 F11) Ohne diese Antwort kann ich nicht sagen, ob der
-      Django-/Python-Bump aus Phase 2 dort überhaupt greift – ein NixOS-Modul, ein manuelles
-      `pip install` oder ein systemd-Service mit eigenem venv verhalten sich völlig verschieden.
-      **Das ist der wichtigste offene Punkt für Ziel 1**: ein Upgrade, das nicht deploybar ist, ist keins.
-- [ ] **5.3 CI neu aufbauen:** ohne Image-Build bleibt ein schlanker Workflow für
-      `ruff check` + `pytest` + `nix flake check`. `actions/checkout` und `install-nix-action` auf
-      aktuelle Majors.
-- [ ] **5.4 SQLite-Betrieb absichern (B13),** abhängig von 5.2: WAL-Modus und `timeout` über
-      `DATABASES['default']['OPTIONS']`, Backup-Strategie für die `db.sqlite3` klären
-      (liegt sie auf einem Volume? wird sie gesichert?). Postgres nur, wenn die Last es hergibt –
-      vorher messen.
+- [x] **5.1 Toten Deployment-Code entfernt** ✅ in `4e15012` (549 Zeilen): `k8s/`, `nix/`,
+      `.sops.yaml`, die Flake-Outputs `dockerImages`/`packages.uwsgi`/`packages.django_config`/`apps`,
+      der `argocd-nix-flakes-plugin`-Input und der GHCR-Image-Build-Workflow.
+      **Risikofrei bestätigt** nach Einsicht ins NixOS-Modul: es konsumiert keine Flake-Outputs
+      dieses Repos, nur den Quelltext ([deployment.md](deployment.md)).
+      Nebeneffekt: erledigt B1s `makemigrations`-beim-Start und die alte uwsgi-vs-gunicorn-Frage.
+      Rückweg: `git revert 4e15012`.
+- [x] **5.2 Prod-Deployment verstanden** ✅ – Analyse in [deployment.md](deployment.md).
+      **Ergebnis, das im Repo nicht lösbar ist:** das Modul pinnt `rev = 3074dbb`, und die
+      Django-Version kommt aus der nixpkgs des Colmena-Flakes. Damit das Upgrade Prod erreicht,
+      muss der User `rev`+`sha256` bumpen **und** das Colmena-Flake auf `mf-next` haben.
+      Beim `rev`-Bump auch `version = "2024-02-08"` im Derivation mitziehen. **Kein Rollout durch
+      mich** (Regel 5) – nur benennen.
+- [ ] **5.3 CI neu aufbauen:** ohne Image-Build ein schlanker Workflow für `ruff check` + `pytest`
+      + `nix flake check`. `actions/checkout` und `install-nix-action` auf aktuelle Majors.
+      Voraussetzung fürs Ruff-Gate: die 3 absichtlich roten Befunde müssen via Phase 3 weg sein.
+- [ ] **5.4 SQLite-Betrieb absichern (B13).** WAL-Modus und `timeout` über
+      `DATABASES['default']['OPTIONS']`. **Backup ist geklärt:** borg onsite 03:00 + offsite 04:00
+      auf `/var/lib/demockrazy`. Verschärfend: das Modul startet **4 uwsgi-Prozesse** auf einer
+      SQLite-Datei. Postgres nur, wenn die Last es hergibt – vorher messen, braucht F13.
+      Testbar ohne Modul-Änderung über die `djangoSettings`-Option des Moduls.
 - [ ] **5.5 `/healthz`-Endpoint** – klein, nützlich unabhängig von der Deployment-Form.
 
 ## 10. Phase 6 – Dokumentation
 
-- [ ] **6.1 README neu:** Setup über `nix develop`/`direnv`, korrekte Django-Version,
-      Test- und Lint-Befehle, Deployment-Überblick, Erklärung des Token-/Anonymitätsmodells.
-- [ ] **6.2 `CLAUDE.md`** mit den Projekt-Konventionen (Layout, Commit-Stil, Testbefehle),
-      damit künftige Sessions nicht wieder von vorn inventarisieren.
-- [ ] **6.3 `notes/`** aktuell halten: Entscheidungen + Ergebnisse aus 0.1/0.3 hier eintragen.
+- [x] **6.1 README neu** ✅ – vorgezogen in 2.2, weil das Löschen von `default.nix` den
+      dokumentierten `nix-shell`-Schritt gebrochen hatte. Enthält `nix develop`, Test-/Lint-Befehle,
+      die drei Konfigurationswege, Deployment-Überblick und das Token-/Anonymitätsmodell.
+- [x] **6.2 Handover statt `CLAUDE.md`** ✅ – [handover.md](handover.md) erfüllt denselben Zweck
+      (Konventionen, Verifikationsschleife mit Sollwerten, Fallen) und ist auf Nachfrage des Users
+      als Session-Einstieg gedacht. Eine `CLAUDE.md` wäre Duplikat; bei Bedarf später als
+      Kurzfassung nachziehen.
+- [x] **6.3 `notes/` aktuell halten** ✅ laufend – zuletzt vollständiger Konsistenzdurchgang
+      (tote Links, `§`-Verweise, Bug-Status, überholte Aussagen).
 
 ---
 
@@ -415,11 +449,11 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
 | ~~F6~~ | ~~uwsgi oder gunicorn?~~ → entfällt, der uwsgi-Wrapper gehörte zum k8s-Deployment. Neu als Teil von F11. | – |
 | ~~F7~~ | ~~Postgres 14→17-Wartungsfenster?~~ → entfällt, Prod läuft auf SQLite. Ersetzt durch B13/5.4. | – |
 | ~~F9~~ | ~~`.sops.yaml`-Keys?~~ → entfällt, fällt mit 5.1 weg. | – |
-| **F10** | Darf der tote Deployment-Code raus ([k8s/](k8s/), [nix/](nix/), [.sops.yaml](.sops.yaml), Image-Outputs im Flake, Image-Build in der CI)? Git-History bleibt, also reversibel. | 5.1, 1.6 |
-| ~~F11~~ | ~~Wie wird deployt?~~ → **vollständig beantwortet**, Modul liegt vor. Analyse: **[notes/deployment.md](notes/deployment.md)**. Wichtigstes Ergebnis: das Modul pinnt `rev = 3074dbb`, und die Django-Version kommt aus der nixpkgs des Colmena-Flakes – **zwei Änderungen im User-Repo nötig**, sonst erreicht das Upgrade Prod nicht. Löschcommit `4e15012` bestätigt risikofrei. | – |
+| ~~F10~~ | ~~Darf der tote Deployment-Code raus?~~ → **ja**, erledigt in `4e15012`. Nach Einsicht ins NixOS-Modul auch nachträglich als risikofrei bestätigt. | – |
+| ~~F11~~ | ~~Wie wird deployt?~~ → **vollständig beantwortet**, Modul liegt vor. Analyse: **[notes/deployment.md](deployment.md)**. Wichtigstes Ergebnis: das Modul pinnt `rev = 3074dbb`, und die Django-Version kommt aus der nixpkgs des Colmena-Flakes – **zwei Änderungen im User-Repo nötig**, sonst erreicht das Upgrade Prod nicht. Löschcommit `4e15012` bestätigt risikofrei. | – |
 | ~~F14~~ | ~~Setzt Prod `DEBUG = False`?~~ → **ja**, explizit im generierten `demockrazy_config`. Kein Leak, kein Hotfix. | – |
 | **F15** | **Wie kommt Django in Prod ans `https`-Schema?** Node öffnet nur Port 80, kein `forceSSL`, kein `SECURE_PROXY_SSL_HEADER` im Modul – TLS wird vorgelagert terminiert. Setzt der Proxy `X-Forwarded-Proto`? Ohne diese Antwort keine TLS-/CSRF-Settings anfassen (Redirect-Schleife bzw. CSRF-403). | 2.7 |
-| ~~F12~~ | ~~Prod-Schema-Stand?~~ → **geliefert.** Prod hat zwei Migrations (2016), DB liegt unter `/var/lib/demockrazy/db.sqlite3`. Ausgewertet in [notes/phase-2-migrations.md](notes/phase-2-migrations.md). Kleiner Rest: `type`-Spalte war in der Ausgabe abgeschnitten – `PRAGMA table_info(vote_poll);` für letzte Sicherheit. | – |
+| ~~F12~~ | ~~Prod-Schema-Stand?~~ → **geliefert.** Prod hat zwei Migrations (2016), DB liegt unter `/var/lib/demockrazy/db.sqlite3`. Ausgewertet in [notes/phase-2-migrations.md](phase-2-migrations.md). Kleiner Rest: `type`-Spalte war in der Ausgabe abgeschnitten – `PRAGMA table_info(vote_poll);` für letzte Sicherheit. | – |
 | F4 | Highcharts-Lizenz: existiert eine kommerzielle Lizenz, oder ersetzen? (B8) | 4.3 |
 | F5 | Zugangsschutz für Poll-Erstellung – welche Variante? (B4/3.8) | 3.8, Ziel 2 |
 | F8 | Anonymität vs. Zustellstatus pro Empfänger – wie weit darf Ziel 2 das aufweichen? (§11.4) | Ziel 2 |
@@ -430,16 +464,22 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
 ## 13. Reihenfolge / Abhängigkeiten
 
 ```
-Phase 0 (Baseline, Prod-Fakten)  ✅
-  └─ Phase 1 (Tooling + Tests)          ← Sicherheitsnetz, alles Weitere hängt daran
-       ├─ Phase 2 (Migrations, Django, Settings)
-       │    │   2.1 braucht F12 (Prod-Schema)
-       │    ├─ Phase 3 (Code, Forms, Mail-Service) ← liefert die Schnittstelle für Ziel 2
-       │    │    └─ ZIEL 2 (Batch-Mails, nach Spec)
-       │    └─ Phase 5 (k8s-Cleanup, CI, SQLite)   ← 5.1 braucht F10, 5.2 braucht F11
-       └─ Phase 4 (Frontend, unabhängig parallelisierbar)
-Phase 6 (Docs) laufend mitschreiben
+Phase 0  Baseline, Prod-Fakten                                        ✅
+Phase 1  Tooling + Testsuite (das Sicherheitsnetz)                    ✅
+Phase 2  Migrations, Django 5.2, Settings                             ✅ außer 2.7 (braucht F15)
+Phase 5  5.1 k8s-Cleanup ✅ · 5.2 Deployment verstanden ✅ · 5.3–5.5 offen
+Phase 6  README ✅ · Handover ✅
+
+offen, in sinnvoller Reihenfolge:
+  Phase 3  Code (Forms, 500-Pfade, Mail-Service, Models)
+             └─ behebt die 9 xfail-Tests und die 3 roten Ruff-Befunde
+             └─ 3.8 braucht F5
+             └─ liefert die Schnittstelle für ZIEL 2 (Batch-Mails, nach Spec)
+  Phase 4  Frontend – unabhängig, parallelisierbar, 4.3 braucht F4
+  5.3      CI-Gate – erst sinnvoll, wenn Phase 3 die roten Ruff-Befunde beseitigt hat
+  5.4      SQLite-Härtung – braucht F13
+  2.7      TLS-Hardening – braucht F15
 ```
 
-**Nächster Schritt:** Phase 0.1 + 0.2 – Versionslage verifizieren und prüfen, ob das Projekt lokal
-überhaupt startet. Erst danach etwas anfassen.
+**Nächster Schritt:** Phase 3, beginnend mit 3.1 (`vote/forms.py`). Nicht blockiert; nur 3.8
+braucht vorher F5. Details in [handover.md](handover.md) §9.
