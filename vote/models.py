@@ -1,17 +1,16 @@
-from django.db import models
-from django.utils.timezone import now
-
 import random
 import string
 
+from django.db import models
+from django.utils.timezone import now
 
-POLL_TYPES = ['simple_choice', 'multiple_choice']
+POLL_TYPES = ["simple_choice", "multiple_choice"]
 
 
 def rand_string(length):
-    return ''.join(random.SystemRandom().choice(
-        string.ascii_letters + string.digits
-    ) for _ in range(length))
+    return "".join(
+        random.SystemRandom().choice(string.ascii_letters + string.digits) for _ in range(length)
+    )
 
 
 def mk_admin_token():
@@ -39,7 +38,7 @@ class Poll(models.Model):
     type = models.CharField(max_length=20, default="simple_choice")
     num_tokens = models.IntegerField(blank=True, null=True)
     question_text = models.TextField()
-    pub_date = models.DateTimeField('date published', default=now, blank=True)
+    pub_date = models.DateTimeField("date published", default=now, blank=True)
     creator_token = models.CharField(max_length=512, default=mk_admin_token)
     identifier = models.CharField(max_length=64, default=mk_identifier)
     is_active = models.BooleanField(default=True)
@@ -67,7 +66,7 @@ class Choice(models.Model):
     votes = models.IntegerField(default=0)
 
     def __str__(self):
-        return "%s - %s" % (self.poll, self.choice_text)
+        return f"{self.poll} - {self.choice_text}"
 
 
 class Token(models.Model):
@@ -75,4 +74,4 @@ class Token(models.Model):
     token_string = models.CharField(default=mk_token, max_length=128)
 
     def __str__(self):
-        return "%s Token" % self.poll
+        return f"{self.poll} Token"

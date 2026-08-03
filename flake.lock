@@ -2,16 +2,16 @@
   "nodes": {
     "nixpkgs": {
       "locked": {
-        "lastModified": 1707342129,
-        "narHash": "sha256-uQId2rTt7hV+ZZeW0sbaQWxnq3cn/5uVUzD5NHQme8I=",
+        "lastModified": 1784906867,
+        "narHash": "sha256-be3YbilyyDi52nFYgRz3mGFGMKyYDGWkjnTidI9GhKU=",
         "owner": "mayflower",
         "repo": "nixpkgs",
-        "rev": "1eed263b9f4f0b7ae37f58d3ce2d0f9dc1240f7b",
+        "rev": "cd21fa49735c8044257febeffa6a015b63069662",
         "type": "github"
       },
       "original": {
         "owner": "mayflower",
-        "ref": "mf-stable",
+        "ref": "mf-next",
         "repo": "nixpkgs",
         "type": "github"
       }

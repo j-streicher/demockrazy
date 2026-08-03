@@ -2,7 +2,7 @@
   description = "A simple token based voting system";
 
   inputs = {
-    nixpkgs.url = "github:mayflower/nixpkgs/mf-stable";
+    nixpkgs.url = "github:mayflower/nixpkgs/mf-next";
   };
 
   outputs = { self, nixpkgs }: let
@@ -12,10 +12,13 @@
     devShells = forEachSystem (system: with pkgs.${system}; {
       default = mkShell {
         name = "demockrazy-env";
-        buildInputs = [
-          python3
-          python3Packages.django
-          python3Packages.psycopg2
+        packages = [
+          (python3.withPackages (ps: with ps; [
+            django
+            pytest
+            pytest-django
+          ]))
+          ruff
         ];
       };
     });
