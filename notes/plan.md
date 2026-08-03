@@ -137,9 +137,13 @@ serialisiert Writer. Wenn nach dem Einladungsversand viele gleichzeitig abstimme
 Optionen für §12: SQLite mit WAL + `timeout` tunen (klein, reversibel) vs. Postgres (größer).
 Vorher messen, nicht raten – und klären, wie oft/wie groß Abstimmungen real sind.
 
-**B14 – Secure-Cookie-/TLS-Flags fehlen auch im Prod-Setup.**
-`VOTE_BASE_URL` ist `https://`, aber `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`,
-`SECURE_SSL_REDIRECT`, `SECURE_HSTS_SECONDS` und `CSRF_TRUSTED_ORIGINS` sind nicht gesetzt. → 2.7.
+**B14 – TLS-Hardening-Settings fehlen in Prod.** *(korrigiert 2026-08-03)*
+`SESSION_COOKIE_SECURE` und `CSRF_COOKIE_SECURE` **sind** gesetzt – das Modul macht das über
+`secureCookies` (Default `true`). Der Befund war insoweit zu pauschal.
+Es fehlen: `SECURE_SSL_REDIRECT`, `SECURE_HSTS_SECONDS`, `CSRF_TRUSTED_ORIGINS` und
+`SECURE_PROXY_SSL_HEADER`. **Nicht blind einschalten** – TLS endet vorgelagert, ohne Proxy-Header
+gibt `SECURE_SSL_REDIRECT` eine Redirect-Schleife. Gehört ins Modul, nicht in die Repo-Defaults.
+→ 2.7, blockiert durch F15. Details in [notes/deployment.md](notes/deployment.md).
 
 **B11 – `manage()` crasht bei POST ohne `token`-Feld.**
 [vote/views.py](vote/views.py) – `request.POST['token']` ohne Guard → `MultiValueDictKeyError` → 500.
@@ -284,11 +288,16 @@ niemanden außer mir nutzbar und in CI wertlos, solange 2.1 nicht erledigt ist.
       Python 3.13.13), Django in Nix nicht mehr unpinned. **Noch offen aus 2.3:**
       `USE_L10N` entfernen und `DEFAULT_AUTO_FIELD` setzen (die 3 verbleibenden `models.W042`) –
       gehört zu 2.4, weil es Settings anfasst.
-- [ ] **2.4 Settings-Layout aufräumen.** Sichere Defaults im Repo (`DEBUG = False`, kein `SECRET_KEY`),
-      Konfiguration über Environment (B5). `local_settings.py` bleibt als Prod-Mechanismus erhalten
-      (Regel 3 – nicht ohne Not umstellen, Prod hängt daran), aber die Defaults dürfen nicht mehr
-      unsicher sein. **`local_settings.py.example` ins Repo**, damit der Prod-Mechanismus dokumentiert
-      ist – Inhalt aus `~/Desktop/democ-settings/`, ohne Secrets.
+- [ ] **2.4 Settings-Layout aufräumen.** Sichere Defaults im Repo (`DEBUG = False`, kein
+      `SECRET_KEY`), `USE_L10N` raus, `DEFAULT_AUTO_FIELD` setzen (erledigt die 3 `models.W042`).
+      **Randbedingungen aus [notes/deployment.md](notes/deployment.md) – hier bricht man Prod:**
+      - `SECRET_KEY` **niemals** hart fehlschlagen lassen (kein `os.environ[...]`, kein `raise`).
+        `demockrazy_config` setzt ihn erst *nach* dem `import *`. Leerer Default, kein Raise.
+      - `local_settings.py` ist in Prod **nicht** im Spiel (`demockrazy_config` ersetzt es).
+        Der `try/except` bleibt für lokale Entwicklung, aber das `print("No local settings found..")`
+        raus – das landet bei jedem Prod-Start im Syslog.
+      - **Kein** `local_settings.py.example` mehr nötig; stattdessen den echten Mechanismus
+        (`DJANGO_SETTINGS_MODULE=demockrazy_config`) in der README erwähnen.
       Mail-Templates in echte Django-Templates ziehen (Vorarbeit für §11).
 - [ ] **2.5 `manage.py`** auf aktuelles Boilerplate.
 - [ ] **2.6 `python_files`/Deprecation-Warnungen** als Fehler in pytest schalten, damit die nächste
@@ -407,8 +416,9 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
 | ~~F7~~ | ~~Postgres 14→17-Wartungsfenster?~~ → entfällt, Prod läuft auf SQLite. Ersetzt durch B13/5.4. | – |
 | ~~F9~~ | ~~`.sops.yaml`-Keys?~~ → entfällt, fällt mit 5.1 weg. | – |
 | **F10** | Darf der tote Deployment-Code raus ([k8s/](k8s/), [nix/](nix/), [.sops.yaml](.sops.yaml), Image-Outputs im Flake, Image-Build in der CI)? Git-History bleibt, also reversibel. | 5.1, 1.6 |
-| **F11** | **Wie wird deployt?** Weitgehend beantwortet (§1): colmena, Modul `mayflower.demockrazy`, uwsgi über Unix-Socket, nginx für `/static`, sops-nix für Secrets, borg-Backups laufen. **Verbleibender Rest: der Quelltext des Moduls `mayflower.demockrazy`** – daraus folgt F14 und ob das Modul etwas aus diesem Repo zieht (Risiko am Löschcommit `4e15012`). | 2.4, 5.1, 5.2 |
-| **F14** | **Setzt das vom Modul generierte Settings-File `DEBUG = False`?** Das Modul hat keine `debug`-Option. Falls nein, läuft Prod mit `DEBUG=True` und die Leak-Analyse aus [notes/phase-0-baseline.md](notes/phase-0-baseline.md) ist doch relevant – dann wird 2.4 wieder zum kritischen Pfad. | 2.4 |
+| ~~F11~~ | ~~Wie wird deployt?~~ → **vollständig beantwortet**, Modul liegt vor. Analyse: **[notes/deployment.md](notes/deployment.md)**. Wichtigstes Ergebnis: das Modul pinnt `rev = 3074dbb`, und die Django-Version kommt aus der nixpkgs des Colmena-Flakes – **zwei Änderungen im User-Repo nötig**, sonst erreicht das Upgrade Prod nicht. Löschcommit `4e15012` bestätigt risikofrei. | – |
+| ~~F14~~ | ~~Setzt Prod `DEBUG = False`?~~ → **ja**, explizit im generierten `demockrazy_config`. Kein Leak, kein Hotfix. | – |
+| **F15** | **Wie kommt Django in Prod ans `https`-Schema?** Node öffnet nur Port 80, kein `forceSSL`, kein `SECURE_PROXY_SSL_HEADER` im Modul – TLS wird vorgelagert terminiert. Setzt der Proxy `X-Forwarded-Proto`? Ohne diese Antwort keine TLS-/CSRF-Settings anfassen (Redirect-Schleife bzw. CSRF-403). | 2.7 |
 | ~~F12~~ | ~~Prod-Schema-Stand?~~ → **geliefert.** Prod hat zwei Migrations (2016), DB liegt unter `/var/lib/demockrazy/db.sqlite3`. Ausgewertet in [notes/phase-2-migrations.md](notes/phase-2-migrations.md). Kleiner Rest: `type`-Spalte war in der Ausgabe abgeschnitten – `PRAGMA table_info(vote_poll);` für letzte Sicherheit. | – |
 | F4 | Highcharts-Lizenz: existiert eine kommerzielle Lizenz, oder ersetzen? (B8) | 4.3 |
 | F5 | Zugangsschutz für Poll-Erstellung – welche Variante? (B4/3.8) | 3.8, Ziel 2 |
