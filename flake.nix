@@ -2,7 +2,7 @@
   description = "A simple token based voting system";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    nixpkgs.url = "github:mayflower/nixpkgs/mf-next";
   };
 
   outputs = { self, nixpkgs }: let
