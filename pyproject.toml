@@ -1,0 +1,52 @@
+[project]
+name = "demockrazy"
+version = "0.1.0"
+description = "A simple token based voting system"
+requires-python = ">=3.13"
+dependencies = [
+    "django>=5.2,<6.0",
+]
+
+# Nix (flake.nix) bleibt die Source of Truth für den Build. Diese Datei deklariert die
+# Abhängigkeiten lesbar an einer Stelle und konfiguriert die Tools -- ohne sie musste man
+# die Versionen aus dem Flake bzw. aus der README-Prosa raten.
+[project.optional-dependencies]
+# Produktion läuft auf SQLite; psycopg wird nur gebraucht, wenn auf Postgres gewechselt wird.
+postgres = ["psycopg[binary]>=3.2"]
+dev = [
+    "pytest>=8.0",
+    "pytest-django>=4.9",
+    "ruff>=0.14",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+extend-exclude = ["vote/static", "vote/migrations"]
+
+[tool.ruff.lint]
+select = [
+    "F",   # pyflakes
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # bugbear
+    "C4",  # comprehensions
+    "DJ",  # flake8-django
+    "DTZ", # naive datetimes -- relevant, USE_TZ ist an
+    "RUF",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["demockrazy", "vote"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "demockrazy.test_settings"
+python_files = ["test_*.py", "tests.py"]
+testpaths = ["vote"]
+# Deprecations als Fehler, damit die naechste Django-Version nicht wieder ueberrascht (Plan 2.6).
+filterwarnings = [
+    "error::DeprecationWarning",
+    "error::PendingDeprecationWarning",
+]
