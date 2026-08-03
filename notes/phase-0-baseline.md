@@ -145,7 +145,7 @@ bevor die eingecheckte `0001_initial` in Phase 2.1 scharf gestellt wird. Prod is
 nur lesend auf dem Server:
 
 ```bash
-sqlite3 db.sqlite3 ".schema vote_poll" ".schema vote_choice" ".schema vote_token" \
+nix run nixpkgs#sqlite -- -readonly db.sqlite3 ".schema vote_poll" ".schema vote_choice" ".schema vote_token" \
   "SELECT app, name, applied FROM django_migrations WHERE app='vote';"
 ```
 

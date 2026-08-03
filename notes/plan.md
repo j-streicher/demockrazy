@@ -9,7 +9,7 @@
 
 | # | Ziel | Status |
 |---|------|--------|
-| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · Phase 3 bis 3.4 ✅ · CI ✅ · offen: 3.5–3.8, 4, 5.4, 5.5 |
+| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · Phase 3 bis 3.5 ✅ · CI ✅ · offen: 3.6–3.8, 4, 5.4, 5.5 |
 | 2 | Batch-Modus für Mails bauen | **Spec folgt vom User** – nur Vorarbeit leisten, siehe §11 |
 
 **Wichtig:** Ziel 2 wird vom User später erklärt. Ziel 1 nicht so umbauen, dass Ziel 2 blockiert wird –
@@ -421,12 +421,29 @@ Tests für niemanden außer mir nutzbar und in CI wertlos. **Behoben in 2.1**, a
       Die `create_poll`-Fixture führt sie über `django_capture_on_commit_callbacks` aus; die zwei
       Tests, die *keine* Mail erwarten, ebenfalls – sonst wären sie inhaltsleer. Dazu ein Test mit
       echter Transaktion als Beleg, dass der Pfad auch ohne diese Hilfe läuft.
-- [ ] **3.5 Poll-Erstellung in `vote/services/polls.py`**: Tokens/Choices bulk-erzeugen
-      (`bulk_create` statt Save-Loop).
+- [x] **3.5 Poll-Erstellung in [vote/services/polls.py](../vote/services/polls.py)** ✅ –
+      `bulk_create` statt Save-Schleife, ohne Request- und Formular-Abhängigkeit, damit ein
+      Management-Command (Ziel 2) sie genauso aufrufen kann. `transaction.atomic` drauf: im Request
+      redundant (`ATOMIC_REQUESTS`, dort nur ein Savepoint), aber sonst wäre der erste Aufruf von
+      außerhalb nicht abgesichert.
+      **Gemessen auf der Test-DB, 2 Choices + 200 Empfänger: 404 → 206 Queries, INSERTs 203 → 3.**
+      Was bleibt, sind SELECTs – **einer pro Token** aus der Kollisionsprüfung in `mk_token()`.
+      → **Aufgabe für 3.6:** mit dem `UniqueConstraint` auf `token_string` ist die Vorabprüfung
+      überflüssig; ohne sie fällt dieselbe Umfrage auf **6 Queries**. Das ist der eigentliche
+      Gewinn des Constraints, nicht nur die Integrität.
+      Zwei Annahmen geprüft statt vermutet und per Test festgenagelt: `bulk_create` liefert auf
+      diesem SQLite die PKs mit zurück (RETURNING), und die Choice-Reihenfolge überlebt.
+      *Nebenbefund:* die Kollisionsprüfung in `mk_token()` sieht die Geschwister eines
+      `bulk_create`-Batches nicht, weil alle Objekte vor dem ersten INSERT konstruiert werden. Bei
+      62^128 möglichen Tokens ist das kein praktisches Risiko, und ab 3.6 fängt es die Datenbank.
 - [ ] **3.6 Models aufräumen:** `.count()` statt `len()`, Schleife statt Rekursion in
       `mk_token`/`mk_identifier`, `UniqueConstraint` auf `Token.token_string` und
       `Poll.identifier`, `db_index` wo sinnvoll, `POLL_TYPES` als `TextChoices`,
       `get_absolute_url()`. → eigene Migration.
+      **Dazu die Kollisionsprüfungen ganz streichen** (siehe 3.5): mit dem Constraint ist der
+      SELECT pro Token überflüssig, und die Query-Zahl einer Umfrage mit 200 Empfängern fällt von
+      206 auf 6. `test_poll_service.py::TestQueryCount` erwartet dann `6` statt `6 + num_tokens`.
+      **Vorher auf Prod prüfen** (Abfragen in §12), sonst schlägt die Unique-Migration dort fehl.
 - [ ] **3.7 `re_path` → `path`** mit `<slug:poll_identifier>`/Custom-Converter; URLs identisch halten (Regel 4).
 - [ ] **3.8 Rate-Limit / Zugangsschutz für `create` (B4).** Optionen für §12:
       (a) Django-Auth + Login-Zwang, (b) Shared Secret / Invite-Code, (c) IP-Rate-Limit,
@@ -575,9 +592,9 @@ offen, in sinnvoller Reihenfolge:
   2.7      TLS-Hardening – braucht F15
 ```
 
-**Nächster Schritt:** 3.5 (`bulk_create` für Tokens/Choices) – klein und unblockiert. Danach
-3.6 (Models, Unique-Constraints; **vorher die zwei SQL-Abfragen aus §12 auf Prod laufen lassen**)
-und 3.7 (`re_path` → `path`). 3.8 braucht F5.
+**Nächster Schritt:** 3.6 (Models, Unique-Constraints, Kollisionsprüfungen raus) – **dafür
+vorher die zwei SQL-Abfragen aus §12 auf Prod laufen lassen**, sonst kann die Unique-Migration
+dort auflaufen. Danach 3.7 (`re_path` → `path`). 3.8 braucht F5.
 **Die Vorarbeit für Ziel 2 (§11.1–3) ist mit 3.4 vollständig** – ein Batch-Versender ersetzt
 `mail.deliver()`. Was noch fehlt, ist die Spec und die Entscheidung zu F8.
 Details in [handover.md](handover.md) §9.
