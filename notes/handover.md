@@ -1,7 +1,7 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: 2026-08-03, Branch `update/modernize-2026`, 35 Commits über `master` (Basis `3074dbb`).
+Stand: 2026-08-03, Branch `update/modernize-2026`, 37 Commits über `master` (Basis `3074dbb`).
 Arbeitsbaum ist sauber, alles committed, nichts gepusht.
 
 ---
@@ -35,7 +35,7 @@ insbesondere für Ziel 2 relevant (§7).
 ## 3. Zwei Ziele
 
 1. **Auf heutige Standards bringen.** Phase 0, 1 und 2 (außer 2.7) sind fertig, Phase 3 ist bis
-   3.4 durch, CI steht (5.3). Offen: 3.5–3.8, Phase 4, 5.4/5.5.
+   3.5 durch, CI steht (5.3). Offen: 3.6–3.8, Phase 4, 5.4/5.5.
 2. **Batch-Modus für Mails.** *Spec steht noch aus, der User erklärt sie später.* Nicht spekulativ
    bauen. Phase 3 so anlegen, dass es andockt (§7).
 
@@ -61,7 +61,7 @@ grün ist, ist dort grün.
 
 **Sollwerte, an denen du merkst, dass alles in Ordnung ist:**
 
-- `pytest` → **120 passed, 3 xfailed**
+- `pytest` → **129 passed, 3 xfailed**
 - `manage.py check` → **no issues (0 silenced)**
 - `makemigrations --check` → **No changes detected**
 - `ruff format --check` → alle Dateien unverändert
@@ -153,16 +153,24 @@ SELECT identifier,   COUNT(*) c FROM vote_poll  GROUP BY identifier   HAVING c>1
 
 ## 9. Nächster Schritt
 
-**Phase 3 ist bis 3.4 durch, CI steht.** Behoben: **B2, B3, B6, B7, B11, B12, B15**.
-Der Mailversand ist ein Service und läuft nach dem Commit; **damit ist die Vorarbeit für Ziel 2
-(§7.1–3) vollständig** – ein Batch-Versender ersetzt `mail.deliver()`. Was fehlt, ist die Spec und
-die Entscheidung zu F8.
+**Phase 3 ist bis 3.5 durch, CI steht.** Behoben: **B2, B3, B6, B7, B11, B12, B15**.
+Mailversand und Poll-Erstellung sind Services ([vote/services/](../vote/services/)), der Versand
+hängt an `on_commit`. **Die Vorarbeit für Ziel 2 (§7.1–3) ist vollständig** – ein Batch-Versender
+ersetzt `mail.deliver()`. Was fehlt, ist die Spec und die Entscheidung zu F8.
 
-**Als Nächstes 3.5** (`bulk_create` für Tokens und Choices statt Save-Schleife) – klein,
-unblockiert. Dann **3.6** (Models: `.count()`, Schleife statt Rekursion, `UniqueConstraint`,
-`TextChoices`, `get_absolute_url()`; **vorher die zwei SQL-Abfragen unten auf Prod laufen lassen**,
-sonst schlägt die Unique-Migration dort fehl) und **3.7** (`re_path` → `path`, URLs identisch
-halten). 3.6 nimmt die zwei letzten `xfail`-Marker mit.
+**Als Nächstes 3.6 (Models).** `.count()` statt `len()`, Schleife statt Rekursion,
+`UniqueConstraint` auf `Token.token_string` und `Poll.identifier`, `POLL_TYPES` als `TextChoices`,
+`get_absolute_url()`, eigene Migration. Zwei Dinge dazu:
+
+1. **Vorher auf Prod prüfen** – die zwei SQL-Abfragen unten. Liegen dort Duplikate, schlägt die
+   Unique-Migration beim Anlegen des Index fehl.
+2. **Mit dem Constraint fallen die Kollisionsprüfungen weg.** `mk_token()` fragt heute pro Token
+   einmal die Datenbank; das ist nach 3.5 der einzige Teil, der noch linear wächst (Umfrage mit
+   200 Empfängern: 206 Queries, davon 200 diese Prüfung – ohne sie 6).
+   `test_poll_service.py::TestQueryCount` erwartet dann `6` statt `6 + num_tokens`.
+
+3.6 nimmt auch die zwei letzten `xfail`-Marker mit. Danach 3.7 (`re_path` → `path`, URLs
+identisch halten – Regel 5).
 
 Offen: **3.8** braucht F5, **4.3** braucht F4, **2.7** braucht F15, **5.4** braucht F13.
 **F17 vor dem Deploy klären.**
