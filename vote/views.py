@@ -6,7 +6,7 @@ from django.urls import reverse
 
 from .forms import PollCreateForm
 from .models import Choice, Poll, Token
-from .services import mail
+from .services import mail, polls
 
 
 def poll(request, poll_identifier):
@@ -43,18 +43,6 @@ def index(request):
 
 
 def create(request):
-    def create_choice_objects(choices, poll):
-        for choice in choices:
-            Choice(poll=poll, choice_text=choice).save()
-
-    def create_token_objects(poll, amount):
-        result = []
-        for _ in range(amount):
-            token = Token(poll=poll)
-            token.save()
-            result.append(token)
-        return result
-
     if request.method != "POST":
         # Ein GET auf /vote/create lief bisher in einen MultiValueDictKeyError, also in einen 500
         # (B3). Bewusst kein 405: wer die URL aus der History oder einem Lesezeichen aufruft, soll
@@ -69,15 +57,13 @@ def create(request):
         return render(request, "vote/index.html", {"form": form})
 
     voter_mails = form.cleaned_data["voter_mails"]
-    poll = Poll(
+    poll, tokens = polls.create_poll(
         title=form.cleaned_data["title"],
-        type=form.cleaned_data["type"],
-        num_tokens=len(voter_mails),
+        poll_type=form.cleaned_data["type"],
         question_text=form.cleaned_data["description"],
+        choices=form.cleaned_data["choices"],
+        num_tokens=len(voter_mails),
     )
-    poll.save()
-    create_choice_objects(form.cleaned_data["choices"], poll)
-    tokens = create_token_objects(poll, len(voter_mails))
     # Vollständig rendern, solange die Objekte da sind, aber erst nach dem Commit verschicken (B7):
     # ATOMIC_REQUESTS umschließt den ganzen Request, ein synchrones send_mail() liefe also *in* der
     # Transaktion. Bei einem Rollback wären die Mails mit den Tokens draußen, die Tokens selbst aber
