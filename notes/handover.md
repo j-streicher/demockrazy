@@ -66,7 +66,7 @@ grün ist, ist dort grün.
 
 **Sollwerte, an denen du merkst, dass alles in Ordnung ist:**
 
-- `pytest` → **191 passed** (kein xfailed mehr, siehe §5)
+- `pytest` → **192 passed** (kein xfailed mehr, siehe §5)
 - `manage.py check` → **no issues (0 silenced)**
 - `makemigrations --check` → **No changes detected**
 - `ruff format --check` → alle Dateien unverändert
@@ -375,6 +375,17 @@ dieses Aufrufs ist nur dort zu lösen. Alle drei in [to-check.md](to-check.md) �
   ohne Cookie ist ein **403**, weil Djangos CSRF-Prüfung eines verlangt. Das ist das Argument, mit
   dem 3.9 den Token in ein Cookie legen darf, ohne jemandem etwas wegzunehmen. Wer so etwas ändern
   will, prüft es an `test_views.py::TestTokenLeavesTheUrl` nach.
+- **Ein langlaufender Schreiber ist harmlos, eine lange Transaktion nicht.** Für Ziel 2 gemessen
+  (plan.md §11.7, Punkt 4a): ein Versender, der minutenlang läuft und zwischen den Batches schläft,
+  kostet die gleichzeitige Stimmabgabe **7–9 ms** – solange `sleep` außerhalb jeder Transaktion
+  steht. Wandert der `sleep` *in* ein `atomic()`, dauern Stimmen Sekunden, und sobald der Lauf länger
+  wird als der `timeout` von 20 s, gehen sie verloren (gemessen: 8 von 200). **Die Länge eines
+  Prozesses ist also nicht das Problem, die Länge einer Transaktion ist es.**
+- **`EMAIL_TIMEOUT` musste gesetzt werden, weil Djangos Default unbegrenzt wartet.** Bei `None` gibt
+  das SMTP-Backend den Timeout nicht an `smtplib` weiter, das nimmt den Socket-Default, und der ist
+  auch `None`. Ein Mailserver, der annimmt und dann schweigt, hätte einen der vier uwsgi-Prozesse
+  gehalten. Steht jetzt auf 10 s (`DEMOCKRAZY_MAIL_TIMEOUT`), festgehalten in
+  `test_mail_service.py::TestDeliver`.
 - **`processes = 4` im uwsgi auf einer SQLite-Datei** ist genau das Lock-Szenario aus B13.
   ✅ **Mit 5.4 gehärtet** – aber der entscheidende Schalter war nicht WAL, sondern
   `transaction_mode="IMMEDIATE"`: bei Djangos `DEFERRED` muss eine Transaktion, die erst liest und

@@ -930,6 +930,42 @@ Zeilen sieht.
   **ohne Adresse**, wie `deliver()` das heute schon tut (F8).
 - `VOTE_SEND_MAILS=False` druckt statt zu verschicken, genau wie `deliver()` heute.
 
+**4a. Blockiert der schlafende Versender die Abstimmung? Gemessen: nein – unter einer Bedingung.**
+Er läuft in einem eigenen Prozess, schreibt aber in **dieselbe SQLite-Datei** wie die vier
+uwsgi-Prozesse, und die steht seit 5.4 auf `transaction_mode=IMMEDIATE` – die Schreibsperre fällt
+schon beim `BEGIN`. Gemessen mit 8 gleichzeitigen Wählern × 25 Stimmabgaben gegen einen laufenden
+Versender (3 Batches à 30):
+
+| Versender | Stimmen | `database is locked` | Wartezeit je Stimme (Schnitt / schlimmste) |
+|---|---|---|---|
+| **A** `sleep` **außerhalb** der Transaktion, Lauf 6 s | 200/200 | 0 | **7 ms** / 0,2 s |
+| **A'** dasselbe, Lauf 24 s | 200/200 | 0 | **9 ms** / 0,2 s |
+| **B** eine Transaktion um den ganzen Lauf, 6 s | 200/200 | 0 | 253 ms / **6,6 s** |
+| **B'** dieselbe Transaktion, Lauf 25 s | **192/200** | **8** | 972 ms / **20,0 s** |
+
+**Die Bedingung ist also präzise benennbar: keine Transaktion darf über eine Pause reichen.** Hält
+man sie ein, ist die Länge des Laufs **völlig gleichgültig** (A gegen A': dieselben 7–9 ms). Hält man
+sie nicht ein, degradiert es zuerst nur (B: Stimmen dauern Sekunden statt Millisekunden) und wird
+dann zum Datenverlust, sobald der Lauf länger dauert als der `timeout` von 20 s – bei B' sind **acht
+Stimmen nicht gezählt worden**, und die schlimmste Wartezeit war exakt der Timeout.
+*(Meine Vorhersage „B legt die Abstimmung still" war zu grob: bei kurzen Läufen wartet der Wähler
+nur, verloren geht nichts. Erst jenseits des Timeouts kippt es.)*
+Konkret heißt das für den Command: `sleep` steht zwischen den Batches und **nie** in einem
+`atomic()`, und pro Mail gibt es eine eigene kurze Transaktion. Eine bloß *offene* Verbindung ist
+unkritisch – SQLite sperrt erst in einer Transaktion.
+
+**4b. Was tatsächlich blockieren kann, ist SMTP – und das ist heute schon so.**
+`EMAIL_TIMEOUT` war nicht gesetzt, und Djangos Default ist `None`. Nachgesehen statt vermutet: das
+Backend gibt `timeout` dann gar nicht an `smtplib` weiter, `smtplib` nimmt den Socket-Default, und
+`socket.getdefaulttimeout()` ist ebenfalls `None` – **ein Server, der die Verbindung annimmt und dann
+schweigt, blockiert unbegrenzt.** Heute hängt daran ein uwsgi-Prozess (der Versand läuft synchron im
+Request), und es gibt vier davon. Für den Versender wäre es schlimmer: er sperrt sich selbst, ein
+Lauf ohne Ende hält die Sperre, und dann geht **gar keine** Mail mehr raus.
+✅ **Deshalb vorgezogen und schon gesetzt:** `EMAIL_TIMEOUT = 10` (über `DEMOCKRAZY_MAIL_TIMEOUT`
+konfigurierbar), mit einem Test, der die Endlichkeit festhält. Dazu gehört später ein Laufzeitbudget
+im Command, damit ein Lauf sich auch dann beendet, wenn jede einzelne Verbindung brav in 10 s
+scheitert.
+
 **5. Idempotenz: verschicken, dann löschen.**
 Zwischen SMTP-Erfolg und `DELETE` kann der Prozess sterben, dann geht die Mail doppelt raus.
 **Absichtlich diese Richtung:** die zweite Mail trägt denselben Token, und der ist einmalig – eine
