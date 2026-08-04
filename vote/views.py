@@ -7,7 +7,7 @@ from django.urls import reverse
 from django.views.decorators.vary import vary_on_cookie
 
 from .forms import PollCreateForm
-from .models import Choice, Poll, PollType, Token
+from .models import Choice, OutgoingMail, Poll, PollType, Token
 from .services import mail, polls
 
 #: Cookie, in dem der Wähler-Token nach dem ersten Aufruf liegt (B9).
@@ -259,6 +259,9 @@ def manage(request, poll_identifier):
         "amount_remaining_tokens": amount_remaining_tokens,
         "amount_tokens_total": amount_tokens_total,
         "error_message": error_message,
+        # Ein Bit, keine Zahl: eine Zeile trägt keine Poll-Kennung (F8), "für diese Umfrage" ist
+        # also nicht sagbar. Sicher ist nur die Leer-Richtung. Plan §11.7 Punkt 7.
+        "mails_pending": OutgoingMail.objects.exists(),
     }
     return render(request, "vote/manage.html", context)
 

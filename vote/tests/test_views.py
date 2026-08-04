@@ -638,6 +638,37 @@ class TestManage:
 
 
 @pytest.mark.django_db
+class TestManageShowsTheSendState:
+    """Versandstand auf der Manage-Seite. Warum ein Satz statt „n für diese Umfrage": Plan §11.7."""
+
+    def test_it_says_something_is_queued_right_after_creating(self, client, create_poll):
+        poll, _ = create_poll(send=False)
+        content = client.get(f"/vote/{poll.identifier}/manage").content.decode()
+        assert "Invitations are still queued" in content
+
+    def test_it_says_nothing_is_waiting_once_the_queue_is_empty(self, client, create_poll):
+        poll, _ = create_poll()
+        assert OutgoingMail.objects.count() == 0
+        content = client.get(f"/vote/{poll.identifier}/manage").content.decode()
+        assert "No invitations are waiting" in content
+
+    def test_it_is_a_bit_and_not_a_number(self, client, create_poll):
+        """Eine Zahl wäre eine Aussage über *andere* Umfragen; die Seite braucht keinen Token."""
+        poll, _ = create_poll(send=False, voters=tuple(f"w{i}@example.org" for i in range(7)))
+        content = client.get(f"/vote/{poll.identifier}/manage").content.decode()
+        assert "8" not in content.split("Invitations are still queued")[0][-200:]
+        assert client.get(f"/vote/{poll.identifier}/manage").context["mails_pending"] is True
+
+    def test_a_foreign_poll_in_the_queue_does_not_claim_to_be_this_one(self, client, create_poll):
+        """Wartet etwas, kann es eine andere Umfrage sein -- die Seite behauptet nichts anderes."""
+        poll, _ = create_poll()
+        create_poll(title="Andere", send=False)
+        content = client.get(f"/vote/{poll.identifier}/manage").content.decode()
+        assert "Invitations are still queued for sending." in content
+        assert poll.title not in content.split("Invitations are still queued")[1]
+
+
+@pytest.mark.django_db
 class TestResults:
     def test_open_poll_redirects_to_the_poll(self, client, create_poll):
         poll, _ = create_poll()
