@@ -1,7 +1,7 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: 2026-08-04, Branch `update/modernize-2026`, 62 Commits über `master` (Basis `3074dbb`).
+Stand: 2026-08-04, Branch `update/modernize-2026`, 66 Commits über `master` (Basis `3074dbb`).
 Arbeitsbaum ist sauber, alles committed, **nichts gepusht** -- die CI hat also noch nie gelaufen,
 sie greift erst beim ersten Push.
 
@@ -36,8 +36,8 @@ insbesondere für Ziel 2 relevant (§7).
 
 ## 3. Zwei Ziele
 
-1. **Auf heutige Standards bringen – inhaltlich fertig.** Phase 0 bis 6 sind durch, das
-   Bug-Register bis auf **B9** (Token im Query-String, nur additiv änderbar). Von 2.7 ist der
+1. **Auf heutige Standards bringen – inhaltlich fertig.** Phase 0 bis 6 sind durch, **das
+   Bug-Register ist vollständig abgearbeitet** (B9 als letzter, mit 3.9). Von 2.7 ist der
    größte Teil **gegenstandslos** geworden, nachdem der Proxy vorliegt: `forceSSL` und HSTS stehen
    dort schon, in Django wären sie doppelt. Was bleibt, betrifft den **Proxy, nicht dieses Repo** –
    §8, F15.
@@ -66,7 +66,7 @@ grün ist, ist dort grün.
 
 **Sollwerte, an denen du merkst, dass alles in Ordnung ist:**
 
-- `pytest` → **169 passed** (kein xfailed mehr, siehe §5)
+- `pytest` → **185 passed** (kein xfailed mehr, siehe §5)
 - `manage.py check` → **no issues (0 silenced)**
 - `makemigrations --check` → **No changes detected**
 - `ruff format --check` → alle Dateien unverändert
@@ -84,7 +84,7 @@ python3 manage.py runserver --settings=demockrazy.dev_settings
 |---|---|
 | [../vote/models.py](../vote/models.py) | `Poll`, `Choice`, `Token`, `PollType`; die zwei `UniqueConstraint`s, `get_absolute_url()` |
 | [../vote/forms.py](../vote/forms.py) | `PollCreateForm` – Validierung der Erstellung, Dedup der Adressen, Empfänger-Deckel (3.8), `parse_lines()` |
-| [../vote/views.py](../vote/views.py) | die sieben Views, nur noch Ablaufsteuerung |
+| [../vote/views.py](../vote/views.py) | die sieben Views, nur noch Ablaufsteuerung; dazu der Token-Umzug aus der URL ins Cookie (3.9, B9) |
 | [../vote/services/polls.py](../vote/services/polls.py) | `create_poll()` – Umfrage + Choices + Tokens per `bulk_create`, atomar |
 | [../vote/services/mail.py](../vote/services/mail.py) | `poll_created_messages()` rendert, `deliver()` verschickt |
 | [../vote/templates/vote/mail/](../vote/templates/vote/mail/) | die vier Mail-Templates; **enden absichtlich ohne Zeilenumbruch** |
@@ -118,7 +118,7 @@ ein neuer Befund macht den Build rot.
 **Es gibt keinen `xfail`-Test mehr.** Der letzte war **B4** (`/vote/create` nahm 500 Empfänger
 anstandslos an) und ist mit 3.8 gefallen – F5 hat den Deckel entschieden. Alle Tests in
 [../vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py) stehen jetzt ohne Marker als
-Regressionstests: B2, B3, B4, B6, B10, B11, B12 und die zwei Unique-Constraints.
+Regressionstests: B2, B3, B4, B6, B9, B10, B11, B12 und die zwei Unique-Constraints.
 **Wer künftig einen Bug so spezifiziert, nimmt wieder `xfail(strict=True)`** – das Muster hat sich
 bewährt: der Test beschreibt das Soll, schlägt fehl, und macht die Suite rot, sobald er behoben ist.
 Merke aus 3.8: mit dem Marker kann auch die *Erwartung* fallen. Der B4-Test verlangte einen
@@ -225,8 +225,9 @@ nix run nixpkgs#sqlite -- -readonly /var/lib/demockrazy/db.sqlite3 \
 
 ## 9. Nächster Schritt
 
-**Phase 3 ist bis 3.7 durch, CI steht (5.3), `/healthz` steht (5.5).** Behoben: **B1, B2, B3, B5,
-B6, B7, B11, B12, B15, B16** und die zwei fehlenden Unique-Constraints. Mailversand und
+**Alle Phasen sind durch, und das Bug-Register ist leer** – B1 bis B18, zuletzt **B9** mit 3.9
+(Token-Umzug aus dem Query-String ins Cookie), dazu die zwei fehlenden Unique-Constraints. Ohne
+Häkchen steht nur noch B14, und der ist inhaltlich in 2.7 aufgegangen. Mailversand und
 Poll-Erstellung sind Services, der Versand hängt an `on_commit`, die Umfrage-Erstellung kostet
 konstant 5 Statements, das Routing läuft über `path()`.
 **Die Vorarbeit für Ziel 2 (§7.1–3) ist vollständig** – ein Batch-Versender ersetzt `mail.deliver()`.
@@ -295,8 +296,10 @@ dieses Repos passieren muss, nach Ort gruppiert (Proxy / Modul / Node / Antwort 
 5. **`/healthz`** braucht einen `Host`-Header, den `ALLOWED_HOSTS` akzeptiert.
 
 Am Proxy, unabhängig vom Deploy: den vorhandenen **CSP-Snippet** einbinden (geht erst, seit alles
-vendored ist) und den **widersprüchlichen `X-Frame-Options`** entwirren – Proxy sagt `sameorigin`,
-Django `DENY`, beide Header gehen raus. Beides in [to-check.md](to-check.md) §B.
+vendored ist), den **widersprüchlichen `X-Frame-Options`** entwirren – Proxy sagt `sameorigin`,
+Django `DENY`, beide Header gehen raus – und das **`log_format` ohne `$args`** setzen, das ist der
+Rest von B9: der Token zieht seit 3.9 nach *einem* Aufruf in ein Cookie um, und die Logzeile genau
+dieses Aufrufs ist nur dort zu lösen. Alle drei in [to-check.md](to-check.md) §B.
 
 ## 10. Arbeitsregeln (haben sich bewährt, bitte beibehalten)
 
@@ -353,6 +356,16 @@ Django `DENY`, beide Header gehen raus. Beides in [to-check.md](to-check.md) §B
   hinzufügt, prüft nach `git add`, ob die Datei wirklich im `git status` steht.
 - **Mehrzeilige `{# … #}` sind keine Kommentare** (B17). Steht in §9 mit dem ganzen Hergang; hier nur
   die Kurzform, weil man es sonst zweimal lernt.
+- **Die Referrer-Policy gibt den Query-String weiter, und das war die Hälfte von B9.** Django
+  schickt `Referrer-Policy: same-origin`; unter dieser Policy sendet der Browser für
+  **gleichherkünftige** Anfragen die *vollständige* URL. Im Browser gemessen: `document.referrer`
+  enthielt den kompletten Query-String. Ein `?token=…` reiste damit nicht nur in *einer* Logzeile,
+  sondern im `Referer` jeder Unteranfrage der Seite mit – Stylesheet inklusive. **Wer eine URL für
+  „nur einmal geloggt" hält, irrt.** Mit 3.9 ist die Adresse nach dem ersten Aufruf token-frei.
+- **Cookies waren für die Stimmabgabe schon vorher Pflicht** – gemessen, nicht angenommen: ein POST
+  ohne Cookie ist ein **403**, weil Djangos CSRF-Prüfung eines verlangt. Das ist das Argument, mit
+  dem 3.9 den Token in ein Cookie legen darf, ohne jemandem etwas wegzunehmen. Wer so etwas ändern
+  will, prüft es an `test_views.py::TestTokenLeavesTheUrl` nach.
 - **`processes = 4` im uwsgi auf einer SQLite-Datei** ist genau das Lock-Szenario aus B13.
   ✅ **Mit 5.4 gehärtet** – aber der entscheidende Schalter war nicht WAL, sondern
   `transaction_mode="IMMEDIATE"`: bei Djangos `DEFERRED` muss eine Transaktion, die erst liest und

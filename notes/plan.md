@@ -9,7 +9,7 @@
 
 | # | Ziel | Status |
 |---|------|--------|
-| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | **Phase 0–6 vollständig ✅ außer 2.7.** Das Bug-Register ist bis auf **B9** abgearbeitet. Offen ist nur noch 2.7, und das ist zum größten Teil **gegenstandslos** geworden, nachdem der Proxy vorliegt – es bleibt eine Frage (F15) und ein Vorschlag für den Proxy, nichts im Repo. |
+| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | **Phase 0–6 vollständig ✅ außer 2.7. Das Bug-Register ist vollständig abgearbeitet** – B9 ist mit 3.9 gefallen. Offen ist nur noch 2.7, und das ist zum größten Teil **gegenstandslos** geworden, nachdem der Proxy vorliegt – es bleibt eine Frage (F15) und ein Vorschlag für den Proxy, nichts im Repo. |
 | 2 | Batch-Modus für Mails bauen | **Spec folgt vom User** – nur Vorarbeit leisten, siehe §11 |
 
 **Wichtig:** Ziel 2 wird vom User später erklärt. Ziel 1 nicht so umbauen, dass Ziel 2 blockiert wird –
@@ -101,7 +101,7 @@ Wiederherstellbar über `git revert 4e15012`.
 | B6 | Doppelte Adressen → doppelte Tokens | ✅ **behoben** in 3.1/3.2 |
 | B7 | Mailversand innerhalb der Transaktion | ✅ **behoben** in 3.4 |
 | B8 | Highcharts proprietär lizenziert | ✅ **behoben** in 4.3 (Chart.js, MIT) |
-| B9 | Token im URL-Query-String | **offen, der einzige verbleibende Bug.** Nur additiv änderbar (Regel 4/5), Entscheidung nötig |
+| B9 | Token im URL-Query-String | ✅ **behoben** in 3.9 (additiv: Umzug ins Cookie, Mail unverändert) |
 | B10 | Templating in Inline-JS | ✅ **behoben** in 4.2 (`json_script`) |
 | B11 | `manage()` crasht ohne `token`-Feld | ✅ **behoben** in 3.2 |
 | B12 | `ValidationError` ungefangen | ✅ **behoben** in 3.1/3.2 |
@@ -114,9 +114,12 @@ Wiederherstellbar über `git revert 4e15012`.
 
 Ursprünglich alle als `xfail(strict=True)` spezifiziert in
 [vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py). **Dort steht inzwischen kein
-Marker mehr** – B2, B3, B4, B6, B10, B11, B12 und die zwei Unique-Constraints sind Regressionstests
-geworden. Von den 500-Pfaden ist keiner mehr offen. B15 kam erst in 3.3 dazu und war sofort behoben,
-hatte also nie einen Marker.
+Marker mehr** – B2, B3, B4, B6, B9, B10, B11, B12 und die zwei Unique-Constraints sind
+Regressionstests geworden. Von den 500-Pfaden ist keiner mehr offen. B15 kam erst in 3.3 dazu und war
+sofort behoben, hatte also nie einen Marker.
+
+**Mit 3.9 (B9) ist das Register vollständig abgearbeitet.** B14 ist der einzige Eintrag ohne Häkchen,
+und der ist inhaltlich in 2.7 aufgegangen: was davon übrig ist, betrifft den Proxy.
 
 
 **B1 – Migrations sind gitignored.**
@@ -212,11 +215,13 @@ Kein Free-/Open-Source-Lizenzmodell für kommerzielle Nutzung. Vendored in
 `vote/static/highcharts-custom.js` in einem MIT-Repo (die Datei ist mit 4.3 entfernt).
 → Durch Chart.js (MIT) oder ECharts (Apache-2.0) ersetzen. **Lizenzfrage an User weitergeben.**
 
-**B9 – Token im URL-Query-String.**
-`?token=…` landet im nginx-Access-Log des Hosts, im Referer und in der Browser-History.
-Der Token ist das einzige Auth-Merkmal. Eine Änderung wäre nur **additiv** möglich (Regel 4:
-es sind Mails mit solchen Links unterwegs) – z. B. Token per POST/Session einlösen und den
-GET-Pfad weiter unterstützen. Braucht eine Entscheidung, ob der Aufwand lohnt.
+**B9 – Token im URL-Query-String.** ✅ **behoben in 3.9**
+`?token=…` landete im nginx-Access-Log des Hosts, im Referer und in der Browser-History, und der
+Token ist das einzige Auth-Merkmal. Eine Änderung war nur **additiv** möglich (Regel 4: es sind Mails
+mit solchen Links unterwegs). Umgesetzt ist deshalb nicht ein neuer Einlöseweg, sondern ein
+**Umzug**: der erste Aufruf legt den Token in ein pfadgebundenes Cookie und leitet auf dieselbe
+Adresse **ohne Query-String** um. Der Link in der Mail bleibt zeichengleich, alte Links funktionieren
+weiter, der Token lebt in der URL nur noch für einen Request. Details und Messungen bei 3.9.
 
 **B15 – `choice`-Wert ohne Zahl ergibt einen 500.** *(neu gefunden in 3.3)*
 `poll.choice_set.get(pk=request.POST["choice"])` wirft bei einem nicht-numerischen Wert
@@ -554,6 +559,56 @@ Tests für niemanden außer mir nutzbar und in CI wertlos. **Behoben in 2.1**, a
       jetzt die *Wirkung*: keine Umfrage, keine Mail, auch nicht an den Ersteller.
       **Das war der letzte `xfail` der Suite** – seither gibt es keinen mehr, und der Sollwert hat
       kein `xfailed` mehr. Die aktuelle Zahl steht in [handover.md](handover.md) §4, nicht hier.
+- [x] **3.9 Token raus aus dem Query-String (B9)** ✅ – **nachträglich zu Phase 3 dazugekommen**, weil
+      es eine Code-Änderung in [vote/views.py](../vote/views.py) ist und keine Deployment-Frage.
+      **Kein neuer Einlöseweg, sondern ein Umzug:** `poll()` nimmt einen Token aus `?token=`, legt ihn
+      in ein Cookie und leitet auf dieselbe Adresse **ohne Query-String** um. Danach kommt der Token
+      aus dem Cookie ins Formularfeld. **Damit bleibt alles additiv** (Regel 4/5): der Mailtext ist
+      unverändert, `poll_url_with_token` sieht aus wie immer, alte Links funktionieren, und die
+      Stimmabgabe liest den Token weiter aus dem POST-Body – das Cookie ist eine Bequemlichkeit für
+      die Anzeige und **kein Auth-Kanal** (eigener Test).
+      **Warum es sich lohnt, gemessen statt zitiert:** der Token stand nicht nur einmal im Log. Im
+      Browser nachgesehen – Django schickt `Referrer-Policy: same-origin`, und unter dieser Policy
+      sendet der Browser für gleichherkünftige Anfragen die **vollständige** URL: nach einem Klick von
+      `/vote/<id>/?beispiel=…` auf `/vote/` stand in `document.referrer` der komplette Query-String.
+      Der Token reiste also in jeder Unteranfrage der Seite mit, Stylesheet inklusive. Nach dem Umzug
+      sind es **genau zwei Logzeilen mit `?token=` für zwei angeklickte Einladungen**, danach keine.
+      ⚠️ **Was offen bleibt und offen bleiben muss:** die Logzeile dieses *einen* Aufrufs. Sie hängt
+      an einem klickbaren Link; nginx protokolliert die Anfragezeile, bevor Django sie sieht. Lösbar
+      nur am Proxy über ein `log_format` ohne `$args` → [to-check.md](to-check.md) §B3.
+      **Die Kosten sind null, und das ist gemessen, nicht gehofft:** ein POST ohne Cookie ist heute
+      schon ein **403**, weil Djangos CSRF-Prüfung ein Cookie verlangt. Wer keine annimmt, konnte
+      auch vorher nicht abstimmen – ein zweites Cookie nimmt also keinem Wähler etwas.
+      **Vier Cookie-Eigenschaften, jede mit einem Grund** (ausführlich im Code):
+      `path` auf `/vote/<id>/` – ohne das würde eine zweite Einladung die erste überschreiben, was
+      mit `?token=` in der URL nicht passierte; die Bindung ist also Verhaltenserhaltung. `httponly`,
+      weil kein Skript den Token braucht. `samesite="Lax"` und **nicht** `"Strict"`: der Klick aus
+      einem Webmailer ist eine seitenübergreifende Navigation, bei `Strict` käme das Cookie dort nicht
+      mit und die Weiterleitung liefe ins Leere. `secure` aus `SESSION_COOKIE_SECURE`, weil das
+      Prod-Modul genau diesen Schalter schon setzt (`secureCookies`) – ein eigener würde still davon
+      abweichen, und `not DEBUG` zur Importzeit wäre falsch, weil `demockrazy_config` `DEBUG` erst
+      *nach* dem Sternchen-Import setzt.
+      **Kein neuer Zustand auf dem Server**, insbesondere **keine Session:** die hätte für jeden
+      Besucher eine Zeile in `django_session` geschrieben, also einen Schreibzugriff auf dieselbe
+      SQLite-Datei, die vier uwsgi-Prozesse teilen (B13) – gegen den 5.4 gerade gearbeitet hat.
+      **Zwei Nebenentscheidungen, die man wissen will:** die `is_active`-Weiche ist an den Anfang der
+      View gewandert, damit eine geschlossene Umfrage mit Token nicht erst umzieht und dann zweimal
+      weiterleitet; und das Cookie wird nach der Abgabe **nicht** gelöscht, weil dann dieselbe Meldung
+      erscheint wie bisher beim erneuten Aufruf des Mail-Links („This token is invalid. Maybe you
+      voted already?") statt eines leeren Feldes.
+      **Lebensdauer 30 Tage.** Ein Sitzungscookie wäre strenger, würde aber etwas wegnehmen, was heute
+      funktioniert: in der History steht nach dem Umzug nur noch die Adresse ohne Token, ein Aufruf
+      von dort käme ohne Token an. Die Einladung in der Mailbox verfällt gar nicht; 30 Tage sind
+      kürzer als das. **Falls kürzer gewünscht ist, ist es eine Zeile** in `vote/views.py`.
+      `Vary: Cookie` ist explizit gesetzt, obwohl die CSRF-Middleware ihn heute schon mitliefert
+      (gemessen) – der Header soll aus dem Grund dastehen, aus dem er gebraucht wird.
+      **Im Browser gegengeprüft, weil der Testclient das Wesentliche nicht sieht:** die Adressleiste
+      ist nach dem Klick token-frei, `document.cookie` zeigt nur `csrftoken` (das Token-Cookie ist
+      `httponly`), zwei parallele Einladungen behalten **jede ihren eigenen** Token – die Kantinen-Seite
+      ohne Query-String zeigte den Kantinen-Token, während das Sommerfest-Cookie ebenfalls lag –, und
+      einmal echt abgestimmt: POST → 302 → `/success` 200, danach die „voted already"-Meldung.
+      Der Testclient kann das nicht: sein Cookie-Speicher ist nur nach Namen sortiert und ignoriert
+      `path`, dort würde die Isolation *scheinbar* auch ohne sie gelingen.
 
 ## 8. Phase 4 – Frontend
 
@@ -887,10 +942,10 @@ Zustellbericht – und der braucht die Entscheidung aus **F8** (Anonymität).
 Phase 0  Baseline, Prod-Fakten                                        ✅
 Phase 1  Tooling + Testsuite (das Sicherheitsnetz)                    ✅
 Phase 2  Migrations, Django 5.2, Settings                             ✅ außer 2.7 (braucht F15)
-Phase 5  5.1 k8s-Cleanup ✅ · 5.2 Deployment verstanden ✅ · 5.3 CI ✅ · 5.4/5.5 offen
-Phase 6  README ✅ · Handover ✅
-
-Phase 3  vollständig ✅   Phase 4  vollständig ✅   Phase 5  vollständig ✅   Phase 6  ✅
+Phase 3  Code-Modernisierung                                          ✅ vollständig (3.1–3.9)
+Phase 4  Frontend                                                     ✅ vollständig
+Phase 5  Deployment & CI                                              ✅ vollständig (5.1–5.5)
+Phase 6  Dokumentation                                                ✅ vollständig
 
 offen:
   2.7  TLS-Hardening – **zum größten Teil gegenstandslos**, seit der Proxy vorliegt: `forceSSL`
@@ -900,26 +955,28 @@ offen:
        Vorschlag, den vorhandenen CSP-Snippet einzubinden, was erst seit 4.1/4.3 sinnvoll geht.
        **Alle drei betreffen den Proxy, nicht dieses Repo.**
 
-**Ziel 1 ist damit inhaltlich fertig.** Vom Bug-Register bleibt **B9** (Token im Query-String) –
-eine Änderung wäre nur additiv möglich und braucht eine Entscheidung, ob der Aufwand lohnt.
+**Ziel 1 ist damit inhaltlich fertig, und das Bug-Register ist leer.** B9 (Token im Query-String)
+ist mit 3.9 gefallen – additiv, wie es Regel 4/5 verlangt: der Token zieht beim ersten Aufruf in ein
+Cookie um, der Mailtext bleibt unverändert. Was daran nicht im Repo lösbar ist, ist die Logzeile des
+einen Aufrufs, der den Link trägt → [to-check.md](to-check.md) §B3.
 
 ZIEL 2 (Batch-Mails) hat eine gemessene Problembeschreibung (§11) und mit **F8** die
 Anonymitäts-Entscheidung. Offen: die Spec und **F20** (der genaue Rate-Limit-Wert).
 
 erledigt in Phase 3: 3.1 Forms · 3.2 create()/manage() · 3.3 vote() · 3.4 Mail-Service ·
-3.5 Poll-Service · 3.6 Models/Constraints · 3.7 path()
-  └─ 8 der 9 xfail-Tests sind weg (offen nur B4), alle 3 roten Ruff-Befunde ebenfalls
+3.5 Poll-Service · 3.6 Models/Constraints · 3.7 path() · 3.8 Empfänger-Deckel · 3.9 Token-Umzug
+  └─ kein `xfail` mehr in der Suite, alle 3 roten Ruff-Befunde ebenfalls weg
   └─ 3.4 ist die Schnittstelle für ZIEL 2 (Batch-Mails, nach Spec)
 ```
 
-**Nächster Schritt: keiner im Repo.** Ziel 1 ist inhaltlich fertig; was von 2.7 übrig ist, gehört in
-den Proxy und braucht F15. Danach ist **Ziel 2** dran – die Problembeschreibung steht in §11, die
-Anonymitätsfrage ist mit F8 entschieden, es fehlen die Spec und **F20**.
+**Nächster Schritt: keiner im Repo für Ziel 1.** Was von 2.7 übrig ist, gehört in den Proxy und
+braucht F15. Danach ist **Ziel 2** dran – die Problembeschreibung steht in §11, die Anonymitätsfrage
+ist mit F8 entschieden, es fehlen die **Spec** und **F20**.
 **Alles, was außerhalb dieses Repos zu tun ist, steht in [to-check.md](to-check.md)** – Proxy,
 NixOS-Modul, Prod-Node und die offenen Fragen, mit Befehlen und Begründung. **F17** ist der einzige
 Punkt davon, der noch eine Antwort braucht.
 **Vor dem Deploy:** F17 klären; die Migration `0003` schreibt `vote_poll` und `vote_token` neu
 (Details in [phase-2-migrations.md](phase-2-migrations.md)), Backup liegt vor (borg 03:00/04:00).
-**Die Vorarbeit für Ziel 2 (§11.1–3) ist mit 3.4 vollständig** – ein Batch-Versender ersetzt
-`mail.deliver()`. Was noch fehlt, ist die Spec und die Entscheidung zu F8.
+**Die Vorarbeit für Ziel 2 (§11.1–5) ist vollständig** – ein Batch-Versender ersetzt
+`mail.deliver()`, F8 ist entschieden, der Missbrauchsschutz steht. Was fehlt, ist die Spec und F20.
 Details in [handover.md](handover.md) §9.
