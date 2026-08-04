@@ -260,8 +260,9 @@ Gegenstandslos: **kein `HttpResponseNotAllowed`-Handling**. War für 3.2 vorgese
 verworfen – ein GET auf `/vote/create` rendert das Formular, weil ein 405 für einen Menschen aus der
 Browser-History eine Sackgasse ist. Begründung bei 3.2.
 
-Noch offen:
-- Bootstrap-3-Markup durchgehend → 4.1.
+Damit ist von den kleineren Punkten **keiner mehr offen.** *(Hier stand bis zuletzt
+„Bootstrap-3-Markup durchgehend → 4.1" – das ist mit 4.1 erledigt, im Markup steht keine
+Bootstrap-3-Klasse mehr.)*
 
 ---
 
@@ -801,9 +802,10 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
    "zugestellt" markieren; **keine Historie**; Fortschritt nur als Zahl. Damit ist die Paarung
    zeitlich begrenzt statt dauerhaft, und nach dem Versand ist der Zustand wieder wie heute.
 5. ~~**Missbrauchsschutz vor Skalierung** (B4)~~ ✅ mit 3.8 erledigt – Deckel bei 150.
-6. Offen zu klären, sobald die Spec da ist: Queue/Worker (Celery? `django-tasks`? DB-Queue +
-   Management-Command + CronJob?), Bounce-Handling, Idempotenz, Fortschrittsanzeige für den
-   Poll-Ersteller.
+6. Offen zu klären, sobald die Spec da ist: **Queue/Worker** (Celery? `django-tasks`? DB-Queue +
+   Management-Command + CronJob?), **Bounce-Handling**, **Idempotenz**. Die **Fortschrittsanzeige**
+   ist durch F8 schon eingeschränkt: nur Summen, keine Adressliste. Die **Taktung** (Batch-Größe und
+   Pause) hängt an F20.
 
 ---
 
