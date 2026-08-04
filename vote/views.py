@@ -1,17 +1,95 @@
+from django.conf import settings
 from django.db import transaction
 from django.db.models import F
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
+from django.views.decorators.vary import vary_on_cookie
 
 from .forms import PollCreateForm
 from .models import Choice, Poll, PollType, Token
 from .services import mail, polls
 
+#: Cookie, in dem der Wähler-Token nach dem ersten Aufruf liegt (B9).
+#: **Kein `__Host-`-Präfix**, obwohl das die härtere Variante wäre: das Präfix verlangt `path=/`
+#: und würde damit genau die Eigenschaft aufgeben, auf die es hier ankommt -- ein Cookie pro
+#: Umfrage (siehe `_move_token_out_of_the_url`).
+TOKEN_COOKIE_NAME = "vote_token"
 
+#: 30 Tage. Die Alternative wäre ein Sitzungscookie, das mit dem Browser stirbt -- das wäre
+#: strenger, würde aber etwas wegnehmen, was heute funktioniert: nach dem Umzug steht in der
+#: History nur noch die Adresse *ohne* Token, ein Aufruf von dort käme also ohne Token an. Die
+#: Einladung selbst liegt zeitlich unbegrenzt in der Mailbox; 30 Tage sind kürzer als das.
+TOKEN_COOKIE_MAX_AGE = 60 * 60 * 24 * 30
+
+
+def _move_token_out_of_the_url(request, poll_identifier):
+    """B9: den Token aus dem Query-String in ein Cookie umziehen und ohne ihn umleiten.
+
+    Warum überhaupt: `?token=…` steht im nginx-Access-Log, in der Browser-History und -- weil die
+    Referrer-Policy für gleichherkünftige Anfragen die *vollständige* URL sendet (gemessen: Django
+    schickt `Referrer-Policy: same-origin`) -- im `Referer` jeder Anfrage, die diese Seite auslöst,
+    also auch in jeder Zeile über ein Stylesheet. Ein Token ist das einzige Auth-Merkmal.
+
+    Der Umzug ist **additiv** (Regel 4/5): der Link in der Mail bleibt zeichengleich, alte Links
+    funktionieren weiter, der Token lebt in der URL nur noch für *einen* Request. Was dadurch
+    nicht verschwindet, ist die Logzeile dieses einen Aufrufs -- die ist an einen klickbaren Link
+    gebunden und nur am Proxy zu lösen (`log_format` ohne `$args`, siehe notes/to-check.md).
+
+    Die Cookie-Eigenschaften sind alle vier begründet:
+
+    * `path` auf den Pfad dieser Umfrage. Ohne das würde eine zweite Einladung die erste
+      überschreiben, und mit `?token=` in der URL gab es diese Kollision nicht -- die Isolation
+      ist also Verhaltenserhaltung, keine Zugabe. Die Nachbarpfade `…/vote` und `…/results`
+      liegen darunter, das Cookie erreicht die Stimmabgabe damit weiterhin.
+    * `httponly`, weil kein Skript den Token braucht.
+    * `samesite="Lax"` und nicht `"Strict"`: der Klick aus einem Webmailer ist eine
+      seitenübergreifende Navigation, und bei `Strict` schickt der Browser das Cookie dort nicht
+      mit -- die Weiterleitung liefe ins Leere.
+    * `secure` aus `SESSION_COOKIE_SECURE` statt aus einem eigenen Schalter. Das Prod-Modul setzt
+      genau diesen (über `secureCookies`, Default `true`), ein zweiter Schalter würde still davon
+      abweichen. Zur Importzeit `not DEBUG` zu rechnen wäre falsch: `demockrazy_config` setzt
+      `DEBUG` erst *nach* dem Sternchen-Import, der Wert wäre dort immer `False`.
+    """
+    response = HttpResponseRedirect(reverse("vote:polls:poll", args=(poll_identifier,)))
+    cookie_path = reverse("vote:polls:poll", args=(poll_identifier,))
+    token = request.GET["token"]
+    if token:
+        response.set_cookie(
+            TOKEN_COOKIE_NAME,
+            token,
+            max_age=TOKEN_COOKIE_MAX_AGE,
+            path=cookie_path,
+            secure=settings.SESSION_COOKIE_SECURE,
+            httponly=True,
+            samesite="Lax",
+        )
+    else:
+        # `?token=` ohne Wert heißt "ich habe keinen Token" und soll einen alten nicht stehen
+        # lassen -- sonst widerspräche die angezeigte Seite der aufgerufenen Adresse.
+        response.delete_cookie(TOKEN_COOKIE_NAME, path=cookie_path)
+    return response
+
+
+# `Vary: Cookie`, weil der Inhalt dieser Seite jetzt von einem Cookie abhängt: ein gemeinsamer
+# Cache darf die Seite eines Wählers nicht an den nächsten ausliefern. Gemessen ist der Header
+# heute schon da -- die CSRF-Middleware setzt ihn, weil das Formular ein Token braucht. Er soll
+# aber aus dem Grund dastehen, aus dem er gebraucht wird, und nicht als Nebenwirkung von etwas
+# anderem, das sich ändern kann.
+@vary_on_cookie
 def poll(request, poll_identifier):
     poll = get_object_or_404(Poll, identifier=poll_identifier)
-    token = request.GET.get("token", "")
+    if not poll.is_active:
+        # Vorgezogen: diese Weiche stand bisher am Ende der View. Am Ergebnis ändert das nichts,
+        # die Prüfungen darüber haben keine Nebenwirkungen -- aber ein Token in der URL einer
+        # geschlossenen Umfrage soll nicht erst umziehen und dann zweimal weiterleiten.
+        return HttpResponseRedirect(reverse("vote:polls:result", args=(poll_identifier,)))
+    if "token" in request.GET:
+        return _move_token_out_of_the_url(request, poll_identifier)
+    # Nach dem Umzug kommt der Token aus dem Cookie. Das Formularfeld bleibt, wie es war: wer
+    # seinen Token abtippt, statt dem Link zu folgen, tut das weiter -- und die Stimmabgabe liest
+    # ihn unverändert aus dem POST-Body, nicht aus dem Cookie.
+    token = request.COOKIES.get(TOKEN_COOKIE_NAME, "")
     error_message = None
     # Wie bisher ohne Einschränkung auf diese Umfrage: ein Token einer *anderen* Umfrage gilt hier
     # als gültig und fällt erst beim Abstimmen auf. Absichtlich nicht mitgeändert -- das ist eine
@@ -21,21 +99,18 @@ def poll(request, poll_identifier):
     amount_redeemed_tokens, amount_remaining_tokens, amount_tokens_total = (
         poll.get_amount_used_unused()
     )
-    if poll.is_active:
-        return render(
-            request,
-            "vote/poll.html",
-            {
-                "poll": poll,
-                "token": token,
-                "amount_redeemed_tokens": amount_redeemed_tokens,
-                "amount_remaining_tokens": amount_remaining_tokens,
-                "amount_tokens_total": amount_tokens_total,
-                "error_message": error_message,
-            },
-        )
-    else:
-        return HttpResponseRedirect(reverse("vote:polls:result", args=(poll_identifier,)))
+    return render(
+        request,
+        "vote/poll.html",
+        {
+            "poll": poll,
+            "token": token,
+            "amount_redeemed_tokens": amount_redeemed_tokens,
+            "amount_remaining_tokens": amount_remaining_tokens,
+            "amount_tokens_total": amount_tokens_total,
+            "error_message": error_message,
+        },
+    )
 
 
 def index(request):

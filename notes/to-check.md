@@ -129,6 +129,49 @@ Eine Seite sollte ihn besitzen. Drei Wege, in der Reihenfolge, die ich vorziehen
 3. Im Modul `X_FRAME_OPTIONS = "SAMEORIGIN"` setzen, damit beide dasselbe sagen. Funktioniert, lässt
    aber den doppelten Header stehen.
 
+**Nachtrag, gemessen bei 3.9:** der Widerspruch ist nicht der einzige doppelte Header. Django
+schickt von sich aus **drei** von denen, die das `GeneralProtect`-Snippet auch setzt:
+
+| Header | Django schickt | Snippet schickt |
+|---|---|---|
+| `X-Frame-Options` | `DENY` | `sameorigin` ← **Widerspruch, siehe oben** |
+| `X-Content-Type-Options` | `nosniff` | `nosniff` (identisch, harmlos) |
+| `Referrer-Policy` | `same-origin` | `same-origin, strict-origin-when-cross-origin` |
+| `X-XSS-Protection` | – | `1; mode=block` (von allen Browsern entfernt, wirkungslos) |
+
+Beim `Referrer-Policy` ist der Effekt gutartig: der Browser nimmt aus der zusammengesetzten Liste
+den **letzten gültigen** Wert, also `strict-origin-when-cross-origin`. Für gleichherkünftige
+Anfragen senden beide Werte ohnehin die vollständige URL. **Kein Handlungsdruck** – aber das Snippet
+trägt für diesen vhost außer dem Widerspruch nichts bei, was Django nicht schon täte.
+
+### B3. Access-Log: `log_format` ohne `$args` — der Rest von B9
+
+**Das ist der einzige Punkt in dieser Datei, der aus meiner Arbeit an 3.9 folgt.** Mit 3.9 zieht der
+Wähler-Token beim ersten Aufruf aus dem Query-String in ein Cookie um. Was dadurch **nicht**
+verschwindet, ist die Logzeile dieses *einen* Aufrufs: der Link in der Mail trägt den Token, und
+nginx protokolliert die Anfragezeile, bevor Django etwas davon sieht.
+
+Gemessen am Dev-Server, zwei Einladungen angeklickt: **genau zwei Zeilen mit `?token=`**, eine pro
+Klick. Vorher stand der Token in der Anfragezeile *jedes* Seitenaufrufs dieser Umfrage und zusätzlich
+im `Referer` jeder Unteranfrage – auch das gemessen, im Browser: die Referrer-Policy sendet für
+gleichherkünftige Anfragen die **vollständige** URL samt Query-String.
+
+Wenn dieser vhost ein Access-Log schreibt, schließt ein eigenes `log_format` den Rest:
+
+```nginx
+log_format ohne_args '$remote_addr - $remote_user [$time_local] '
+                     '"$request_method $uri $server_protocol" $status $body_bytes_sent '
+                     '"-" "$http_user_agent"';
+```
+
+Zwei Dinge daran sind Absicht: `$uri` statt `$request` lässt den Query-String weg, und `"-"` statt
+`$http_referer` ist die Konsequenz daraus – ein Referer aus einer fremden Seite kann eigene
+Geheimnisse tragen, und für diese App braucht ihn niemand.
+
+**Zu prüfen:** schreibt der vhost überhaupt ein Access-Log, und wie lange wird es aufbewahrt? Falls
+`access_log off` gilt, ist der Punkt gegenstandslos. Wenn es eines gibt, sind die Tokens **alter**
+Einladungen darin bereits enthalten – die neue Formatzeile wirkt nur nach vorn.
+
 ---
 
 ## C. Am NixOS-Modul / Colmena – sonst erreicht der neue Stand Prod nicht
