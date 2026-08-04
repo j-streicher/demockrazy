@@ -82,5 +82,11 @@ Two consequences worth knowing before changing anything here:
 - The Django version comes from the nixpkgs that evaluates the host, not from `pyproject.toml`.
   This file documents the requirement; it does not enforce it.
 
+`GET /healthz` returns `200 ok` when the process can serve requests and read the database, and
+`503 database unavailable` when it cannot. It deliberately does not test writability: that would
+mean writing on every probe, and with four uwsgi processes on one SQLite file the check would become
+a cause of the lock errors it is meant to report. Point monitoring at it with a `Host` header that
+`ALLOWED_HOSTS` accepts — a probe against `localhost` gets a 400 and looks like an outage.
+
 See `notes/deployment.md` for the full analysis, including two settings changes that would break
 production if made naively.

@@ -57,7 +57,8 @@ known-first-party = ["demockrazy", "vote"]
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "demockrazy.test_settings"
 python_files = ["test_*.py", "tests.py"]
-testpaths = ["vote"]
+# `demockrazy` ist dabei, seit 5.5 dort eine View liegt (der /healthz-Endpunkt).
+testpaths = ["vote", "demockrazy"]
 # Deprecations als Fehler, damit die naechste Django-Version nicht wieder ueberrascht (Plan 2.6).
 filterwarnings = [
     "error::DeprecationWarning",

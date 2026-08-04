@@ -9,7 +9,7 @@
 
 | # | Ziel | Status |
 |---|------|--------|
-| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · Phase 3 bis 3.7 ✅ · CI ✅ · offen: 3.8, 4, 5.4, 5.5 |
+| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · Phase 3 bis 3.7 ✅ · CI ✅ · 5.5 ✅ · offen: 3.8, Phase 4, 5.4 |
 | 2 | Batch-Modus für Mails bauen | **Spec folgt vom User** – nur Vorarbeit leisten, siehe §11 |
 
 **Wichtig:** Ziel 2 wird vom User später erklärt. Ziel 1 nicht so umbauen, dass Ziel 2 blockiert wird –
@@ -86,7 +86,7 @@ Wiederherstellbar über `git revert 4e15012`.
 | `default.nix` | Legacy `with import <nixpkgs> {}`, `stdenv.mkDerivation` als Shell-Hack | Duplikat zum Flake |
 | CI | `actions/checkout@v3`, `cachix/install-nix-action@v18`, `docker/login-action` auf altem SHA | nur Build, kein Test/Lint |
 | Frontend | Bootstrap 3.3.6 (2016), jQuery 2.2.4 (2016), Highcharts 4.2.5 (2016) – alle vendored | |
-| Datenbank (Prod) | **SQLite**, `/var/lib/demockrazy/db.sqlite3` | + `ATOMIC_REQUESTS=True` → Lock-Risiko, siehe B13 |
+| Datenbank (Prod) | **SQLite**, `/var/lib/demockrazy/db.sqlite3` | Lock-Risiko, siehe B13. *(Korrigiert: der Zusatz „+ `ATOMIC_REQUESTS=True`" war falsch – die Option war nie wirksam, B16.)* |
 | k8s / Docker / sops | k8s-libsonnet 1.25, PG 14, GHCR-Images | **toter Code** – Deployment abgeschaltet, siehe Phase 5 |
 
 ### Bug-Register
@@ -108,6 +108,7 @@ Wiederherstellbar über `git revert 4e15012`.
 | B13 | Prod läuft auf SQLite (Lock-Risiko) | offen → 5.4, **braucht F13** |
 | B14 | TLS-Hardening unvollständig | offen → 2.7, **braucht F15** |
 | B15 | `choice`-Wert ohne Zahl → 500 | ✅ **behoben** in 3.3 (neu gefunden) |
+| B16 | `ATOMIC_REQUESTS` seit 2016 wirkungslos | ✅ **behoben** in 5.5 (neu gefunden); **F18** offen |
 
 Alle als `xfail(strict=True)` spezifiziert in
 [vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py); B2, B3, B6, B11 und B12 stehen
@@ -150,11 +151,16 @@ galt für `k8s/settings.py` und das abgeschaltete `briefwahl.mayflower.cloud`. D
 `local_settings.py` setze `DEBUG = False`; tatsächlich tut das das NixOS-Modul (§1). Der
 Mailadressen-Leak über die 500-Pfade war also nie produktionsrelevant.*
 
-**B13 – Produktion läuft auf SQLite.**
-`local_settings.py` überschreibt `DATABASES` nicht ⇒ `django.db.backends.sqlite3`.
-Zusammen mit `ATOMIC_REQUESTS = True` nimmt jeder Request eine Schreibtransaktion, und SQLite
-serialisiert Writer. Wenn nach dem Einladungsversand viele gleichzeitig abstimmen, sind
-`database is locked`-Fehler realistisch. Auch für Ziel 2 relevant (Batch-Versand + Statusupdates).
+**B13 – Produktion läuft auf SQLite.** *(Risikoeinschätzung mit B16 nach unten korrigiert)*
+`local_settings.py` überschreibt `DATABASES` nicht ⇒ `django.db.backends.sqlite3`, und das Modul
+startet **4 uwsgi-Prozesse** auf einer Datei. SQLite serialisiert Writer; wenn nach dem
+Einladungsversand viele gleichzeitig abstimmen, sind `database is locked`-Fehler möglich.
+**Falsch war der Zusatz „jeder Request nimmt eine Schreibtransaktion":** das setzte
+`ATOMIC_REQUESTS = True` voraus, und die Option war nie wirksam (B16). Eine Transaktion nehmen nur
+die zwei Stellen, die sie explizit aufmachen – die Stimmabgabe und die Umfrage-Erstellung. Das
+Zeitfenster für einen Lock ist damit deutlich kleiner als angenommen, das Szenario aber nicht weg:
+die Stimmabgabe *ist* der Moment, in dem viele gleichzeitig schreiben.
+Auch für Ziel 2 relevant (Batch-Versand + Statusupdates).
 Optionen für §12: SQLite mit WAL + `timeout` tunen (klein, reversibel) vs. Postgres (größer).
 Vorher messen, nicht raten – und klären, wie oft/wie groß Abstimmungen real sind.
 
@@ -177,9 +183,13 @@ und legt unter `DEBUG=True` die *gültigen* Adressen der Liste offen (siehe B5).
 **B6 – Doppelte Mailadressen bekommen doppelte Tokens.**
 `parse_mails()` dedupliziert nicht → dieselbe Person kann zweimal wählen.
 
-**B7 – Mails werden innerhalb der Transaktion versendet.**
-`ATOMIC_REQUESTS = True` + `send_mail()` synchron im Request. Bei Rollback sind die Mails schon raus,
-die Tokens aber nicht in der DB. Umgekehrt blockiert ein hängender SMTP-Server den Request.
+**B7 – Mails werden synchron im Request versendet.** *(Mechanismus mit B16 korrigiert)*
+Ursprünglich als „`ATOMIC_REQUESTS = True` + `send_mail()` in der Transaktion" beschrieben. Die
+Option war nie wirksam (B16), eine Request-Transaktion gab es also nicht. Der Befund bleibt, nur
+anders begründet: `create()` verschickte die Mails **in der Save-Schleife**, während die Tokens
+entstanden – ohne jede Transaktion. Ein Fehler auf halbem Weg ließ Mails draußen *und* halbe Daten
+zurück, und ein hängender SMTP-Server blockierte den Request. ✅ Behoben in 3.4/3.5: `create_poll()`
+ist atomar, der Versand hängt an `on_commit`.
 → Kernmotivation für Ziel 2.
 
 **B8 – Highcharts 4.2.5 ist proprietär lizenziert.**
@@ -209,7 +219,7 @@ aber die Anzeige. → `json_script` verwenden.
 
 ### Kleinere Punkte
 
-Erledigt: `USE_L10N` (2.4) · `DEFAULT_AUTO_FIELD` (2.4) · `manage.py`-Boilerplate (2.5) ·
+Erledigt: `/healthz` (5.5) · `USE_L10N` (2.4) · `DEFAULT_AUTO_FIELD` (2.4) · `manage.py`-Boilerplate (2.5) ·
 README/`pip3 install django==2.2.27` (2.2) · `LOGGING` (setzt das Prod-Modul) ·
 Static-Handling aus dem Source-Tree (mit den Docker-Images in `4e15012` weg) ·
 `len(Token.objects.filter(…))` → Zählen in der Datenbank (3.6) ·
@@ -223,7 +233,6 @@ Browser-History eine Sackgasse ist. Begründung bei 3.2.
 Noch offen:
 - Kein Cache-Busting für Static Files → 4.4.
 - Templates: `<th>…</td>`-Mismatch in `results.html`; Bootstrap-3-Markup durchgehend → 4.1/4.5.
-- Kein `/healthz` → 5.5.
 
 ---
 
@@ -432,9 +441,10 @@ Tests für niemanden außer mir nutzbar und in CI wertlos. **Behoben in 2.1**, a
       echter Transaktion als Beleg, dass der Pfad auch ohne diese Hilfe läuft.
 - [x] **3.5 Poll-Erstellung in [vote/services/polls.py](../vote/services/polls.py)** ✅ –
       `bulk_create` statt Save-Schleife, ohne Request- und Formular-Abhängigkeit, damit ein
-      Management-Command (Ziel 2) sie genauso aufrufen kann. `transaction.atomic` drauf: im Request
-      redundant (`ATOMIC_REQUESTS`, dort nur ein Savepoint), aber sonst wäre der erste Aufruf von
-      außerhalb nicht abgesichert.
+      Management-Command (Ziel 2) sie genauso aufrufen kann. `transaction.atomic` drauf – **hier
+      stand „im Request redundant (`ATOMIC_REQUESTS`, dort nur ein Savepoint)", und das war falsch:**
+      die Option war nie wirksam (B16), der Dekorator ist das Einzige, was die Funktion atomar macht.
+      Gut, dass er da ist.
       **Gemessen auf der Test-DB, 2 Choices + 200 Empfänger: 404 → 206 Queries, INSERTs 203 → 3.**
       Was bleibt, sind SELECTs – **einer pro Token** aus der Kollisionsprüfung in `mk_token()`.
       → **Aufgabe für 3.6:** mit dem `UniqueConstraint` auf `token_string` ist die Vorabprüfung
@@ -546,7 +556,42 @@ Deployment-Härtung). **5.1 und 5.2 sind erledigt**, offen bleiben CI, SQLite-H�
       auf `/var/lib/demockrazy`. Verschärfend: das Modul startet **4 uwsgi-Prozesse** auf einer
       SQLite-Datei. Postgres nur, wenn die Last es hergibt – vorher messen, braucht F13.
       Testbar ohne Modul-Änderung über die `djangoSettings`-Option des Moduls.
-- [ ] **5.5 `/healthz`-Endpoint** – klein, nützlich unabhängig von der Deployment-Form.
+- [x] **5.5 `/healthz`-Endpoint** ✅ – in [demockrazy/views.py](../demockrazy/views.py), geroutet aus
+      [demockrazy/urls.py](../demockrazy/urls.py). Projektebene, nicht `vote`: es ist ein
+      Betriebs-Endpunkt und liegt nicht unter `/vote/`. Damit ist `demockrazy` auch ein `testpath`.
+      **Liest aus der Datenbank statt nur 200 zu liefern:** ein nackter 200 sagt „uwsgi lebt und die
+      URLconf importiert" – und genau das ist nicht, was hier schiefgeht. Die Datenbank ist eine
+      SQLite-Datei unter `/var/lib/demockrazy`, auf die der Dienst aus dem read-only Store zugreift;
+      steht der Pfad nach einem Deploy falsch, liefert jede Seite einen 500, während ein statischer
+      Endpunkt „gesund" meldet.
+      **Kein Schreibtest**, obwohl Schreibbarkeit das ist, was die Stimmabgabe braucht: das hieße bei
+      jedem Poll schreiben, und mit 4 uwsgi-Prozessen auf einer SQLite-Datei (B13) wäre der
+      Health-Check dann selbst eine Ursache der Lock-Fehler, die er melden soll.
+      Der 503-Body sagt nur `database unavailable` – der Endpunkt ist unauthentifiziert und der Text
+      einer Datenbank-Exception enthält den Dateipfad; der Grund geht ins Log, ein Test prüft, dass
+      der Pfad nicht in der Antwort landet.
+      **Dabei gefunden: B16** (siehe unten) – die Gegenprobe zu `non_atomic_requests` schlug fehl.
+      ⚠️ **Für den Deploy:** das Monitoring muss einen `Host`-Header schicken, der in
+      `ALLOWED_HOSTS` steht (Prod: `["wahlcomputer.mayflower.de"]`). Eine Probe gegen
+      `localhost` bekommt sonst einen 400 und sieht wie ein Ausfall aus. Gehört ins Modul, nicht
+      hierher (Regel 5).
+
+**B16 – `ATOMIC_REQUESTS` war seit 2016 wirkungslos.** *(neu gefunden bei 5.5)*
+`demockrazy/settings.py` hatte ein **modulweites** `ATOMIC_REQUESTS = True`, eingeführt in
+`154e5f6` (2016-06-09) direkt unter `DATABASES`. Django liest die Option **pro Datenbank**, aus
+`DATABASES['default']['ATOMIC_REQUESTS']` – ein modulweiter Name wird nie gelesen. Gemessen statt
+geschlossen: `connections.settings['default']['ATOMIC_REQUESTS']` ist `False`, mit `settings.py`
+wie mit `test_settings.py`. Produktion hätte den Wert ohnehin verloren, weil `demockrazy_config`
+`DATABASES` komplett neu setzt.
+**Entfernt statt an die richtige Stelle verschoben** – Einschalten wäre eine echte
+Verhaltensänderung in der riskantesten Richtung (jeder Request eine Transaktion auf einer
+SQLite-Datei, die 4 Prozesse teilen). Ob das gewollt ist, entscheidet der User → **F18**.
+**Nichts hing daran:** `create_poll()` und der `atomic()`-Block in `vote()` sagen es explizit, und
+ihre Rollback-Tests waren grün, *während* die Option nichts tat – das ist der Beleg, dass das
+Entfernen verhaltensneutral ist. Festgehalten in
+[demockrazy/tests/test_transactions.py](../demockrazy/tests/test_transactions.py).
+Korrigiert hat der Befund außerdem drei Aussagen: die Begründung von **B7**, die
+Risikoeinschätzung von **B13** und die Notiz zu **3.5** („im Request redundant").
 
 ## 10. Phase 6 – Dokumentation
 
@@ -606,6 +651,7 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
 | F8 | Anonymität vs. Zustellstatus pro Empfänger – wie weit darf Ziel 2 das aufweichen? (§11.4) | Ziel 2 |
 | **F17** | **Überschreibt das NixOS-Modul einen der vier Mail-Text-Settings?** 3.4 hat `VOTE_MAIL_SUBJECT`, `VOTE_MAIL_TEXT`, `VOTE_ADMIN_MAIL_SUBJECT`, `VOTE_ADMIN_MAIL_TEXT` aus `settings.py` entfernt – der Text kommt jetzt aus Templates. Setzt `demockrazy_config` (oder die `djangoSettings`-Option) einen davon, wird der Wert nach dem Deploy **stillschweigend ignoriert** und Prod verschickt den Repo-Wortlaut. Prüfung im Repo des Users: `grep -rn 'VOTE_MAIL\|VOTE_ADMIN_MAIL\|VOTE_BASE_URL\|VOTE_MAIL_FROM'`. Meine Modul-Analyse in [deployment.md](deployment.md) listet keinen dieser vier, und die alte `local_settings.py` überschrieb nur `VOTE_BASE_URL`/`VOTE_MAIL_FROM`/`VOTE_SEND_MAILS` – die drei sind bewusst geblieben. Trifft die Annahme nicht zu, gehört der Text ins Template. | **vor dem Deploy** |
 | F13 | Wie groß sind Abstimmungen real (Empfänger pro Poll, parallele Polls)? Entscheidet SQLite-Tuning vs. Postgres (B13) und die Batch-Größen für Ziel 2. | 5.4, Ziel 2 |
+| **F18** | **Soll `ATOMIC_REQUESTS` tatsächlich an?** Es war seit 2016 wirkungslos und ist mit 5.5 entfernt (B16) – der Zustand ist damit *unverändert*, nur nicht mehr falsch dokumentiert. Einschalten (in `DATABASES['default']`) hieße: jeder Request nimmt eine Transaktion, auch die reine Ergebnisseite, auf einer SQLite-Datei mit 4 uwsgi-Prozessen (B13). **Meine Empfehlung: aus lassen.** Die zwei Stellen, die Atomarität brauchen, haben sie explizit und getestet; die Option würde vor allem das Lock-Fenster verbreitern. Falls doch an, gehört sie in dieselbe Entscheidung wie WAL/`timeout` (5.4) und `/healthz` bleibt per `non_atomic_requests` ausgenommen. | 5.4 (nicht blockierend) |
 | ~~F16~~ | ~~Sind die drei Verschärfungen aus 3.1 gewollt?~~ → **ja**, vom User bestätigt (alle sechs Felder Pflicht, Djangos Adressvalidator, `title` auf 200 Zeichen). Seit 3.2 in der View wirksam. | – |
 
 ---
@@ -621,9 +667,8 @@ Phase 6  README ✅ · Handover ✅
 
 offen, in sinnvoller Reihenfolge:
   Phase 4  Frontend – unabhängig, parallelisierbar, 4.3 braucht F4
-  5.5      /healthz – klein, unblockiert
   Phase 3  nur noch 3.8 (Zugangsschutz) – braucht F5
-  5.4      SQLite-Härtung – braucht F13
+  5.4      SQLite-Härtung – braucht F13, dazu F18 entscheiden
   2.7      TLS-Hardening – braucht F15
 
 erledigt in Phase 3: 3.1 Forms · 3.2 create()/manage() · 3.3 vote() · 3.4 Mail-Service ·
@@ -633,8 +678,7 @@ erledigt in Phase 3: 3.1 Forms · 3.2 create()/manage() · 3.3 vote() · 3.4 Mai
 ```
 
 **Nächster Schritt:** Phase 4 außer 4.3 (Bootstrap 5, jQuery raus, Cache-Busting,
-Template-Kleinkram) und 5.5 (`/healthz`) – beide unblockiert. Von Phase 3 ist nur noch 3.8 offen,
-und das braucht F5.
+Template-Kleinkram) – unblockiert. Von Phase 3 ist nur noch 3.8 offen, und das braucht F5.
 **Vor dem Deploy:** F17 klären; die Migration `0003` schreibt `vote_poll` und `vote_token` neu
 (Details in [phase-2-migrations.md](phase-2-migrations.md)), Backup liegt vor (borg 03:00/04:00).
 **Die Vorarbeit für Ziel 2 (§11.1–3) ist mit 3.4 vollständig** – ein Batch-Versender ersetzt

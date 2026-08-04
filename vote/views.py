@@ -64,12 +64,13 @@ def create(request):
         choices=form.cleaned_data["choices"],
         num_tokens=len(voter_mails),
     )
-    # Vollständig rendern, solange die Objekte da sind, aber erst nach dem Commit verschicken (B7):
-    # ATOMIC_REQUESTS umschließt den ganzen Request, ein synchrones send_mail() liefe also *in* der
-    # Transaktion. Bei einem Rollback wären die Mails mit den Tokens draußen, die Tokens selbst aber
-    # nicht in der Datenbank -- Wähler mit einem Link, der nie funktioniert. Umgekehrt hält ein
-    # hängender SMTP-Server sonst eine Schreibtransaktion offen, und auf SQLite blockiert das jeden
-    # anderen Schreiber (B13).
+    # Vollständig rendern, solange die Objekte da sind, aber erst nach dem Commit verschicken (B7).
+    # Was das garantiert: Mails mit Tokens gehen nie raus, bevor die Tokens durabel sind -- sonst
+    # hätte ein Wähler einen Link, der nie funktioniert. An *dieser* Stelle wäre auch ein direkter
+    # Aufruf schon nach dem Commit, weil create_poll() seine Transaktion beim Return schließt und es
+    # keine um den Request gibt (siehe die ATOMIC_REQUESTS-Notiz in demockrazy/settings.py).
+    # `on_commit` hält die Zusage aber auch für Aufrufer, die das Ganze in eine Transaktion packen
+    # -- etwa ein Management-Command für Ziel 2. Genau deshalb steht sie hier und nicht im Service.
     messages = mail.poll_created_messages(
         poll, form.cleaned_data["creator_mail"], voter_mails, tokens
     )
