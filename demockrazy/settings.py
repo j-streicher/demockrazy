@@ -155,6 +155,22 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = os.environ.get("DEMOCKRAZY_STATIC_ROOT") or BASE_DIR / "static"
 
+# Gehashte Dateinamen (`bootstrap.a1b2c3d4.css`), damit ein Deploy nicht darauf angewiesen ist, dass
+# Browser und Proxies eine alte Datei loslassen. **Kein Whitenoise:** nginx serviert STATIC_ROOT
+# direkt, das soll so bleiben -- gebraucht wird nur der Dateiname, nicht ein zweiter Server.
+#
+# Zwei Dinge, die das gefahrlos machen: `collectstatic --noinput` läuft im `preStart` bei *jedem*
+# Service-Start, das Manifest ist also nie veraltet; und bei DEBUG=True hasht Django gar nicht
+# (`HashedFilesMixin._url`), `runserver` braucht deshalb kein collectstatic.
+# Die Testsuite setzt das bewusst zurück -- sie soll nicht von einem collectstatic-Lauf abhängen,
+# siehe test_settings.py.
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.ManifestStaticFilesStorage",
+    },
+}
+
 EMAIL_HOST = ""
 EMAIL_PORT = 25
 # EMAIL_HOST_USER = "derp"

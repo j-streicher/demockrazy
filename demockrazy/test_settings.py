@@ -25,3 +25,13 @@ VOTE_SEND_MAILS = True
 VOTE_BASE_URL = "http://testserver"
 
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
+
+# Ohne das schlagen 56 Tests mit `Missing staticfiles manifest entry` fehl (gemessen, nicht
+# befürchtet): `settings.py` stellt seit 4.4 auf ManifestStaticFilesStorage um, und hier ist
+# DEBUG=False -- Django schlägt also im Manifest nach, das erst `collectstatic` schreibt. Die Suite
+# soll nicht von einem collectstatic-Lauf abhängen, und was `{% static %}` ausgibt, ist nicht ihr
+# Gegenstand. Was Cache-Busting leistet, prüft demockrazy/tests/test_staticfiles.py gezielt.
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+}
