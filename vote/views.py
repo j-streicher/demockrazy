@@ -190,11 +190,23 @@ def results(request, poll_identifier):
     )
     if poll.is_active:
         return HttpResponseRedirect(reverse("vote:polls:poll", args=(poll_identifier,)))
+    # Einmal auswerten und für Tabelle *und* Diagramm verwenden: `poll.choice_set.all` im Template
+    # fragt bei jedem Aufruf neu ab.
+    choices = list(poll.choice_set.all())
+    # Die Diagrammdaten baut die View, damit das Template sie per `json_script` ausgeben kann statt
+    # sie in ein JS-Stringliteral zu interpolieren (B10). Enthaltungen zählen nur bei
+    # simple_choice als Segment -- bei multiple_choice hat niemand "nichts" gewählt, dort ist die
+    # Summe der Stimmen nicht die Zahl der Wähler.
+    chart_series = [{"name": choice.choice_text, "y": choice.votes} for choice in choices]
+    if poll.type == PollType.SIMPLE_CHOICE:
+        chart_series.append({"name": "Abstentions", "y": amount_remaining_tokens})
     return render(
         request,
         "vote/results.html",
         {
             "poll": poll,
+            "choices": choices,
+            "chart_series": chart_series,
             "amount_redeemed_tokens": amount_redeemed_tokens,
             "amount_remaining_tokens": amount_remaining_tokens,
             "amount_tokens_total": amount_tokens_total,
