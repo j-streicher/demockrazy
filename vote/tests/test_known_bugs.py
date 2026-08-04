@@ -7,10 +7,13 @@ was die Suite rot macht und daran erinnert, den Marker zu entfernen.
 Behobene Bugs bleiben ohne Marker stehen und sind ab dann Regressionstests. Die Nummern
 (B2, B3, ...) bleiben als Verweis auf notes/plan.md §2 erhalten.
 
-Behoben: B3, B6, B11, B12 (Plan 3.2) · B2 (Plan 3.3) · die zwei Unique-Constraints (Plan 3.6).
+Behoben: B3, B6, B11, B12 (Plan 3.2) · B2 (Plan 3.3) · die zwei Unique-Constraints (Plan 3.6) ·
+B10 (Plan 4.2).
 B15 ist erst in 3.3 aufgefallen und sofort behoben worden, hatte also nie einen Marker -- die
 Regressionstests dazu stehen in test_views.py bei den übrigen Stimmabgabe-Tests.
 """
+
+import json
 
 import pytest
 from django.test import Client
@@ -112,6 +115,29 @@ def test_b4_poll_creation_is_not_wide_open(lenient_client):
         _create_payload(voter_mails="\n".join(f"opfer{i}@example.org" for i in range(500))),
     )
     assert response.status_code in (400, 401, 403, 429)
+
+
+@pytest.mark.django_db
+def test_b10_special_characters_survive_into_the_chart(client):
+    """Der Text im Diagramm muss der Text sein, den der Ersteller eingetippt hat.
+
+    Vorher stand `name: '{{ choice.choice_text }}'` in einem JS-Stringliteral. Django escapte fuers
+    HTML, aber der Inhalt eines <script>-Elements wird nicht entity-dekodiert -- aus `Bier & Brezn`
+    wurde im Diagramm sichtbar `Bier &amp; Brezn`. Gemessen, nicht vermutet: das galt fuer `&`, `'`,
+    `"` und `<`.
+    """
+    poll = Poll.objects.create(title="P", question_text="?", num_tokens=0, is_active=False)
+    texts = ["Bier & Brezn", "Annas 'Wahl'", "<b>fett</b>", 'Anfuehrung "so"']
+    for text in texts:
+        poll.choice_set.create(choice_text=text, votes=1)
+
+    content = client.get(f"/vote/{poll.identifier}/results").content.decode()
+    payload = content.split('id="chart-series"')[1].split("</script>")[0]
+    series = json.loads(payload.split(">", 1)[1])
+
+    assert [entry["name"] for entry in series][: len(texts)] == texts
+    # Und die Gegenprobe zum eigentlichen Zweck von json_script: kein `</script>` bricht aus.
+    assert "</script>" not in payload.split(">", 1)[1]
 
 
 @pytest.mark.django_db

@@ -61,6 +61,25 @@ class TestIndex:
         assert response.status_code == 200
         assert b'name="voter_mails"' in response.content
 
+    def test_clean_form_carries_no_aria_error_markup(self, client):
+        """Gegenprobe zum Test unten: ohne Fehler behauptet das Formular keinen (Plan 4.5)."""
+        content = client.get("/vote/").content
+        assert b"aria-invalid" not in content
+        assert b"aria-describedby" not in content
+
+    @pytest.mark.django_db
+    def test_field_error_is_announced_at_the_field(self, client):
+        """Die Fehlerliste steht optisch beim Feld -- ein Screenreader braucht die Verknüpfung.
+
+        `voter_mails` ist das kaputte Feld in INVALID_PAYLOAD, `title` das intakte daneben.
+        """
+        content = client.post("/vote/create", INVALID_PAYLOAD).content.decode()
+
+        assert 'id="voter_mails-errors"' in content
+        assert 'aria-describedby="voter_mails-errors"' in content
+        assert 'aria-invalid="true"' in content
+        assert 'aria-describedby="title-errors"' not in content
+
 
 @pytest.mark.django_db
 class TestCreate:

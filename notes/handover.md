@@ -1,7 +1,7 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: 2026-08-04, Branch `update/modernize-2026`, 46 Commits über `master` (Basis `3074dbb`).
+Stand: 2026-08-04, Branch `update/modernize-2026`, 51 Commits über `master` (Basis `3074dbb`).
 Arbeitsbaum ist sauber, alles committed, **nichts gepusht** -- die CI hat also noch nie gelaufen,
 sie greift erst beim ersten Push.
 
@@ -12,7 +12,7 @@ sie greift erst beim ersten Push.
 | Datei | Wofür |
 |---|---|
 | **dieses Dokument** | Orientierung, Arbeitsregeln, offene Fragen, nächster Schritt |
-| [plan.md](plan.md) | Der Plan mit allen Phasen, Bug-Nummern B1–B15, Fragen F1–F17. **Das Hauptdokument.** |
+| [plan.md](plan.md) | Der Plan mit allen Phasen, Bug-Nummern B1–B17, Fragen F1–F19. **Das Hauptdokument.** |
 | [deployment.md](deployment.md) | Wie Produktion wirklich läuft. **Vor jeder Settings-/Deploy-Änderung lesen.** |
 | [phase-2-migrations.md](phase-2-migrations.md) | Warum die Migrations so aussehen, wie sie aussehen |
 | [phase-0-baseline.md](phase-0-baseline.md) | Baseline-Messungen; enthält eine als überholt markierte Analyse |
@@ -36,7 +36,8 @@ insbesondere für Ziel 2 relevant (§7).
 ## 3. Zwei Ziele
 
 1. **Auf heutige Standards bringen.** Phase 0, 1 und 2 (außer 2.7) sind fertig, Phase 3 ist bis
-   3.7 durch, CI steht (5.3), `/healthz` steht (5.5). Offen: 3.8, Phase 4, 5.4.
+   3.7 durch, CI steht (5.3), `/healthz` steht (5.5), Phase 4 ist bis auf 4.1/4.3 durch.
+   **Alles Unblockierte ist abgearbeitet** – der Rest wartet auf F4, F5, F13, F15 oder F19 (§8).
 2. **Batch-Modus für Mails.** *Spec steht noch aus, der User erklärt sie später.* Nicht spekulativ
    bauen. Phase 3 so anlegen, dass es andockt (§7).
 
@@ -62,7 +63,7 @@ grün ist, ist dort grün.
 
 **Sollwerte, an denen du merkst, dass alles in Ordnung ist:**
 
-- `pytest` → **152 passed, 1 xfailed**
+- `pytest` → **158 passed, 1 xfailed**
 - `manage.py check` → **no issues (0 silenced)**
 - `makemigrations --check` → **No changes detected**
 - `ruff format --check` → alle Dateien unverändert
@@ -74,7 +75,7 @@ Lokal starten (nicht mit `manage.py runserver` allein – siehe §6, Falle 3):
 python3 manage.py runserver --settings=demockrazy.dev_settings
 ```
 
-### Wo was liegt (Stand nach Phase 3.7)
+### Wo was liegt (Stand nach 4.5)
 
 | Pfad | Inhalt |
 |---|---|
@@ -86,9 +87,9 @@ python3 manage.py runserver --settings=demockrazy.dev_settings
 | [../vote/templates/vote/mail/](../vote/templates/vote/mail/) | die vier Mail-Templates; **enden absichtlich ohne Zeilenumbruch** |
 | [../vote/urls.py](../vote/urls.py) | die acht Routen als `path()`, dazu der eigene `identifier`-Converter |
 | [../demockrazy/views.py](../demockrazy/views.py) | nur `/healthz` – Betriebs-Endpunkt, gehört nicht in `vote` |
-| [../demockrazy/tests/](../demockrazy/tests/) | Projektebene: `test_healthz`, `test_transactions` (was `ATOMIC_REQUESTS` wirklich tut) |
+| [../demockrazy/tests/](../demockrazy/tests/) | Projektebene: `test_healthz`, `test_transactions` (was `ATOMIC_REQUESTS` wirklich tut), `test_staticfiles` (fährt `collectstatic` echt) |
 | [../vote/migrations/](../vote/migrations/) | `0001`+`0002` rekonstruieren Prod von 2016, `0003` bringt Constraints und `choices` |
-| [../vote/tests/](../vote/tests/) | `test_models`, `test_forms`, `test_views`, `test_mail_service`, `test_poll_service`, `test_known_bugs`, `conftest` |
+| [../vote/tests/](../vote/tests/) | `test_models`, `test_forms`, `test_views`, `test_mail_service`, `test_poll_service`, `test_known_bugs`, `test_templates`, `conftest` |
 | [../demockrazy/settings.py](../demockrazy/settings.py) | Defaults; dazu `dev_settings.py` (runserver) und `test_settings.py` (pytest) |
 
 Zwei Dinge, die man beim ersten Blick in die Tests wissen will:
@@ -110,8 +111,8 @@ zugedeckt. **Das Ruff-Gate in der CI steht seit 5.3** – ein neuer Befund macht
 [../vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py): **B4** – `/vote/create` nimmt
 500 Empfänger anstandslos an. Er schlägt heute fehl und braucht F5. **Wenn du den Bug behebst, wird
 die Suite rot** – das ist Absicht und die Erinnerung, den Marker zu entfernen. Nicht der Marker ist
-das Problem. Die Tests für die behobenen B2, B3, B6, B11, B12 und die zwei Unique-Constraints stehen
-in derselben Datei ohne Marker als Regressionstests.
+das Problem. Die Tests für die behobenen B2, B3, B6, B10, B11, B12 und die zwei Unique-Constraints
+stehen in derselben Datei ohne Marker als Regressionstests.
 
 Zwei `per-file-ignores` in `pyproject.toml` sind ebenfalls Absicht und keine Nachlässigkeit:
 `E501` für `test_mail_service.py` (schreibt den Mail-Wortlaut als Literale aus) und `RUF012` für
@@ -169,6 +170,7 @@ Die Spec kommt vom User. Was für *jede* Variante gilt und in Phase 3 entstehen 
 | **F4** | Highcharts 4.2.5 ist vendored und **proprietär lizenziert** (kein FOSS-Modell für kommerzielle Nutzung) in einem MIT-Repo. Existiert eine Lizenz, oder ersetzen (Chart.js MIT / ECharts Apache-2.0)? | **4.3** |
 | **F5** | Zugangsschutz für `/vote/create` – Login, Invite-Code, IP-Rate-Limit, Empfänger-Deckel? | 3.8, Ziel 2 |
 | **F8** | Anonymität vs. Zustellstatus pro Empfänger – wie weit darf Ziel 2 das aufweichen? | Ziel 2 |
+| **F19** | **Darf ich Bootstrap 5.3.x herunterladen und ins Repo vendoren – und woher?** 4.1 braucht die Dateien lokal (kein CDN, so ist der Bestand, CSP-freundlich). Ich lade nichts ohne Freigabe. Empfehlung: offizielles GitHub-Release-Dist, nur `bootstrap.min.css` + `bootstrap.bundle.min.js`, ohne Source-Maps – alternativ per `fetchurl` mit Hash im Flake, wenn die Herkunft reproduzierbar sein soll. Ersetzt 544 KB Bootstrap 3 **und** 49 KB jQuery. | **4.1, Rest von 4.2** |
 | **F13** | Wie groß sind Abstimmungen real (Empfänger pro Poll, parallele Polls)? Entscheidet SQLite-Tuning vs. Postgres (B13) und die Batch-Größen. | 5.4, Ziel 2 |
 | **F18** | Soll `ATOMIC_REQUESTS` tatsächlich an? War seit 2016 wirkungslos, mit 5.5 entfernt (B16) – der Zustand ist unverändert, nur nicht mehr falsch dokumentiert. **Empfehlung: aus lassen**, die zwei Stellen mit Atomaritätsbedarf haben sie explizit; Einschalten verbreitert nur das Lock-Fenster (B13). Gehört in dieselbe Entscheidung wie WAL/`timeout` (5.4). | 5.4 (nicht blockierend) |
 | **F17** | Überschreibt das NixOS-Modul `VOTE_MAIL_SUBJECT`/`VOTE_MAIL_TEXT`/`VOTE_ADMIN_MAIL_*`? 3.4 hat sie aus `settings.py` entfernt, der Text kommt aus Templates. Ein Override dort wird nach dem Deploy still ignoriert. Prüfen mit `grep -rn 'VOTE_MAIL\|VOTE_ADMIN_MAIL'` im Colmena-Repo. | **vor dem Deploy** |
@@ -216,12 +218,28 @@ Transaktion um einen Request.** Atomar sind nur `create_poll()` und der `atomic(
 Der Befund hat B7s Begründung, B13s Risikoeinschätzung und die 3.5-Notiz korrigiert; **F18** fragt,
 ob die Option tatsächlich an soll (Empfehlung: nein).
 
-Von Phase 3 bleibt nur **3.8** (Zugangsschutz, braucht F5). Unblockiert und damit als nächstes dran:
+**B17 lohnt ebenfalls zwei Sätze, weil es eine Falle ist, die kein Test sah:**
+**mehrzeilige `{# … #}` sind in Django keine Kommentare** (`tag_re` ohne `re.DOTALL`). Sie landen
+als Text im Output, samt der `{{ … }}` darin, die dann ausgewertet werden. Drei Vorkommen gab es;
+zwei fielen nie auf, weil sie *außerhalb* der `{% block %}`s eines Kind-Templates standen und Django
+das verwirft. Beim dritten stand „script" in spitzen Klammern in der Prosa – der Parser öffnete
+daran ein `script`-Element und verschluckte das Datenelement dahinter: **200 ohne Diagramm, und
+`curl` sah korrekt aus.** Erst der DOM im Browser zeigte es. Für mehrzeiliges gibt es
+`{% comment %}`; [../vote/tests/test_templates.py](../vote/tests/test_templates.py) wacht darüber.
+**Lehre fürs Weiterarbeiten: bei JS- oder Markup-Änderungen im Browser gegenprüfen**, nicht nur
+`pytest` und `curl`. `.claude/launch.json` (gitignored) startet den Dev-Server dafür.
 
-- **Phase 4** außer 4.3 – Bootstrap 3.3.6 → 5.3.x (vendored, kein CDN), jQuery raus,
-  Cache-Busting über `ManifestStaticFilesStorage`, Template-Kleinkram. **4.3 braucht F4**
-  (Highcharts-Lizenz) und blockiert die anderen vier Punkte nicht: 4.1/4.2 fassen das Markup und
-  `base.html` an, 4.3 nur den Chart in `results.html`.
+### Was als nächstes dran ist
+
+**Nichts, was nicht auf eine Antwort wartet** – deshalb ist §8 diesmal der wichtigere Abschnitt.
+Nach Antwortlage:
+
+- **F19 → 4.1** (Bootstrap 3.3.6 → 5.3.x vendored) **und der Rest von 4.2.** Der größte
+  verbleibende Brocken. `jquery-2.2.4.min.js` hat nur noch *einen* Nutzer: Bootstrap 3s JS für die
+  einklappende Navbar. Mit Bootstrap 5 fällt beides zusammen weg.
+- **F4 → 4.3** (Highcharts ersetzen). Der `json_script`-Teil ist mit 4.2 schon erledigt, der
+  Bibliothekswechsel erbt ihn.
+- **F5 → 3.8**, **F13/F18 → 5.4**, **F15 → 2.7**.
 
 Was beim Routing (3.7) zu beachten war und weiter gilt, falls jemand `urls.py` anfasst:
 die sieben öffentlichen Pfade sind **zeichengleich** zu halten (Regel 5), `test_views.py::TestUrls`
@@ -242,7 +260,8 @@ prüft sie zusammen mit dem Converter-Verhalten. Der Namespace `polls` und die `
    `["wahlcomputer.mayflower.de"]` – eine Monitoring-Probe gegen `localhost` bekommt einen 400 und
    sieht wie ein Ausfall aus. Gehört ins Modul, nicht in die Repo-Defaults.
 
-Offen: **3.8** braucht F5, **4.3** braucht F4, **2.7** braucht F15, **5.4** braucht F13 (+ F18).
+Offen: **3.8** braucht F5, **4.1** braucht F19, **4.3** braucht F4, **2.7** braucht F15,
+**5.4** braucht F13 (+ F18).
 
 ## 10. Arbeitsregeln (haben sich bewährt, bitte beibehalten)
 

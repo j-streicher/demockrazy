@@ -1,15 +1,16 @@
 {% extends 'base.html' %}
-{% load static %}
 
 {% block content %}
 <h1>results for poll {{ poll.title }}</h1>
 
 <table class="table">
+    <thead>
     <tr>
-        <th>Choice</td>
-        <th>Votes</td>
+        <th scope="col">Choice</th>
+        <th scope="col">Votes</th>
     </tr>
-    {% for choice in poll.choice_set.all %}
+    </thead>
+    {% for choice in choices %}
         <tr>
             <td>{{ choice.choice_text }}</td>
             <td>{{ choice.votes }}</td>
@@ -29,10 +30,22 @@
 {% endblock %}
 
 {% block js %}
+{% comment %}
+Die Diagrammdaten kommen als JSON aus der View, nicht als in JS-Literale interpolierte Werte
+(B10). Vorher stand hier der Choice-Text direkt in einem JS-Stringliteral: Django escapte ihn
+fürs HTML, aber der Inhalt eines script-Elements wird vom Parser nicht entity-dekodiert -- aus
+`Bier & Brezn` wurde im Diagramm sichtbar `Bier &amp; Brezn`. `json_script` schreibt die Daten in
+ein eigenes script-Element mit type="application/json" und escapt sie für genau diesen Ort.
+{% endcomment %}
+{{ chart_series|json_script:"chart-series" }}
 <script>
-$(function () {
-    $('#results-chart').highcharts({
+// Kein DOM-ready-Wrapper und kein jQuery: dieser Block steht am Ende von <body>, also existieren
+// #results-chart und Highcharts hier schon. `$('#…').highcharts(…)` war nur die optionale
+// jQuery-Fassade von Highcharts -- die Bibliothek selbst braucht es nicht.
+(function () {
+    new Highcharts.Chart({
         chart: {
+            renderTo: 'results-chart',
             plotBackgroundColor: null,
             plotBorderWidth: null,
             plotShadow: false,
@@ -60,20 +73,9 @@ $(function () {
         series: [{
             name: 'Votes',
             colorByPoint: true,
-            data: [
-                {% for choice in poll.choice_set.all %}
-                    {
-                        name: '{{ choice.choice_text }}',
-                        y: {{ choice.votes }}
-                    },
-                {% endfor %}
-                {% if poll.type == 'simple_choice' %}{
-                    name: 'Abstentions',
-                    y: {{ amount_remaining_tokens }}
-                },{% endif %}
-            ]
+            data: JSON.parse(document.getElementById('chart-series').textContent)
         }]
     });
-});
+})();
 </script>
 {% endblock %}
