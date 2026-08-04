@@ -19,7 +19,7 @@ import logging
 from smtplib import SMTPException
 
 from django.conf import settings
-from django.core.mail import send_mail
+from django.core.mail import get_connection, send_mail
 from django.template.loader import render_to_string
 from django.urls import reverse
 
@@ -65,7 +65,7 @@ def voter_message(poll, voter_mail, token_string):
 
 
 def deliver(messages):
-    """Verschickt fertig gerenderte Nachrichten und schluckt Zustellfehler.
+    """Verschickt fertig gerenderte Nachrichten über **eine** SMTP-Verbindung und schluckt Fehler.
 
     Ein einzelner unerreichbarer Empfänger darf die übrigen nicht aufhalten. Die Fehler landen
     im Log und **nicht** mehr in der Antwort an den Ersteller: der Versand läuft nach dem Commit,
@@ -75,19 +75,59 @@ def deliver(messages):
     „Adresse gehört zu Umfrage X" wird bewusst nirgends persistiert (F8). Der Text einer
     SMTP-Exception kann die Adresse allerdings selbst enthalten; das ist mit F8 zu bewerten,
     wenn Ziel 2 einen echten Zustellbericht bekommt.
+
+    **Die gemeinsame Verbindung ist der erste Schritt zu Ziel 2 und ausdrücklich nicht die Kur.**
+    Vorher baute jeder `send_mail()`-Aufruf seine eigene Verbindung auf: gemessen 101 Nachrichten
+    in **101** Verbindungen, jede mit TCP, STARTTLS und AUTH. Was das *nicht* behebt, ist die
+    Drosselung des Mailservers: der zählt **Nachrichten** pro Zeitfenster
+    (`450 4.7.1 too much mail from`, siehe notes/plan.md §11), und deren Zahl bleibt gleich.
+    Schneller wird es trotzdem deutlich, und weil der Versand heute synchron im Request läuft,
+    wartet genau so lange der Ersteller vor seinem Browser. **Die Kur ist Taktung plus
+    Wiederholung der 450er, und die braucht den Weg aus dem Request heraus.**
+
+    Zwei Feinheiten, die man beim Lesen nicht sieht:
+
+    * Die Verbindung wird **nicht** vorab geöffnet. Djangos Backend öffnet sie beim ersten
+      Versand selbst und hält sie danach -- ein fehlgeschlagener Aufbau bleibt damit ein Fehler
+      *dieser* Nachricht, und die nächste versucht es erneut. Mit einem eigenen `open()` samt
+      vorzeitigem Abbruch wäre ein kurzer Ausfall beim ersten Empfänger das Ende des ganzen
+      Versands.
+    * `close()` steht in einem eigenen `try`, weil es beim `QUIT` selbst eine `SMTPException`
+      werfen kann. Sie darf hier nicht heraus: `deliver()` läuft als `on_commit`-Callback im
+      Request, die Umfrage ist zu diesem Zeitpunkt schon angelegt, und ein Fehler daraus wäre ein
+      500 auf einer Seite, die inhaltlich in Ordnung ist.
     """
-    for subject, body, recipient in messages:
+    if not settings.VOTE_SEND_MAILS:
+        # Wie bisher: bei abgeschaltetem Versand nur ausgeben, damit lokal sichtbar ist, was
+        # rausgegangen wäre. Ohne Verbindung -- es gibt nichts zu verbinden.
+        for subject, body, recipient in messages:
+            print(subject, body, settings.VOTE_MAIL_FROM, [recipient])
+        return
+
+    connection = get_connection()
+    try:
+        for subject, body, recipient in messages:
+            try:
+                # `fail_silently=False` bleibt: die Ausnahme ist das, was hier protokolliert
+                # wird. Sie greift, weil `send_mail` mit übergebener `connection` deren
+                # `fail_silently` benutzt -- und `get_connection()` steht auf False.
+                send_mail(
+                    subject,
+                    body,
+                    settings.VOTE_MAIL_FROM,
+                    [recipient],
+                    fail_silently=False,
+                    connection=connection,
+                )
+            except SMTPException:
+                logger.exception("Zustellung einer Umfrage-Mail fehlgeschlagen")
+            except UnicodeEncodeError:
+                logger.exception("Umfrage-Mail nicht kodierbar")
+    finally:
         try:
-            if settings.VOTE_SEND_MAILS:
-                send_mail(subject, body, settings.VOTE_MAIL_FROM, [recipient], fail_silently=False)
-            else:
-                # Wie bisher: bei abgeschaltetem Versand nur ausgeben, damit lokal sichtbar ist,
-                # was rausgegangen wäre.
-                print(subject, body, settings.VOTE_MAIL_FROM, [recipient])
+            connection.close()
         except SMTPException:
-            logger.exception("Zustellung einer Umfrage-Mail fehlgeschlagen")
-        except UnicodeEncodeError:
-            logger.exception("Umfrage-Mail nicht kodierbar")
+            logger.exception("SMTP-Verbindung ließ sich nicht ordentlich schließen")
 
 
 def poll_created_messages(poll, creator_mail, voter_mails, tokens):

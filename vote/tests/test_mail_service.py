@@ -7,7 +7,11 @@ hier absichtlich als Literale ausgeschrieben: damit hängt der Test weder an den
 den Templates und schlägt an, wenn sich eine der beiden Seiten bewegt.
 """
 
+from smtplib import SMTPException
+from typing import ClassVar
+
 import pytest
+from django.core.mail.backends.base import BaseEmailBackend
 
 from vote.models import Poll, Token
 from vote.services import mail
@@ -123,3 +127,118 @@ class TestPollCreatedMessages:
         tokens = [Token.objects.create(poll=poll, token_string="t0")]
         with pytest.raises(ValueError):
             mail.poll_created_messages(poll, "admin@example.org", ["a@x.org", "b@x.org"], tokens)
+
+
+class CountingBackend(BaseEmailBackend):
+    """Ein Mail-Backend, das protokolliert, *wann* eine Verbindung entsteht.
+
+    Es gibt kein Django-Backend, das das zeigt: `locmem` überspringt Verbindungen ganz, `smtp`
+    bräuchte einen Server. Die Semantik von `open()`/`close()` ist deshalb der des
+    SMTP-Backends nachgebildet -- offen bleibt offen, ein zweites `open()` ist ein No-op.
+
+    Gesteuert über Klassenattribute, weil Django das Backend selbst instanziiert und man ihm
+    keine Argumente mitgeben kann.
+    """
+
+    #: Protokoll in Reihenfolge: "open", "close" und die Empfängeradressen.
+    log: ClassVar[list] = []
+    #: Empfänger, bei denen der Versand mit einer SMTPException scheitert.
+    fail_for: ClassVar[tuple] = ()
+    #: Ob `close()` beim Aufräumen wirft -- was das echte SMTP-Backend beim QUIT kann.
+    fail_on_close = False
+
+    @classmethod
+    def reset(cls):
+        cls.log = []
+        cls.fail_for = ()
+        cls.fail_on_close = False
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.connection = None
+
+    def open(self):
+        if self.connection is not None:
+            return False
+        self.connection = object()
+        CountingBackend.log.append("open")
+        return True
+
+    def close(self):
+        if self.connection is None:
+            return
+        self.connection = None
+        CountingBackend.log.append("close")
+        if CountingBackend.fail_on_close:
+            raise SMTPException("QUIT fehlgeschlagen")
+
+    def send_messages(self, email_messages):
+        self.open()
+        for message in email_messages:
+            recipient = message.to[0]
+            if recipient in CountingBackend.fail_for:
+                raise SMTPException(f"450 4.7.1 Error: too much mail from <{recipient}>")
+            CountingBackend.log.append(recipient)
+        return len(email_messages)
+
+
+@pytest.fixture
+def counting_backend(settings):
+    settings.EMAIL_BACKEND = f"{__name__}.CountingBackend"
+    settings.VOTE_SEND_MAILS = True
+    CountingBackend.reset()
+    yield CountingBackend
+    CountingBackend.reset()
+
+
+def _messages(count, first="a"):
+    return [(f"Betreff {i}", f"Text {i}", f"{first}{i}@example.org") for i in range(count)]
+
+
+class TestDeliver:
+    """Was `deliver()` zusagt: eine Verbindung, und ein Fehler hält die übrigen nicht auf."""
+
+    def test_one_connection_for_many_messages(self, counting_backend):
+        """Vorher baute jeder send_mail()-Aufruf seine eigene: 101 Mails = 101 Verbindungen."""
+        mail.deliver(_messages(20))
+        assert counting_backend.log.count("open") == 1
+        assert counting_backend.log.count("close") == 1
+        assert len([entry for entry in counting_backend.log if "@" in entry]) == 20
+
+    def test_the_connection_is_closed_even_when_everything_fails(self, counting_backend):
+        counting_backend.fail_for = tuple(recipient for _, _, recipient in _messages(3))
+        mail.deliver(_messages(3))
+        assert counting_backend.log.count("close") == 1
+
+    def test_one_unreachable_recipient_does_not_stop_the_others(self, counting_backend):
+        """Die Zusage aus 3.4, jetzt direkt geprüft statt nur über die View."""
+        counting_backend.fail_for = ("a1@example.org",)
+        mail.deliver(_messages(3))
+        assert [entry for entry in counting_backend.log if "@" in entry] == [
+            "a0@example.org",
+            "a2@example.org",
+        ]
+
+    def test_a_failure_while_closing_does_not_escape(self, counting_backend):
+        """`deliver()` läuft als on_commit-Callback im Request -- ein Fehler daraus wäre ein 500.
+
+        Die Umfrage ist zu diesem Zeitpunkt schon angelegt und die Mails sind raus; ein QUIT, das
+        schiefgeht, darf daraus keine Fehlerseite machen.
+        """
+        counting_backend.fail_on_close = True
+        mail.deliver(_messages(2))
+        assert [entry for entry in counting_backend.log if "@" in entry] == [
+            "a0@example.org",
+            "a1@example.org",
+        ]
+
+    def test_nothing_is_sent_when_sending_is_disabled(self, counting_backend, settings, capsys):
+        """Ohne Versand entsteht auch keine Verbindung -- es gibt nichts zu verbinden."""
+        settings.VOTE_SEND_MAILS = False
+        mail.deliver(_messages(2))
+        assert counting_backend.log == []
+        assert "Betreff 0" in capsys.readouterr().out
+
+    def test_an_empty_list_opens_nothing(self, counting_backend):
+        mail.deliver([])
+        assert counting_backend.log == []
