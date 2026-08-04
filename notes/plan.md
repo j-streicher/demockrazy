@@ -857,10 +857,103 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
    "zugestellt" markieren; **keine Historie**; Fortschritt nur als Zahl. Damit ist die Paarung
    zeitlich begrenzt statt dauerhaft, und nach dem Versand ist der Zustand wieder wie heute.
 5. ~~**Missbrauchsschutz vor Skalierung** (B4)~~ ✅ mit 3.8 erledigt – Deckel bei 150.
-6. Offen zu klären, sobald die Spec da ist: **Queue/Worker** (Celery? `django-tasks`? DB-Queue +
-   Management-Command + CronJob?), **Bounce-Handling**, **Idempotenz**. Die **Fortschrittsanzeige**
-   ist durch F8 schon eingeschränkt: nur Summen, keine Adressliste. Die **Taktung** (Batch-Größe und
-   Pause) hängt an F20.
+6. ✅ **Gemeinsame SMTP-Verbindung** – vorgezogen, weil es an keiner Spec hängt. `deliver()` baut
+   eine Verbindung für die ganze Umfrage statt eine pro Mail. Gemessen über die echte View mit
+   einem zählenden Backend: **101 Nachrichten in 101 Verbindungen → 101 Nachrichten in 1**.
+   **Ausdrücklich nicht die Kur:** gedrosselt werden Nachrichten, nicht Verbindungen, und deren
+   Zahl bleibt gleich. Es verkürzt nur die Wartezeit, die der Ersteller heute synchron aussitzt.
+7. **Taktung: vom User vorgegeben (2026-08-04) – „30er Batches mit 2 Sekunden Verzögerung".**
+   Ausgearbeitet in §11.7. Offen bleibt **F20** für die genaue Fensterlänge; die zwei Zahlen werden
+   deshalb konfigurierbar, mit den Wünschen des Users als Default.
+8. Noch offen, sobald die restliche Spec da ist: **Bounce-Handling** und die
+   **Fortschrittsanzeige** – letztere ist durch F8 schon eingeschränkt auf Summen ohne Adressliste.
+
+### 11.7 Entwurf des getakteten Versands – **noch nicht gebaut, zur Bestätigung**
+
+**Die Vorgabe des Users (2026-08-04, dreimal bestätigt): 30er Nachrichten-Batches mit 2 Sekunden
+Intervall.** Das ist die Taktung, die gebaut wird. Die Rechnung dazu gehört aber daneben:
+
+| | Nachrichten in der ersten Minute |
+|---|---|
+| 30er Batches, 2 s Pause | 100 Empfänger in ~7 s ⇒ **alle 101** |
+| gemessen als immer erfolgreich | **30** |
+| gemessen als Fehler (`450`) | 50 |
+
+⚠️ **Wenn das Zählfenster 60 s ist** – der Postfix-Default für `anvil_rate_time_unit`, und genau das
+ist **F20** – dann bringt eine 2-Sekunden-Pause zwischen den Batches den `450` an derselben Stelle
+zurück, weil sie die *Zahl der Nachrichten pro Minute* kaum senkt. Die Pause, die zur Messung passt,
+wäre eine **Fensterlänge** zwischen den Batches: 30 Nachrichten, 60 s Pause, 30 Nachrichten.
+
+**Warum die Vorgabe trotzdem tragbar ist und ich sie so baue:** der `450` ist ein 4xx, also
+temporär, und der Entwurf unten **wiederholt** ihn. Es geht dadurch keine Einladung verloren – es
+kostet Logzeilen und Wartezeit. Und **beide Zahlen sind Einstellungen**, keine Konstanten:
+`DEMOCKRAZY_MAIL_BATCH_SIZE=30` und `DEMOCKRAZY_MAIL_BATCH_PAUSE=2`, mit den Wünschen des Users als
+Default. Tauchen die `450` im Log auf, ist die Kur **eine Zahl** und kein Deploy von Code.
+
+**1. Raus aus dem Request – der einzige Punkt ohne Alternative.**
+Bei 2 s Pause dauert der Versand nur Sekunden, das würde ein Request noch aushalten. Sobald die
+Pause aber auf Fensterlänge hoch muss, sind es Minuten, und `proxy_read_timeout` (nginx) und
+`harakiri` (uwsgi) schneiden vorher ab. Der Versand gehört deshalb **von Anfang an** in einen eigenen
+Prozess – damit die Pause eine Zahl bleibt und nicht wieder eine Architekturfrage wird.
+
+**2. Die Warteschlange – ihre Form kommt aus F8, nicht aus Bequemlichkeit.**
+Ein Modell `OutgoingMail` mit `recipient`, `subject`, `body`, `attempts`. **Keine Poll-Kennung**
+(§11.4): die Zeile soll für sich nicht sagen, um welche Abstimmung es geht. **Löschen bei Erfolg**,
+kein `sent`-Flag, keine Historie; Reihenfolge über die ID, damit die Einladungsfolge erhalten bleibt.
+⚠️ **Was die Taktung an F8 kostet, und das ist neu:** heute lebt die Paarung Adresse↔Token nur im
+RAM eines Requests. Mit einer Warteschlange liegt sie **auf der Platte** – bei 2 s Pause für
+Sekunden, bei 60 s für Minuten. Genau die Einbuße, die §11.4 vorhergesehen hat. Preisgegeben wäre
+*wer eingeladen wurde*, **nicht wie jemand gestimmt hat**; das Kernversprechen bleibt unberührt.
+
+**3. Einreihen atomar mit den Tokens.**
+`create()` rendert wie heute und schreibt die Zeilen **in derselben Transaktion** wie `create_poll()`.
+Sonst kann ein Absturz dazwischen Tokens ohne Einladung hinterlassen – Wähler, die ihren Token nie
+erfahren, und eine Umfrage, die nur noch der Ersteller schließen kann. Das `on_commit(deliver)` aus
+3.4 entfällt damit; seine Zusage („keine Mail raus, bevor die Tokens durabel sind", B7) erfüllt die
+Warteschlange strukturell, weil der Versender in einem anderen Prozess läuft und nur committete
+Zeilen sieht.
+
+**4. Der Versender: ein Management-Command, kein Daemon.**
+`manage.py send_pending_mails`, und in dieser Reihenfolge:
+
+- **Sperre zuerst** – `flock` auf eine Datei neben der Datenbank. Läuft schon ein Versand, beendet
+  sich der zweite sofort und still. Damit braucht die Tabelle **keine Claim-Spalte**, und ein Timer,
+  der in einen laufenden Versand feuert, tut nichts Schädliches.
+- `batch_size` Zeilen nach ID nehmen, über **eine** SMTP-Verbindung verschicken (steht seit 11.6),
+  jede erfolgreiche Zeile löschen.
+- `pause` Sekunden warten, nächster Batch, bis die Warteschlange leer ist oder ein Laufzeitbudget
+  erschöpft ist.
+- **Beim ersten 4xx den Lauf abbrechen**, nicht weiterprobieren: ein `450` heißt „du bist über dem
+  Limit", die nächsten 29 bekämen ihn auch und würden nur `attempts` verbrennen. Der Timer versucht
+  es beim nächsten Intervall erneut.
+- Ein 5xx ist dauerhaft: `attempts` hoch, nach N Versuchen Zeile löschen und protokollieren –
+  **ohne Adresse**, wie `deliver()` das heute schon tut (F8).
+- `VOTE_SEND_MAILS=False` druckt statt zu verschicken, genau wie `deliver()` heute.
+
+**5. Idempotenz: verschicken, dann löschen.**
+Zwischen SMTP-Erfolg und `DELETE` kann der Prozess sterben, dann geht die Mail doppelt raus.
+**Absichtlich diese Richtung:** die zweite Mail trägt denselben Token, und der ist einmalig – eine
+doppelte Einladung ist harmlos, eine doppelte Stimme dadurch unmöglich. Der umgekehrte Fehler
+(löschen, dann verschicken) **verliert** eine Einladung, und dann fehlt ein Token für immer: die
+Umfrage schließt nicht mehr von selbst.
+
+**6. Was das im Deployment kostet – und was nicht.**
+Ein systemd-Timer, der den Command aufruft. **Kein Broker, kein Daemon, kein neues Paket** – und
+deshalb ausdrücklich **nicht Celery und nicht `django-tasks`**: Celery bräuchte Redis oder RabbitMQ
+als zusätzlichen Dienst auf der Node, `django-tasks` einen dauerhaften Worker-Unit, und beide ein
+Paket, das erst in der nixpkgs liegen muss. Für hundert Mails im Minutentakt ist ein Timer genug,
+und die Datenbank ist schon da. → [to-check.md](to-check.md) §C5.
+**Timer-Intervall: eine Minute.** Der Preis ist ehrlich zu benennen: die erste Einladung geht bis zu
+eine Minute nach dem Anlegen raus, die Mail an den Ersteller auch. Das ist der Gegenwert dafür, dass
+nichts mehr im Request hängt.
+
+**7. Fortschritt: eine Zahl auf der Manage-Seite.**
+Die Bestätigungsseite kann es nicht zeigen – sie ist gerendert, bevor etwas rausgeht. Die
+Manage-Seite kann „n Einladungen noch nicht verschickt" anzeigen: eine Summe, keine Adressliste,
+also F8-konform. Klein und der einzige Ort, an dem der Ersteller überhaupt etwas erfährt.
+
+**8. Migration `0004`** – eine **neue** Tabelle. Additiv, und anders als `0003` schreibt SQLite dafür
+keine bestehende Tabelle neu.
 
 ---
 

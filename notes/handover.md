@@ -66,7 +66,7 @@ grün ist, ist dort grün.
 
 **Sollwerte, an denen du merkst, dass alles in Ordnung ist:**
 
-- `pytest` → **185 passed** (kein xfailed mehr, siehe §5)
+- `pytest` → **191 passed** (kein xfailed mehr, siehe §5)
 - `manage.py check` → **no issues (0 silenced)**
 - `makemigrations --check` → **No changes detected**
 - `ruff format --check` → alle Dateien unverändert
@@ -183,10 +183,17 @@ Die Spec kommt vom User. Was für *jede* Variante gilt und in Phase 3 entstehen 
    konfigurierbar. Ein Batch-Versender skaliert damit nicht den Missbrauch mit.
 6. **Das Problem selbst ist inzwischen gemessen, nicht vermutet** – [plan.md](plan.md) §11, der
    wichtigste Abschnitt für Ziel 2. Der Mailserver drosselt nach *Nachrichten pro Zeitfenster*
-   (`450 4.7.1 too much mail from`; 30 gingen immer durch, bei 50 kam der Fehler), `deliver()` baut
-   **eine SMTP-Verbindung pro Empfänger** (nachgezählt: 101 Mails = 101 Verbindungen), und der
+   (`450 4.7.1 too much mail from`; 30 gingen immer durch, bei 50 kam der Fehler), und der
    Versand läuft **synchron im Request** – `on_commit` verschiebt ihn nicht, weil es ohne offenen
-   `atomic`-Block sofort ausführt (Folge von B16). Offen: die Spec und **F20**.
+   `atomic`-Block sofort ausführt (Folge von B16).
+7. ✅ **Eine SMTP-Verbindung statt einer pro Mail** (§11.6). Gemessen: 101 Nachrichten in 101
+   Verbindungen → 101 in 1. **Nicht die Kur** – gedrosselt werden Nachrichten, nicht Verbindungen –,
+   aber es verkürzt die Wartezeit, die der Ersteller heute aussitzt.
+8. **Die Taktung hat der User vorgegeben: 30er Batches, 2 s Intervall.** Der Entwurf dazu steht
+   vollständig in [plan.md](plan.md) §11.7 – **noch nicht gebaut, wartet auf ein OK.** Darin auch
+   die Rechnung, warum 2 s zwischen den Batches die gemessene Grenze nicht einhält, und warum das
+   trotzdem tragbar ist (der `450` ist temporär und wird wiederholt; beide Zahlen sind Settings).
+   Offen bleiben **Bounce-Handling**, die **Fortschrittsanzeige** und **F20**.
 
 ## 8. Offene Fragen an den User
 
@@ -271,7 +278,9 @@ keinen Fremd-Host mehr. Beides in [deployment.md](deployment.md).
 - **F8 ist entschieden: "lieber anonymer".** Kein dauerhafter Zustellstatus pro Adresse. Was das für
   eine Queue bedeutet – und warum die Einbuße kleiner ist, als sie klingt – steht in §11.4. **Vor dem
   ersten Modell lesen.**
-- Offen: die **Spec** und **F20** (der genaue Rate-Limit-Wert, für Batch-Größe und Pause).
+- **Die Taktung ist vorgegeben** (30er Batches, 2 s Intervall), der Entwurf dazu steht in §11.7 und
+  wartet auf ein OK. Offen bleiben **Bounce-Handling**, die **Fortschrittsanzeige** und **F20** (der
+  genaue Rate-Limit-Wert, an dem hängt, ob die 2 s reichen).
 
 Was beim Routing (3.7) zu beachten war und weiter gilt, falls jemand `urls.py` anfasst:
 die sieben öffentlichen Pfade sind **zeichengleich** zu halten (Regel 5), `test_views.py::TestUrls`

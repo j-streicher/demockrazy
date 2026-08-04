@@ -221,6 +221,30 @@ Rücksicht auf `timeout`.
 Monitoring-Probe gegen `localhost` bekommt einen 400 und sieht wie ein Ausfall aus.** Also entweder
 mit passendem `Host`-Header proben oder `ALLOWED_HOSTS` erweitern.
 
+### C5. Ein systemd-Timer für den getakteten Mailversand — **noch nicht jetzt**
+
+**Wird erst gebraucht, wenn Ziel 2 gebaut ist**, steht aber schon hier, weil es das einzige ist, was
+der Batch-Versand im Deployment kostet — und weil es deine Entscheidung ist, ob dir diese Form passt.
+
+Gebraucht wird ein Timer plus Service, der als der demockrazy-Nutzer
+
+```bash
+DJANGO_SETTINGS_MODULE=demockrazy_config manage.py send_pending_mails
+```
+
+aufruft, im Minutentakt, mit Schreibzugriff auf `/var/lib/demockrazy` (die Datenbank und eine
+Sperrdatei daneben). **Mehr nicht:** kein Broker, kein Daemon, kein zusätzliches Python-Paket. Der
+Command sperrt sich selbst, ein Timer-Aufruf in einen laufenden Versand hinein beendet sich sofort.
+
+Der Entwurf dahinter samt Begründung steht in [plan.md](plan.md) §11.7. Kurz, warum nicht anders:
+**Celery** bräuchte Redis oder RabbitMQ als zusätzlichen Dienst auf der Node, **`django-tasks`** einen
+dauerhaft laufenden Worker-Unit, und beide ein Paket, das erst in der nixpkgs liegen muss. Für
+hundert Mails im Minutentakt ist ein Timer genug, und die Datenbank ist schon da.
+
+Zwei Einstellungen steuern die Taktung, beide mit deinen Zahlen als Default:
+`DEMOCKRAZY_MAIL_BATCH_SIZE=30` und `DEMOCKRAZY_MAIL_BATCH_PAUSE=2`. **Falls die `450` im Log wieder
+auftauchen, ist die Pause die Schraube** – siehe die Rechnung in §11.7 und **F20**.
+
 ---
 
 ## D. Beim Deploy und danach
