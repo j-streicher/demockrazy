@@ -1,7 +1,7 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: 2026-08-04, Branch `update/modernize-2026`, 74 Commits über `master` (Basis `3074dbb`).
+Stand: 2026-08-04, Branch `update/modernize-2026`, 78 Commits über `master` (Basis `3074dbb`).
 Arbeitsbaum ist sauber, alles committed, **nichts gepusht** -- die CI hat also noch nie gelaufen,
 sie greift erst beim ersten Push.
 
@@ -66,7 +66,7 @@ grün ist, ist dort grün.
 
 **Sollwerte, an denen du merkst, dass alles in Ordnung ist:**
 
-- `pytest` → **211 passed** (kein xfailed mehr, siehe §5)
+- `pytest` → **215 passed** (kein xfailed mehr, siehe §5)
 - `manage.py check` → **no issues (0 silenced)**
 - `makemigrations --check` → **No changes detected**
 - `ruff format --check` → alle Dateien unverändert
