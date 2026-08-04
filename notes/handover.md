@@ -1,7 +1,7 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: 2026-08-04, Branch `update/modernize-2026`, 43 Commits über `master` (Basis `3074dbb`).
+Stand: 2026-08-04, Branch `update/modernize-2026`, 46 Commits über `master` (Basis `3074dbb`).
 Arbeitsbaum ist sauber, alles committed, **nichts gepusht** -- die CI hat also noch nie gelaufen,
 sie greift erst beim ersten Push.
 
@@ -36,7 +36,7 @@ insbesondere für Ziel 2 relevant (§7).
 ## 3. Zwei Ziele
 
 1. **Auf heutige Standards bringen.** Phase 0, 1 und 2 (außer 2.7) sind fertig, Phase 3 ist bis
-   3.7 durch, CI steht (5.3). Offen: 3.8, Phase 4, 5.4/5.5.
+   3.7 durch, CI steht (5.3), `/healthz` steht (5.5). Offen: 3.8, Phase 4, 5.4.
 2. **Batch-Modus für Mails.** *Spec steht noch aus, der User erklärt sie später.* Nicht spekulativ
    bauen. Phase 3 so anlegen, dass es andockt (§7).
 
@@ -62,7 +62,7 @@ grün ist, ist dort grün.
 
 **Sollwerte, an denen du merkst, dass alles in Ordnung ist:**
 
-- `pytest` → **145 passed, 1 xfailed**
+- `pytest` → **152 passed, 1 xfailed**
 - `manage.py check` → **no issues (0 silenced)**
 - `makemigrations --check` → **No changes detected**
 - `ruff format --check` → alle Dateien unverändert
@@ -85,6 +85,8 @@ python3 manage.py runserver --settings=demockrazy.dev_settings
 | [../vote/services/mail.py](../vote/services/mail.py) | `poll_created_messages()` rendert, `deliver()` verschickt |
 | [../vote/templates/vote/mail/](../vote/templates/vote/mail/) | die vier Mail-Templates; **enden absichtlich ohne Zeilenumbruch** |
 | [../vote/urls.py](../vote/urls.py) | die acht Routen als `path()`, dazu der eigene `identifier`-Converter |
+| [../demockrazy/views.py](../demockrazy/views.py) | nur `/healthz` – Betriebs-Endpunkt, gehört nicht in `vote` |
+| [../demockrazy/tests/](../demockrazy/tests/) | Projektebene: `test_healthz`, `test_transactions` (was `ATOMIC_REQUESTS` wirklich tut) |
 | [../vote/migrations/](../vote/migrations/) | `0001`+`0002` rekonstruieren Prod von 2016, `0003` bringt Constraints und `choices` |
 | [../vote/tests/](../vote/tests/) | `test_models`, `test_forms`, `test_views`, `test_mail_service`, `test_poll_service`, `test_known_bugs`, `conftest` |
 | [../demockrazy/settings.py](../demockrazy/settings.py) | Defaults; dazu `dev_settings.py` (runserver) und `test_settings.py` (pytest) |
@@ -168,6 +170,7 @@ Die Spec kommt vom User. Was für *jede* Variante gilt und in Phase 3 entstehen 
 | **F5** | Zugangsschutz für `/vote/create` – Login, Invite-Code, IP-Rate-Limit, Empfänger-Deckel? | 3.8, Ziel 2 |
 | **F8** | Anonymität vs. Zustellstatus pro Empfänger – wie weit darf Ziel 2 das aufweichen? | Ziel 2 |
 | **F13** | Wie groß sind Abstimmungen real (Empfänger pro Poll, parallele Polls)? Entscheidet SQLite-Tuning vs. Postgres (B13) und die Batch-Größen. | 5.4, Ziel 2 |
+| **F18** | Soll `ATOMIC_REQUESTS` tatsächlich an? War seit 2016 wirkungslos, mit 5.5 entfernt (B16) – der Zustand ist unverändert, nur nicht mehr falsch dokumentiert. **Empfehlung: aus lassen**, die zwei Stellen mit Atomaritätsbedarf haben sie explizit; Einschalten verbreitert nur das Lock-Fenster (B13). Gehört in dieselbe Entscheidung wie WAL/`timeout` (5.4). | 5.4 (nicht blockierend) |
 | **F17** | Überschreibt das NixOS-Modul `VOTE_MAIL_SUBJECT`/`VOTE_MAIL_TEXT`/`VOTE_ADMIN_MAIL_*`? 3.4 hat sie aus `settings.py` entfernt, der Text kommt aus Templates. Ein Override dort wird nach dem Deploy still ignoriert. Prüfen mit `grep -rn 'VOTE_MAIL\|VOTE_ADMIN_MAIL'` im Colmena-Repo. | **vor dem Deploy** |
 
 ~~Kleinigkeit: die `type`-Spalte war in der Prod-Schema-Ausgabe abgeschnitten.~~ **Erledigt** –
@@ -198,11 +201,20 @@ nix run nixpkgs#sqlite -- -readonly /var/lib/demockrazy/db.sqlite3 \
 
 ## 9. Nächster Schritt
 
-**Phase 3 ist bis 3.7 durch, CI steht (5.3).** Behoben: **B1, B2, B3, B5, B6, B7, B11, B12, B15**
-und die zwei fehlenden Unique-Constraints. Mailversand und Poll-Erstellung sind Services, der
-Versand hängt an `on_commit`, die Umfrage-Erstellung kostet konstant 5 Statements, das Routing
-läuft über `path()`.
+**Phase 3 ist bis 3.7 durch, CI steht (5.3), `/healthz` steht (5.5).** Behoben: **B1, B2, B3, B5,
+B6, B7, B11, B12, B15, B16** und die zwei fehlenden Unique-Constraints. Mailversand und
+Poll-Erstellung sind Services, der Versand hängt an `on_commit`, die Umfrage-Erstellung kostet
+konstant 5 Statements, das Routing läuft über `path()`.
 **Die Vorarbeit für Ziel 2 (§7.1–3) ist vollständig** – ein Batch-Versender ersetzt `mail.deliver()`.
+
+**B16 ist bei 5.5 aufgefallen und lohnt zwei Sätze, weil es Annahmen umstößt:**
+`ATOMIC_REQUESTS = True` stand seit 2016 **modulweit** in `settings.py`, Django liest es aber pro
+Datenbank – die Option war zehn Jahre lang wirkungslos, in Produktion auch. **Es gibt also keine
+Transaktion um einen Request.** Atomar sind nur `create_poll()` und der `atomic()`-Block in
+`vote()`, beide explizit und getestet. Wer hier etwas über Transaktionen annimmt, prüft es an
+[../demockrazy/tests/test_transactions.py](../demockrazy/tests/test_transactions.py) nach.
+Der Befund hat B7s Begründung, B13s Risikoeinschätzung und die 3.5-Notiz korrigiert; **F18** fragt,
+ob die Option tatsächlich an soll (Empfehlung: nein).
 
 Von Phase 3 bleibt nur **3.8** (Zugangsschutz, braucht F5). Unblockiert und damit als nächstes dran:
 
@@ -210,7 +222,6 @@ Von Phase 3 bleibt nur **3.8** (Zugangsschutz, braucht F5). Unblockiert und dami
   Cache-Busting über `ManifestStaticFilesStorage`, Template-Kleinkram. **4.3 braucht F4**
   (Highcharts-Lizenz) und blockiert die anderen vier Punkte nicht: 4.1/4.2 fassen das Markup und
   `base.html` an, 4.3 nur den Chart in `results.html`.
-- **5.5** (`/healthz`) – klein, unabhängig von der Deployment-Form.
 
 Was beim Routing (3.7) zu beachten war und weiter gilt, falls jemand `urls.py` anfasst:
 die sieben öffentlichen Pfade sind **zeichengleich** zu halten (Regel 5), `test_views.py::TestUrls`
@@ -227,7 +238,11 @@ prüft sie zusammen mit dem Converter-Verhalten. Der Namespace `polls` und die `
    im `preStart` vor dem Dienststart, es gibt also keine parallelen Schreiber; borg-Backup liegt vor.
 3. **`rev`+`sha256` im Modul bumpen** und das Colmena-Flake auf `mf-next` (§6, Falle 4).
 
-Offen: **3.8** braucht F5, **4.3** braucht F4, **2.7** braucht F15, **5.4** braucht F13.
+4. **`/healthz` braucht einen passenden `Host`-Header.** `ALLOWED_HOSTS` ist in Prod
+   `["wahlcomputer.mayflower.de"]` – eine Monitoring-Probe gegen `localhost` bekommt einen 400 und
+   sieht wie ein Ausfall aus. Gehört ins Modul, nicht in die Repo-Defaults.
+
+Offen: **3.8** braucht F5, **4.3** braucht F4, **2.7** braucht F15, **5.4** braucht F13 (+ F18).
 
 ## 10. Arbeitsregeln (haben sich bewährt, bitte beibehalten)
 

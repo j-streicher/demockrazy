@@ -97,8 +97,9 @@ Der Aufwand steckt nicht im Upgrade, sondern in den Altlasten (Migrations, Setti
 > gefixt – aber ohne Debug-Seiten sind sie hässlich, nicht gefährlich. Kein Hotfix nötig.
 >
 > Zwei neue Befunde aus dem echten Prod-Setup: **SQLite in Produktion** (B13, `DATABASES` wird nicht
-> überschrieben, in Kombination mit `ATOMIC_REQUESTS=True` Lock-Risiko) und **fehlende
-> Secure-Cookie-/HSTS-Flags** (B14).
+> überschrieben ⇒ Lock-Risiko) und **fehlende Secure-Cookie-/HSTS-Flags** (B14).
+> *(Nachtrag: „in Kombination mit `ATOMIC_REQUESTS=True`" stand hier und war falsch – die Option war
+> seit 2016 wirkungslos, siehe B16 in plan.md. Das Lock-Fenster ist kleiner als damals geschätzt.)*
 >
 > Der Abschnitt bleibt als Analyse stehen: er dokumentiert, was ein Django-Deployment mit
 > `DEBUG=True` preisgibt – relevant, falls das k8s-Setup je wiederbelebt wird, und als Begründung
