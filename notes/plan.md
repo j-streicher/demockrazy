@@ -1015,6 +1015,52 @@ Aufrufstellen anzufassen. Der Entwurf oben tut das schon – `enqueue` in `creat
 Command.
 ⚠️ Ein Wechsel auf **Django 6** wäre ohnehin eine eigene Entscheidung: 5.2 ist LTS, 6.0 nicht, und
 die Version kommt aus der nixpkgs des Colmena-Flakes (§1).
+
+**6b. Der User bleibt auf der LTS (Entscheidung 2026-08-04). Welche Optionen bleiben dann?**
+
+**Alle.** Das ist der Kern: Django 6 hätte hier nichts beigetragen, was 5.2 fehlt – `django.tasks` hat
+auch dort **kein Datenbank-Backend und keinen Worker** (6a). Die LTS-Entscheidung streicht also keine
+einzige Möglichkeit; sie schließt nur die *Aussicht* auf ein künftiges Core-Backend aus, und das gibt
+es noch nicht.
+
+Was auf 5.2 zur Wahl steht, gegen **dieses** Deployment gerechnet (SQLite, vier uwsgi-Prozesse,
+NixOS-Modul außerhalb des Repos, ~101 Mails pro Umfrage):
+
+| | Zusätzliche Abhängigkeit | Zusätzlich auf der Node | Taktung | Einreihen atomar mit den Tokens |
+|---|---|---|---|---|
+| **A** eigene Tabelle + Command + Timer (§11.7) | keine | **ein systemd-Timer** | selbst, exakt wie vorgegeben | **ja** |
+| **B** A, aber über die `django-tasks`-API deklariert | `django-tasks` 0.12 (gepackt) | derselbe Timer | selbst (Immediate/Dummy können kein `run_after`) | ja |
+| **C** `django-q2` – Queue in der ORM-Datenbank | `django-q2` 1.9.0 (gepackt) | **dauerhafter `qcluster`-Daemon** | selbst | ja |
+| **D** `huey` mit SQLite-Storage | `huey` 2.6.0 (gepackt, Django-Anbindung eingebaut) | **dauerhafter Consumer** + zweite DB-Datei | selbst | nein (eigener Store) |
+| **E** Celery + Redis | `celery` 5.6.3, `redis` (gepackt) | **Redis als Dienst** + Worker-Daemon | **eingebaut**: `rate_limit="30/m"` | nein (Broker) |
+| **F** fertige Mail-Queue (`django-mailer`, `django-post-office`) | **nicht in der nixpkgs** | – | teils eingebaut | ja |
+
+Drei Befunde, die die Wahl entscheiden, und alle drei sind nachgesehen:
+
+- **F fällt an der Verpackung aus.** `django-mailer`, `django-post-office`, `django-mail-queue`,
+  `procrastinate`, `django-tasks-database` – **keins liegt in der gepinnten nixpkgs.** Hier greift das
+  Argument, das ich in 6a fälschlich gegen Celery erhoben hatte: das wäre echte Paketierungsarbeit im
+  Repo des Users.
+- **C schreibt dauernd in genau die Datei, um die 5.4 sich gekümmert hat.** Ein `qcluster` pollt die
+  Datenbank; das ist zusätzlicher Schreibverkehr auf der SQLite-Datei, die vier uwsgi-Prozesse teilen
+  (B13). Der Entwurf A schreibt nur, wenn wirklich eine Mail rausgeht.
+- **E ist funktional der beste Treffer und der teuerste Umbau.** Celerys `rate_limit` ist genau die
+  Zusage, die hier gebraucht wird, und man müsste sie nicht selbst schreiben. Der Preis ist ein
+  **zusätzlicher Dienst (Redis)** plus ein Worker-Daemon auf einer Node, die heute nginx und ein
+  uwsgi fährt – für 101 Mails.
+
+**Und eine Idee, die naheliegt und nachweislich nicht funktioniert:** Djangos eingebautes
+`filebased.EmailBackend` als Spool zu benutzen. Es klingt perfekt – keine Migration, kein Modell,
+nichts in der Datenbank. Nachgesehen: es schreibt **alle Nachrichten einer Verbindung in *eine*
+Datei**, aneinandergehängt und durch eine Zeile aus `-` getrennt, benannt nach Zeitstempel. Das ist
+ein Protokoll, keine Warteschlange – eine Datei je Nachricht gibt es nicht, und ein Dateilauf wäre
+außerdem **nicht** Teil der Token-Transaktion.
+
+**Empfehlung: A.** Ein Modell, ein Command, ein Timer, keine Abhängigkeit, und die Taktung ist genau
+die vorgegebene. B lohnt nur, wenn Vorwärtskompatibilität zu einem künftigen Core-Backend wichtiger
+ist als weniger Code – man bekommt die API und schreibt alles darunter trotzdem. C, D und E lohnen
+erst, wenn es **weitere** Hintergrundaufgaben geben soll; für diese eine ist ein Daemon oder ein
+Broker mehr Betrieb als Nutzen.
 **Timer-Intervall: eine Minute.** Der Preis ist ehrlich zu benennen: die erste Einladung geht bis zu
 eine Minute nach dem Anlegen raus, die Mail an den Ersteller auch. Das ist der Gegenwert dafür, dass
 nichts mehr im Request hängt.
