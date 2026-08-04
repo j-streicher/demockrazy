@@ -1,11 +1,16 @@
 """Die in Phase 0 bestätigten Bugs, formuliert als das gewünschte Verhalten.
 
-Ein noch offener Bug steht hier mit `xfail(strict=True)`: der Test beschreibt, was passieren
-*soll*, und schlägt heute fehl. Sobald Phase 3 ihn behebt, wird er zu einem unerwarteten Erfolg --
-was die Suite rot macht und daran erinnert, den Marker zu entfernen.
+**Derzeit steht hier kein `xfail` mehr** -- alle Bugs, die diese Datei beschreibt, sind behoben, und
+die Tests stehen ohne Marker als Regressionstests. Die Nummern (B2, B3, ...) bleiben als Verweis auf
+notes/plan.md §2 erhalten.
 
-Behobene Bugs bleiben ohne Marker stehen und sind ab dann Regressionstests. Die Nummern
-(B2, B3, ...) bleiben als Verweis auf notes/plan.md §2 erhalten.
+Das Muster für den nächsten Bug ist trotzdem dieses: `xfail(strict=True)`, der Test beschreibt, was
+passieren *soll*, und schlägt heute fehl. Sobald jemand ihn behebt, wird er zu einem unerwarteten
+Erfolg -- was die Suite rot macht und daran erinnert, den Marker zu entfernen.
+
+Merke aus 3.8: mit dem Marker kann auch die *Erwartung* fallen. Der B4-Test verlangte einen
+ablehnenden Statuscode, solange die Schutzmaßnahme offen war; ein Deckel im Formular ergibt einen
+200 mit Fehlermeldung. Geprüft wird jetzt die Wirkung, nicht der Statuscode.
 
 Behoben: B3, B6, B11, B12 (Plan 3.2) · B2 (Plan 3.3) · die zwei Unique-Constraints (Plan 3.6) ·
 B10 (Plan 4.2).

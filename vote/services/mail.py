@@ -1,8 +1,13 @@
 """Mailversand für die Umfrage-Erstellung.
 
-Bis 3.4 steckte das als Satz geschachtelter Funktionen in `create()`. Herausgezogen, weil es
-keine Request-Abhängigkeit hat, weil der Batch-Modus (Ziel 2) genau hier andockt, und weil SMTP
-nicht in der Request-Transaktion laufen darf (B7) -- siehe notes/plan.md §11.
+Bis 3.4 steckte das als Satz geschachtelter Funktionen in `create()`. Herausgezogen, weil es keine
+Request-Abhängigkeit hat, weil der Batch-Modus (Ziel 2) genau hier andockt, und weil keine Mail
+rausgehen darf, bevor die Tokens durabel sind (B7) -- siehe notes/plan.md §11.
+
+*(Hier stand „weil SMTP nicht in der Request-Transaktion laufen darf". Eine Request-Transaktion gab
+es nie: das modulweite `ATOMIC_REQUESTS` hat Django nicht gelesen, B16. Der Befund bleibt, nur die
+Begründung war falsch -- vorher verschickte `create()` die Mails **in der Save-Schleife**, während
+die Tokens erst entstanden.)*
 
 Die Texte stehen in `vote/templates/vote/mail/` und reproduzieren die früheren
 `VOTE_*_MAIL_TEXT`-Settings **wortgleich**; `vote/tests/test_mail_service.py` nagelt das fest.
