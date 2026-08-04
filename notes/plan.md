@@ -9,7 +9,7 @@
 
 | # | Ziel | Status |
 |---|------|--------|
-| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · Phase 3 bis 3.7 ✅ · CI ✅ · 5.5 ✅ · **Phase 4 bis auf 4.3 ✅** – offen: 3.8 (F5), 4.3 (F4), 5.4 (F13), 2.7 (F15) |
+| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | **Phase 0–4 vollständig ✅**, Phase 5 bis auf 5.4, Phase 6 ✅ – offen nur noch: **5.4** (SQLite-Härtung) und **2.7** (TLS, braucht F15) |
 | 2 | Batch-Modus für Mails bauen | **Spec folgt vom User** – nur Vorarbeit leisten, siehe §11 |
 
 **Wichtig:** Ziel 2 wird vom User später erklärt. Ziel 1 nicht so umbauen, dass Ziel 2 blockiert wird –
@@ -85,7 +85,7 @@ Wiederherstellbar über `git revert 4e15012`.
 | Tests | `vote/tests.py` enthielt nur einen Kommentar | keine Testabdeckung |
 | `default.nix` | Legacy `with import <nixpkgs> {}`, `stdenv.mkDerivation` als Shell-Hack | Duplikat zum Flake |
 | CI | `actions/checkout@v3`, `cachix/install-nix-action@v18`, `docker/login-action` auf altem SHA | nur Build, kein Test/Lint |
-| Frontend | Bootstrap 3.3.6 (2016), jQuery 2.2.4 (2016), Highcharts 4.2.5 (2016) – alle vendored | Bootstrap → 5.3.8 und jQuery raus mit 4.1/4.2; Highcharts offen (B8) |
+| Frontend | Bootstrap 3.3.6 (2016), jQuery 2.2.4 (2016), Highcharts 4.2.5 (2016) – alle vendored | **alle drei ersetzt:** Bootstrap 5.3.8 (4.1), jQuery entfallen (4.2), Chart.js 4.5.1 statt Highcharts (4.3). 1,36 MB → 528 KB, Lizenzen durchgehend MIT |
 | Datenbank (Prod) | **SQLite**, `/var/lib/demockrazy/db.sqlite3` | Lock-Risiko, siehe B13. *(Korrigiert: der Zusatz „+ `ATOMIC_REQUESTS=True`" war falsch – die Option war nie wirksam, B16.)* |
 | k8s / Docker / sops | k8s-libsonnet 1.25, PG 14, GHCR-Images | **toter Code** – Deployment abgeschaltet, siehe Phase 5 |
 
@@ -96,13 +96,13 @@ Wiederherstellbar über `git revert 4e15012`.
 | B1 | Migrations gitignored | ✅ **behoben** in 2.1 |
 | B2 | `UnboundLocalError` in `vote()` | ✅ **behoben** in 3.3 |
 | B3 | `create()` crasht bei GET / ungültigem Typ | ✅ **behoben** in 3.2 |
-| B4 | Kein Auth/Rate-Limit auf `/vote/create` | offen → 3.8, **braucht F5** |
+| B4 | Kein Auth/Rate-Limit auf `/vote/create` | ✅ **behoben** in 3.8 (Deckel 150) |
 | B5 | Unsichere Settings-Defaults | ✅ **behoben** in 2.4 |
 | B6 | Doppelte Adressen → doppelte Tokens | ✅ **behoben** in 3.1/3.2 |
 | B7 | Mailversand innerhalb der Transaktion | ✅ **behoben** in 3.4 |
-| B8 | Highcharts proprietär lizenziert | offen → 4.3, **braucht F4** |
+| B8 | Highcharts proprietär lizenziert | ✅ **behoben** in 4.3 (Chart.js, MIT) |
 | B9 | Token im URL-Query-String | offen, Entscheidung nötig |
-| B10 | Templating in Inline-JS | offen → 4.3 |
+| B10 | Templating in Inline-JS | ✅ **behoben** in 4.2 (`json_script`) |
 | B11 | `manage()` crasht ohne `token`-Feld | ✅ **behoben** in 3.2 |
 | B12 | `ValidationError` ungefangen | ✅ **behoben** in 3.1/3.2 |
 | B13 | Prod läuft auf SQLite (Lock-Risiko) | offen → 5.4, **braucht F13** |
@@ -207,7 +207,7 @@ bin: die neuen Dateien wären nicht mitgekommen, und in Produktion hätte die Se
 
 **B8 – Highcharts 4.2.5 ist proprietär lizenziert.**
 Kein Free-/Open-Source-Lizenzmodell für kommerzielle Nutzung. Vendored in
-[vote/static/highcharts-custom.js](../vote/static/highcharts-custom.js) in einem MIT-Repo.
+`vote/static/highcharts-custom.js` in einem MIT-Repo (die Datei ist mit 4.3 entfernt).
 → Durch Chart.js (MIT) oder ECharts (Apache-2.0) ersetzen. **Lizenzfrage an User weitergeben.**
 
 **B9 – Token im URL-Query-String.**
@@ -520,9 +520,20 @@ Tests für niemanden außer mir nutzbar und in CI wertlos. **Behoben in 2.1**, a
       *Nebenbefund, unverändert übernommen:* `/vote/create/` (mit Slash) fällt auf
       `vote:polls:poll` mit `poll_identifier="create"` und endet im 404 von `get_object_or_404` –
       genau wie vorher, nur über einen anderen Weg. Kein Handlungsbedarf (Regel 3).
-- [ ] **3.8 Rate-Limit / Zugangsschutz für `create` (B4).** Optionen für §12:
-      (a) Django-Auth + Login-Zwang, (b) Shared Secret / Invite-Code, (c) IP-Rate-Limit,
-      (d) Deckel auf Empfängerzahl pro Poll. **Entscheidung braucht den User.**
+- [x] **3.8 Zugangsschutz für `create` (B4)** ✅ – **F5 entschieden: Deckel auf die Empfängerzahl,
+      kein IP-Rate-Limit.** `VOTE_MAX_RECIPIENTS = 150` (vom User gewählt), konfigurierbar über
+      `DEMOCKRAZY_MAX_RECIPIENTS`, mit sicherem Default statt keinem – Prinzip aus 2.4.
+      **Nach der Deduplizierung gezählt:** begrenzt werden soll die Zahl der *Mails*, und 200 Zeilen
+      mit 150 Dubletten sind 50 Mails.
+      ⚠️ **Es ist Missbrauchsschutz, keine Lösung für das Rate-Limit des Mailservers** (§11): der
+      antwortet ab ~50 Nachrichten pro Zeitfenster mit `450`. Eine Umfrage mit 150 Empfängern ist
+      also erlaubt und erst mit dem getakteten Versand zustellbar. Die zwei Grenzen sind unabhängig.
+      **Der B4-Test hat mit dem Marker auch seine Erwartung verloren:** solange die Maßnahme offen
+      war, verlangte er einen ablehnenden Statuscode (400/401/403/429). Ein Deckel im Formular ergibt
+      einen **200 mit Fehlermeldung** – wie jede andere ungültige Eingabe, und aus demselben Grund
+      (der Ersteller soll kürzen können, nicht in einer Sackgasse landen, 3.2). Geprüfte Zusage ist
+      jetzt die *Wirkung*: keine Umfrage, keine Mail, auch nicht an den Ersteller.
+      **Das war der letzte `xfail` der Suite** – Sollwert ist ab hier `163 passed`, ohne xfailed.
 
 ## 8. Phase 4 – Frontend
 
@@ -571,9 +582,27 @@ Tests für niemanden außer mir nutzbar und in CI wertlos. **Behoben in 2.1**, a
       werden gestrichen, heraus kommen nur `<tspan>`s. Wörtlich anzeigen ginge erst mit dem
       Bibliothekswechsel in 4.3 (braucht F4).
       Nebeneffekt: `choice_set` wurde für Tabelle und Diagramm zweimal abgefragt, jetzt einmal.
-- [ ] **4.3 Highcharts ersetzen (B8)** durch Chart.js (MIT) oder ECharts (Apache-2.0).
-      ~~Daten über `json_script` statt Inline-Interpolation (B10)~~ – **mit 4.2 vorab erledigt**,
-      der Bibliothekswechsel erbt das.
+- [x] **4.3 Highcharts ersetzt (B8)** ✅ – **Chart.js 4.5.1, MIT** (F4). Damit ist das Frontend
+      durchgehend MIT/Apache, der Lizenztext liegt als `LICENSE.md` daneben.
+      **Aus dem npm-Tarball statt von einem GitHub-Asset**, weil npm pro Version einen `shasum`
+      veröffentlicht – Herkunft, die man prüfen kann statt ihr zu glauben; geprüft, `sha1` stimmt.
+      Details in [chartjs-4.5.1/PROVENANCE.md](../vote/static/chartjs-4.5.1/PROVENANCE.md), samt
+      derselben `sourceMappingURL`-Änderung wie bei Bootstrap und aus demselben zwingenden Grund.
+      **Chart.js lädt nur `results.html`, nicht `base.html`** – Highcharts hing dort und ging damit
+      auf alle sechs Seiten mit, für ein Diagramm, das auf einer erscheint.
+      Der Prozentwert steht im Label statt in einem Datalabel-Plugin: ohne Hover und im Ausdruck
+      lesbar, und es bleibt bei *einer* Abhängigkeit. Palette fest statt Chart.js' Automatik, weil
+      die Zahl der Optionen vorab unbekannt ist. Das Canvas trägt ein knappes `aria-label` und
+      keinen Nachbau seines Inhalts – die Tabelle darüber hat alle Zahlen und *ist* die zugängliche
+      Fassung.
+      **Ein Gewinn nebenbei:** ein Choice-Text mit Markup wird jetzt wörtlich angezeigt. Highcharts
+      parste in Labels eine Tag-Whitelist, `<b>x</b>` wurde dort fett; ein Canvas kennt das nicht.
+      ~~Daten über `json_script` statt Inline-Interpolation (B10)~~ – **mit 4.2 vorab erledigt**.
+      **Zur Verifikation ein Umweg, der notiert gehört:** `requestAnimationFrame` feuert in der
+      automatisierten Browser-Pane nicht, Chart.js zeichnete deshalb nie und das Canvas las sich als
+      leer – ein Artefakt der Umgebung, kein Befund über die Konfiguration. `chart.draw()` umgeht den
+      Animator: 34,9 % des Canvas gefüllt, die drei Palettenfarben decken 15936 / 8193 / 4377 Pixel,
+      also **4:2:1 bei Stimmen 4:2:1**. Enthaltungen mit 0 zeichnen nichts.
 - [x] **4.4 Cache-Busting für Static Files** ✅ – `STORAGES["staticfiles"]` auf
       `ManifestStaticFilesStorage`. **Kein Whitenoise** – nginx serviced `/static` schon direkt aus
       `/var/lib/demockrazy/static` (siehe §1), gebraucht wird der Dateiname, nicht ein zweiter Server.
@@ -709,11 +738,55 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
    nicht persistiert (Anonymität!). Ein Batch-Modus mit Retry/Status braucht aber „welche Adresse
    wurde erfolgreich zugestellt“. **Das ist ein Konflikt mit dem Anonymitätsversprechen und muss
    mit dem User geklärt werden**, bevor irgendein Modell entsteht.
-5. **Missbrauchsschutz vor Skalierung** (B4) – ein Batch-Versender ohne Zugangsschutz ist ein
-   Spam-Werkzeug.
+5. ~~**Missbrauchsschutz vor Skalierung** (B4)~~ ✅ mit 3.8 erledigt – Deckel bei 150.
 6. Offen zu klären, sobald die Spec da ist: Queue/Worker (Celery? `django-tasks`? DB-Queue +
-   Management-Command + CronJob?), Rate-Limits des SMTP-Anbieters, Bounce-Handling,
-   Idempotenz/Retry, Fortschrittsanzeige für den Poll-Ersteller.
+   Management-Command + CronJob?), Bounce-Handling, Idempotenz, Fortschrittsanzeige für den
+   Poll-Ersteller.
+
+---
+
+### Das Problem, das Ziel 2 lösen soll – jetzt gemessen statt vermutet
+
+**Der Mailserver drosselt, und zwar nach Nachrichten pro Zeitfenster.** Vom User geliefert (2026-08-04),
+aufgetreten bei **50 Mails** in Produktion:
+
+```
+Unfortunately, the following errors were encountered while dispatching mails.
+(450, b'4.7.1 Error: too much mail from ...
+```
+
+Was daran wichtig ist:
+
+- **`450` ist ein 4xx, also temporär.** Das Protokoll sieht „später nochmal" vor – Wiederholung ist
+  die vorgesehene Antwort, nicht ein Workaround.
+- **Die Formulierung „too much mail from" ist die des Postfix-*Message*-Rate-Limits**
+  (`smtpd_client_message_rate_limit`). Es zählt **Nachrichten pro Client und Zeitfenster** (Default
+  60 s), **nicht Verbindungen**. Der genaue konfigurierte Wert ist noch nicht bekannt → **F20**.
+- Reale Umfragen haben 60–100 Empfänger (F13). Die Grenze liegt also *mitten* im Normalbetrieb.
+
+**Gemessen am eigenen Code:** `deliver()` ruft `send_mail()` **pro Empfänger** auf, und jeder Aufruf
+baut eine eigene SMTP-Verbindung auf. Nachgezählt mit einem zählenden Backend: 100 Empfänger ⇒
+**101 Nachrichten in 101 Verbindungen**. Bei 150 ms pro Verbindung (TCP + STARTTLS + AUTH) sind das
+~16 s, mit einer gemeinsamen Verbindung ~1,2 s – **Faktor 14**.
+
+**Korrektur einer eigenen Vermutung:** ich hatte zuerst geschlossen, eine gemeinsame Verbindung
+(`get_connection()` + `send_messages()`) behebe das Problem. **Tut sie nicht** – gedrosselt werden
+Nachrichten, nicht Verbindungen, und deren Zahl bleibt gleich. Sie bleibt trotzdem lohnend (14×
+schneller, ein AUTH statt hundert) und ist der billigste erste Schritt, aber **die Kur ist Taktung
+über Zeit plus Wiederholung der 450er.**
+
+**Und der Versand läuft heute synchron im Request.** `transaction.on_commit()` verschiebt ihn nicht:
+ohne offenen `atomic`-Block führt Django den Callback **sofort** aus, und einen solchen Block gibt es
+seit B16 nicht mehr um den Request. Gemessen: die POST-Antwort kommt erst, wenn alle Mails durch sind.
+Für getaktetes Senden über Minuten heißt das zwingend: **raus aus dem Request** – Management-Command
+plus Queue. Was `on_commit` leistet, bleibt richtig und wichtig (keine Mail vor dem Commit der
+Tokens), es ist nur keine Entkopplung.
+
+⚠️ **Vor dem Deploy zu wissen:** die Fehlerliste, mit der der User oben diagnostiziert hat, kommt aus
+`create.html` an `master` – also aus dem *heute* laufenden Code. **3.4 hat sie entfernt** (bewusst,
+Änderung (a) dort): der Versand läuft nach dem Commit, die Seite ist dann schon gerendert. Nach dem
+Deploy stehen diese Fehler **nur noch im Log**. Genau das ist das stärkste Argument für einen echten
+Zustellbericht – und der braucht die Entscheidung aus **F8** (Anonymität).
 
 ---
 
@@ -730,15 +803,16 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
 | ~~F10~~ | ~~Darf der tote Deployment-Code raus?~~ → **ja**, erledigt in `4e15012`. Nach Einsicht ins NixOS-Modul auch nachträglich als risikofrei bestätigt. | – |
 | ~~F11~~ | ~~Wie wird deployt?~~ → **vollständig beantwortet**, Modul liegt vor. Analyse: **[notes/deployment.md](deployment.md)**. Wichtigstes Ergebnis: das Modul pinnt `rev = 3074dbb`, und die Django-Version kommt aus der nixpkgs des Colmena-Flakes – **zwei Änderungen im User-Repo nötig**, sonst erreicht das Upgrade Prod nicht. Löschcommit `4e15012` bestätigt risikofrei. | – |
 | ~~F14~~ | ~~Setzt Prod `DEBUG = False`?~~ → **ja**, explizit im generierten `demockrazy_config`. Kein Leak, kein Hotfix. | – |
+| **F20** | **Wie hoch ist das Rate-Limit von `smtp.mayflower.de`?** Gebraucht wird der konfigurierte Wert von `smtpd_client_message_rate_limit` (bzw. was eine Policy dort setzt) und die Länge des Zeitfensters (`anvil_rate_time_unit`, Default 60 s) – dazu die **vollständige** Fehlerzeile, weil der abgeschnittene Teil hinter *from* sagt, worauf gezählt wird (Client-IP oder Absenderadresse). Davon hängen Batch-Größe und Pause ab; ohne die Zahl wäre jede Taktung geraten. | **Ziel 2** |
 | **F15** | **Wie kommt Django in Prod ans `https`-Schema?** Node öffnet nur Port 80, kein `forceSSL`, kein `SECURE_PROXY_SSL_HEADER` im Modul – TLS wird vorgelagert terminiert. Setzt der Proxy `X-Forwarded-Proto`? Ohne diese Antwort keine TLS-/CSRF-Settings anfassen (Redirect-Schleife bzw. CSRF-403). | 2.7 |
 | ~~F12~~ | ~~Prod-Schema-Stand?~~ → **geliefert.** Prod hat zwei Migrations (2016), DB liegt unter `/var/lib/demockrazy/db.sqlite3`. Ausgewertet in [notes/phase-2-migrations.md](phase-2-migrations.md). **Kleiner Rest inzwischen erledigt:** `PRAGMA table_info(vote_poll)` auf Prod bestätigt `type varchar(20) NOT NULL` an Position 8 und die Spaltenreihenfolge der zwei rekonstruierten Migrations. | – |
-| F4 | Highcharts-Lizenz: existiert eine kommerzielle Lizenz, oder ersetzen? (B8) | 4.3 |
-| F5 | Zugangsschutz für Poll-Erstellung – welche Variante? (B4/3.8) | 3.8, Ziel 2 |
+| ~~F4~~ | ~~Highcharts-Lizenz oder ersetzen?~~ -> **ersetzen, Chart.js (MIT).** Umgesetzt in 4.3. | – |
+| ~~F5~~ | ~~Zugangsschutz für Poll-Erstellung?~~ -> **Deckel auf die Empfängerzahl, kein IP-Rate-Limit.** Umgesetzt in 3.8, Wert 150. | – |
 | F8 | Anonymität vs. Zustellstatus pro Empfänger – wie weit darf Ziel 2 das aufweichen? (§11.4) | Ziel 2 |
 | **F17** | **Überschreibt das NixOS-Modul einen der vier Mail-Text-Settings?** 3.4 hat `VOTE_MAIL_SUBJECT`, `VOTE_MAIL_TEXT`, `VOTE_ADMIN_MAIL_SUBJECT`, `VOTE_ADMIN_MAIL_TEXT` aus `settings.py` entfernt – der Text kommt jetzt aus Templates. Setzt `demockrazy_config` (oder die `djangoSettings`-Option) einen davon, wird der Wert nach dem Deploy **stillschweigend ignoriert** und Prod verschickt den Repo-Wortlaut. Prüfung im Repo des Users: `grep -rn 'VOTE_MAIL\|VOTE_ADMIN_MAIL\|VOTE_BASE_URL\|VOTE_MAIL_FROM'`. Meine Modul-Analyse in [deployment.md](deployment.md) listet keinen dieser vier, und die alte `local_settings.py` überschrieb nur `VOTE_BASE_URL`/`VOTE_MAIL_FROM`/`VOTE_SEND_MAILS` – die drei sind bewusst geblieben. Trifft die Annahme nicht zu, gehört der Text ins Template. | **vor dem Deploy** |
-| F13 | Wie groß sind Abstimmungen real (Empfänger pro Poll, parallele Polls)? Entscheidet SQLite-Tuning vs. Postgres (B13) und die Batch-Größen für Ziel 2. | 5.4, Ziel 2 |
+| ~~F13~~ | ~~Wie groß sind Abstimmungen real?~~ -> **60–100 Empfänger pro Umfrage.** Damit genügt SQLite mit WAL + `timeout`, **kein Postgres** (5.4). Und der Kern der Antwort: **ab ~40–50 scheitert der Massenversand heute** – das ist das Problem, das Ziel 2 lösen soll, siehe §11. | – |
 | ~~F19~~ | ~~Bootstrap 5 vendoren – Freigabe und Quelle?~~ → **freigegeben, GitHub-Release-Dist.** Umgesetzt in 4.1: v5.3.8, nur `bootstrap.min.css` + `bootstrap.bundle.min.js`, ohne Maps. Herkunft und Checksummen in [PROVENANCE.md](../vote/static/bootstrap-5.3.8-dist/PROVENANCE.md). | – |
-| **F18** | **Soll `ATOMIC_REQUESTS` tatsächlich an?** Es war seit 2016 wirkungslos und ist mit 5.5 entfernt (B16) – der Zustand ist damit *unverändert*, nur nicht mehr falsch dokumentiert. Einschalten (in `DATABASES['default']`) hieße: jeder Request nimmt eine Transaktion, auch die reine Ergebnisseite, auf einer SQLite-Datei mit 4 uwsgi-Prozessen (B13). **Meine Empfehlung: aus lassen.** Die zwei Stellen, die Atomarität brauchen, haben sie explizit und getestet; die Option würde vor allem das Lock-Fenster verbreitern. Falls doch an, gehört sie in dieselbe Entscheidung wie WAL/`timeout` (5.4) und `/healthz` bleibt per `non_atomic_requests` ausgenommen. | 5.4 (nicht blockierend) |
+| ~~F18~~ | ~~Soll `ATOMIC_REQUESTS` tatsächlich an?~~ -> **nein**, und nicht aus Geschmack: gemessen, dass es die Teilstimme aus `vote()` **nicht** zurückrollen würde. `vote()` fängt den `KeyError` selbst und liefert eine 200-Seite – für Django ein erfolgreicher Request, also Commit; zurückgerollt würde nur bei einer durchgereichten Exception. Der explizite Block leistet hier also etwas, das `ATOMIC_REQUESTS` nicht kann, während Anschalten die Schreibsperre über den ganzen Request halten würde (B13). Messung in [demockrazy/tests/test_transactions.py](../demockrazy/tests/test_transactions.py). | – |
 | ~~F16~~ | ~~Sind die drei Verschärfungen aus 3.1 gewollt?~~ → **ja**, vom User bestätigt (alle sechs Felder Pflicht, Djangos Adressvalidator, `title` auf 200 Zeichen). Seit 3.2 in der View wirksam. | – |
 
 ---
@@ -752,15 +826,19 @@ Phase 2  Migrations, Django 5.2, Settings                             ✅ außer
 Phase 5  5.1 k8s-Cleanup ✅ · 5.2 Deployment verstanden ✅ · 5.3 CI ✅ · 5.4/5.5 offen
 Phase 6  README ✅ · Handover ✅
 
-Phase 4  4.1 ✅ · 4.2 ✅ · 4.4 ✅ · 4.5 ✅ · offen: 4.3 (braucht F4)
+Phase 3  vollständig ✅ (3.8 mit F5 entschieden)
+Phase 4  vollständig ✅ (4.1 Bootstrap 5 · 4.2 jQuery raus · 4.3 Chart.js · 4.4 · 4.5)
 
-offen, alles auf eine Antwort wartend:
-  4.3      Highcharts ersetzen – braucht F4
-  3.8      Zugangsschutz      – braucht F5
-  5.4      SQLite-Härtung     – braucht F13, dazu F18 entscheiden
-  2.7      TLS-Hardening      – braucht F15
+offen:
+  5.4      SQLite-Härtung – **jetzt machbar**: F13 beantwortet (60–100), F18 entschieden (aus).
+           WAL + `timeout`, kein Postgres.
+  2.7      TLS-Hardening  – braucht F15 (Proxy-Config vom User)
 
-**Alles Unblockierte ist abgearbeitet.** Was offen ist, wartet auf F4, F5, F13 oder F15.
+**Ziel 1 ist damit bis auf 5.4 und 2.7 fertig.** Die Bug-Liste ist bis auf **B9** (Token im
+Query-String, additive Änderung, Entscheidung offen) abgearbeitet.
+
+ZIEL 2 (Batch-Mails) hat jetzt eine gemessene Problembeschreibung, siehe §11 – offen sind die
+Spec, **F8** (Anonymität vs. Zustellstatus) und **F20** (Rate-Limit-Wert).
 
 erledigt in Phase 3: 3.1 Forms · 3.2 create()/manage() · 3.3 vote() · 3.4 Mail-Service ·
 3.5 Poll-Service · 3.6 Models/Constraints · 3.7 path()
@@ -768,9 +846,9 @@ erledigt in Phase 3: 3.1 Forms · 3.2 create()/manage() · 3.3 vote() · 3.4 Mai
   └─ 3.4 ist die Schnittstelle für ZIEL 2 (Batch-Mails, nach Spec)
 ```
 
-**Nächster Schritt: keiner, der nicht auf eine Antwort wartet.** Nach Antwortlage:
-F4 → 4.3, F5 → 3.8, F13/F18 → 5.4, F15 → 2.7. Der größte Posten ist 4.3, und der ist eine
-Lizenzfrage, keine technische.
+**Nächster Schritt: 5.4** (WAL + `timeout` für SQLite) – das ist mit F13 und F18 unblockiert und
+der letzte technische Punkt von Ziel 1. Danach wartet nur noch **2.7** auf F15.
+Für Ziel 2 fehlt die Spec; die Problembeschreibung steht in §11, offen sind F8 und F20.
 **Vor dem Deploy:** F17 klären; die Migration `0003` schreibt `vote_poll` und `vote_token` neu
 (Details in [phase-2-migrations.md](phase-2-migrations.md)), Backup liegt vor (borg 03:00/04:00).
 **Die Vorarbeit für Ziel 2 (§11.1–3) ist mit 3.4 vollständig** – ein Batch-Versender ersetzt

@@ -42,8 +42,8 @@ Das Bundle enthält Popper, deshalb genügt eine Datei -- und jQuery braucht Boo
     </main>
 
     <script src="{% static "bootstrap-5.3.8-dist/js/bootstrap.bundle.min.js" %}"></script>
-    <script src="{% static "highcharts-custom.js" %}"></script>
 
+    {# Die Diagramm-Bibliothek laedt nur results.html, nicht jede Seite -- siehe dort. #}
     {% block js %}{% endblock %}
   </body>
 </html>
