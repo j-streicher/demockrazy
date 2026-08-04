@@ -1,22 +1,42 @@
-from django.urls import include, re_path
+from django.urls import include, path, register_converter
 
 from . import views
+
+
+class PollIdentifierConverter:
+    """Umfragekennungen, genau so eng wie das frühere ``[a-zA-Z0-9]+``.
+
+    Djangos eingebautes ``slug`` wäre kein Ersatz: es lässt zusätzlich ``-`` und
+    ``_`` zu und würde damit Kennungen annehmen, die es nicht gibt --
+    ``mk_identifier()`` zieht nur aus ``string.ascii_letters + string.digits``.
+    """
+
+    regex = "[a-zA-Z0-9]+"
+
+    def to_python(self, value):
+        return value
+
+    def to_url(self, value):
+        return value
+
+
+register_converter(PollIdentifierConverter, "identifier")
 
 app_name = "vote"
 
 pollpatterns = (
     [
-        re_path(r"^$", views.poll, name="poll"),
-        re_path(r"^vote$", views.vote, name="vote"),
-        re_path(r"^success$", views.success, name="success"),
-        re_path(r"^manage$", views.manage, name="manage"),
-        re_path(r"^results$", views.results, name="result"),
+        path("", views.poll, name="poll"),
+        path("vote", views.vote, name="vote"),
+        path("success", views.success, name="success"),
+        path("manage", views.manage, name="manage"),
+        path("results", views.results, name="result"),
     ],
     "polls",
 )
 
 urlpatterns = [
-    re_path(r"^$", views.index, name="index"),
-    re_path(r"^create$", views.create, name="create"),
-    re_path(r"^(?P<poll_identifier>[a-zA-Z0-9]+)/", include(pollpatterns)),
+    path("", views.index, name="index"),
+    path("create", views.create, name="create"),
+    path("<identifier:poll_identifier>/", include(pollpatterns)),
 ]

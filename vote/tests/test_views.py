@@ -1,7 +1,7 @@
 """Tests für vote/views.py gegen das in Phase 0 protokollierte Verhalten."""
 
 import pytest
-from django.urls import reverse
+from django.urls import Resolver404, resolve, reverse
 
 from vote.models import Choice, Poll, Token
 
@@ -37,6 +37,22 @@ class TestUrls:
         response = client.get("/")
         assert response.status_code == 302
         assert response.headers["Location"] == "vote/"
+
+    def test_identifier_route_matches_the_generated_alphabet(self):
+        match = resolve("/vote/aZ09/")
+        assert match.view_name == "vote:polls:poll"
+        assert match.kwargs == {"poll_identifier": "aZ09"}
+
+    @pytest.mark.parametrize("identifier", ["ab-c", "ab_c", "äbc"])
+    def test_identifier_route_matches_nothing_beyond_it(self, identifier):
+        """Gegenprobe zum eigenen Converter aus vote/urls.py.
+
+        `mk_identifier()` zieht nur aus `ascii_letters + digits`. Djangos `slug`
+        hätte `-` und `_` zusätzlich angenommen, also mehr als der alte
+        `re_path`-Ausdruck -- das darf nicht bis zur View durchkommen.
+        """
+        with pytest.raises(Resolver404):
+            resolve(f"/vote/{identifier}/")
 
 
 class TestIndex:
