@@ -64,7 +64,13 @@ target/
 *.swp
 
 db.sqlite3
-static/
+
+# Gemeint ist STATIC_ROOT, also die collectstatic-Ausgabe unter BASE_DIR/static -- deshalb mit
+# fuehrendem Slash auf das Projektwurzel-Verzeichnis begrenzt. Ohne den Slash trifft das Muster
+# jedes Verzeichnis namens "static" auf jeder Ebene, also auch vote/static/ mit den Quell-Assets
+# der App. Genau das hat es von 2016 bis 2026 getan (siehe B18): dort waren nur die zwei Dateien
+# getrackt, die aelter als die Regel sind, und jedes neue Asset fiel stillschweigend raus.
+/static/
 
 .direnv
 
