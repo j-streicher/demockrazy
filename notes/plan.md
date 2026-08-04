@@ -974,11 +974,47 @@ doppelte Einladung ist harmlos, eine doppelte Stimme dadurch unmöglich. Der umg
 Umfrage schließt nicht mehr von selbst.
 
 **6. Was das im Deployment kostet – und was nicht.**
-Ein systemd-Timer, der den Command aufruft. **Kein Broker, kein Daemon, kein neues Paket** – und
-deshalb ausdrücklich **nicht Celery und nicht `django-tasks`**: Celery bräuchte Redis oder RabbitMQ
-als zusätzlichen Dienst auf der Node, `django-tasks` einen dauerhaften Worker-Unit, und beide ein
-Paket, das erst in der nixpkgs liegen muss. Für hundert Mails im Minutentakt ist ein Timer genug,
-und die Datenbank ist schon da. → [to-check.md](to-check.md) §C5.
+Ein systemd-Timer, der den Command aufruft. **Kein Broker, kein Daemon, kein zusätzliches Paket.**
+Für hundert Mails im Minutentakt ist ein Timer genug, und die Datenbank ist schon da.
+→ [to-check.md](to-check.md) §C5. Warum nicht etwas Fertiges: siehe 6a, das ist nachgesehen worden.
+
+**6a. Hat Django selbst eine Queue? Nachgesehen, nicht erinnert – und es korrigiert eine Annahme.**
+
+*Was ich vorher geschrieben hatte: Celery und `django-tasks` bräuchten „ein Paket, das erst in der
+nixpkgs liegen muss". **Das war falsch.** In der gepinnten nixpkgs liegen alle: `django-tasks` 0.12.0,
+`celery` 5.6.3, `huey` 2.6.0, `django-q2` 1.9.0, `rq` 2.8, `django-rq` 4.1, `kombu`, `redis`,
+`django-celery-beat`. Das Verpackungsargument gibt es nicht.*
+
+Die Antwort auf die eigentliche Frage:
+
+- **Django 5.2.15 – das, was hier läuft – hat keine Queue.** Im installierten Baum nachgesehen: kein
+  `django.tasks`, keine Datei mit `task` oder `queue` im Namen, kein Setting mit `TASK`, `QUEUE`,
+  `WORKER` oder `BROKER`. Das Nächstgelegene ist `transaction.on_commit()` – ein Callback beim
+  Commit, im Prozess, **nicht persistiert**, seit 3.4 in Benutzung – und der Cache. Keins von beidem
+  übersteht einen Neustart.
+- **Django 6.0.6 hat `django.tasks`** (liegt in derselben nixpkgs). Aber: `TASKS` steht per Default
+  auf `django.tasks.backends.immediate.ImmediateBackend`, und es gibt **genau zwei** Backends,
+  `Immediate` und `Dummy`. `Immediate` ruft die Funktion **sofort und im selben Prozess** auf
+  (`task.call(...)`), `Dummy` merkt sie sich und führt sie nie aus. **Kein Datenbank-Backend, kein
+  Worker, kein Management-Command dafür** – die Commandliste von 6.0.6 enthält nichts in der
+  Richtung. `django.tasks` normiert also, *wie man eine Aufgabe deklariert und einreiht*; wer sie im
+  Hintergrund ausführt, ist ausdrücklich nicht dabei (so ist DEP 0014 gestaffelt).
+- **`django-tasks` 0.12.0** ist dasselbe Bild – die Referenzimplementierung, und sie enthält nur
+  `Immediate` und `Dummy`, keine Migrations, keinen Worker. `ImmediateBackend` deklariert nicht
+  einmal `supports_defer`, das `run_after`-Feld am Task ist dort also wirkungslos.
+
+**Folgerung, jetzt mit dem richtigen Grund:** ein fertiger Baustein, der die Arbeit abnimmt, existiert
+nicht. Mit `django.tasks` hätte man die API und müsste Tabelle, Versender, Zeitsteuerung **und** ein
+eigenes Backend darunter schreiben – mehr Arbeit als der Entwurf oben, nicht weniger. Celery und RQ
+brauchen weiterhin einen **Broker als zusätzlichen Dienst** auf der Node; `huey` mit SQLite-Storage
+käme ohne Broker aus, verlangt aber einen **dauerhaft laufenden Consumer** und eine zweite
+Datenbankdatei. Für 101 Mails ist ein Timer plus die vorhandene Tabelle das Kleinere.
+**Was `django.tasks` trotzdem wert ist:** als *Form* zum Nachbauen. Wer den Versender so schneidet,
+dass „einreihen" und „ausführen" getrennt bleiben, kann später auf ein Backend umstellen, ohne die
+Aufrufstellen anzufassen. Der Entwurf oben tut das schon – `enqueue` in `create()`, Ausführung im
+Command.
+⚠️ Ein Wechsel auf **Django 6** wäre ohnehin eine eigene Entscheidung: 5.2 ist LTS, 6.0 nicht, und
+die Version kommt aus der nixpkgs des Colmena-Flakes (§1).
 **Timer-Intervall: eine Minute.** Der Preis ist ehrlich zu benennen: die erste Einladung geht bis zu
 eine Minute nach dem Anlegen raus, die Mail an den Ersteller auch. Das ist der Gegenwert dafür, dass
 nichts mehr im Request hängt.

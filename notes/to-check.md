@@ -236,10 +236,15 @@ aufruft, im Minutentakt, mit Schreibzugriff auf `/var/lib/demockrazy` (die Daten
 Sperrdatei daneben). **Mehr nicht:** kein Broker, kein Daemon, kein zusätzliches Python-Paket. Der
 Command sperrt sich selbst, ein Timer-Aufruf in einen laufenden Versand hinein beendet sich sofort.
 
-Der Entwurf dahinter samt Begründung steht in [plan.md](plan.md) §11.7. Kurz, warum nicht anders:
-**Celery** bräuchte Redis oder RabbitMQ als zusätzlichen Dienst auf der Node, **`django-tasks`** einen
-dauerhaft laufenden Worker-Unit, und beide ein Paket, das erst in der nixpkgs liegen muss. Für
-hundert Mails im Minutentakt ist ein Timer genug, und die Datenbank ist schon da.
+Der Entwurf dahinter samt Begründung steht in [plan.md](plan.md) §11.7. Kurz, warum nichts Fertiges:
+**es gibt keinen Baustein, der die Arbeit abnimmt.** Nachgesehen (§11.7, 6a): Django 5.2 hat keine
+Queue, und das `django.tasks` von Django 6.0 hat nur ein `Immediate`- und ein `Dummy`-Backend – **kein
+Datenbank-Backend und keinen Worker**. Man bekäme die API und müsste alles darunter selbst schreiben.
+**Celery** und **RQ** brauchen einen Broker als zusätzlichen Dienst auf der Node, **huey** einen
+dauerhaft laufenden Consumer. Für hundert Mails im Minutentakt ist ein Timer das Kleinere, und die
+Datenbank ist schon da.
+*(An den Paketen liegt es nicht – `django-tasks`, `celery`, `huey`, `rq`, `django-q2` liegen alle in
+der gepinnten nixpkgs. Das hatte ich vorher falsch behauptet.)*
 
 Zwei Einstellungen steuern die Taktung, beide mit deinen Zahlen als Default:
 `DEMOCKRAZY_MAIL_BATCH_SIZE=30` und `DEMOCKRAZY_MAIL_BATCH_PAUSE=2`. **Falls die `450` im Log wieder
