@@ -101,10 +101,43 @@ WSGI_APPLICATION = "demockrazy.wsgi.application"
 # Datenbank
 # In Produktion überschreibt demockrazy_config den Pfad auf /var/lib/demockrazy/db.sqlite3 --
 # der Code läuft dort aus dem read-only Nix-Store, BASE_DIR ist also nicht beschreibbar.
+#
+# ⚠️ **Diese OPTIONS erreichen Produktion nicht von allein** (Plan 5.4). `demockrazy_config` setzt
+# `DATABASES` *komplett neu* und verliert damit alles, was hier drinsteht -- genau der Mechanismus,
+# über den `ATOMIC_REQUESTS` zehn Jahre wirkungslos war (B16). Damit das nicht wieder still
+# passiert, meldet ein System-Check das Fehlen: `manage.py check` (siehe demockrazy/checks.py).
+# Prüfen lässt sich das gegen die echten Prod-Settings mit
+# `DJANGO_SETTINGS_MODULE=demockrazy_config python3 manage.py check`.
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": os.environ.get("DEMOCKRAZY_DB_PATH") or BASE_DIR / "db.sqlite3",
+        "OPTIONS": {
+            # Vier uwsgi-Prozesse teilen eine Datei (B13). Ohne diese drei Optionen sind
+            # `database is locked`-Fehler bei gleichzeitiger Stimmabgabe realistisch.
+            #
+            # `transaction_mode` ist der wichtigste Punkt und nicht der offensichtlichste:
+            # Djangos Default ist `DEFERRED`, da nimmt SQLite die Schreibsperre erst beim ersten
+            # Schreibzugriff. Fängt eine Transaktion mit einem SELECT an und schreibt danach --
+            # genau der Ablauf in `vote()` --, muss die Leseperre zur Schreibsperre hochgestuft
+            # werden, und **das kann SQLite nicht warten lassen**: es kommt ein sofortiges
+            # `SQLITE_BUSY`, ohne `timeout` zu beachten. `IMMEDIATE` nimmt die Schreibsperre schon
+            # beim BEGIN, damit greift der `timeout` und die Schreiber stellen sich in eine Reihe.
+            #
+            # Das ist nur deshalb billig, weil `ATOMIC_REQUESTS` aus bleibt (F18): `atomic()` gibt
+            # es genau an den zwei Stellen, die wirklich schreiben. Mit ATOMIC_REQUESTS würde
+            # `IMMEDIATE` *jeden* Request serialisieren, auch die Ergebnisseite.
+            "transaction_mode": "IMMEDIATE",
+            # WAL: Leser blockieren den Schreiber nicht mehr und umgekehrt. Die Einstellung hängt
+            # an der *Datei*, nicht an der Verbindung -- ab dem zweiten Verbindungsaufbau ist das
+            # PRAGMA ein No-op. Legt `db.sqlite3-wal` und `-shm` daneben; das Verzeichnis
+            # /var/lib/demockrazy ist beschreibbar, und borg sichert es mit.
+            "init_command": "PRAGMA journal_mode=WAL;",
+            # `sqlite3`-Default sind 5 s. **Bewusst nicht `synchronous=NORMAL` dazu**, was sonst
+            # gern mit WAL zusammen empfohlen wird: das erkauft Geschwindigkeit damit, dass ein
+            # Stromausfall die letzten Commits verlieren kann. Hier sind Commits *Stimmen*.
+            "timeout": 20,
+        },
     }
 }
 
