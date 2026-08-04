@@ -11,6 +11,7 @@ bis dahin ist es nur über die Tests erreichbar. Siehe notes/plan.md §7.
 """
 
 from django import forms
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 
@@ -78,6 +79,16 @@ class PollCreateForm(forms.Form):
                     for mail in invalid
                 ]
             )
-        # Hier gehört später der Deckel auf die Empfängerzahl hin (B4, Plan 3.8) -- der braucht
-        # aber erst die Entscheidung aus F5 und kommt deshalb nicht vorweg.
+        # Der Deckel gegen B4 (Plan 3.8, F5 entschieden: nur Deckel, kein IP-Rate-Limit).
+        # **Nach** der Deduplizierung gezählt: was begrenzt werden soll, ist die Zahl der Mails,
+        # und 200 Zeilen mit 150 Dubletten sind 50 Mails.
+        #
+        # Die Meldung nennt die Grenze und die eigene Zahl, weil der Ersteller sonst raten müsste,
+        # wie weit er kürzen soll -- und die Liste steckt bereits im Feld zurück (Plan 3.2).
+        if len(accepted) > settings.VOTE_MAX_RECIPIENTS:
+            raise ValidationError(
+                "At most %(limit)s recipients per poll, got %(count)s.",
+                code="too_many_recipients",
+                params={"limit": settings.VOTE_MAX_RECIPIENTS, "count": len(accepted)},
+            )
         return list(accepted.values())

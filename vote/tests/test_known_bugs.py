@@ -102,19 +102,27 @@ def test_b11_manage_without_token_field_shows_an_error(lenient_client, create_po
     assert poll.is_active is True, "eine Umfrage ohne Token darf nicht geschlossen werden"
 
 
-@pytest.mark.xfail(strict=True, reason="B4: create() ist unauthentifiziert und ohne Rate-Limit")
 @pytest.mark.django_db
-def test_b4_poll_creation_is_not_wide_open(lenient_client):
+def test_b4_poll_creation_is_not_wide_open(client, mailoutbox):
     """Ein anonymer Request darf nicht beliebig viele Mails ueber den SMTP-Server verschicken.
 
-    Bewusst grob formuliert -- die konkrete Schutzmassnahme steht noch nicht fest (Plan F5).
-    Der Test haelt nur fest, dass es ueberhaupt eine geben muss.
+    F5 ist entschieden: ein Deckel auf die Empfaengerzahl, kein IP-Rate-Limit (Plan 3.8).
+
+    **Die Erwartung hat sich mit der Entscheidung geaendert.** Solange die Massnahme offenstand,
+    verlangte dieser Test einen ablehnenden Statuscode (400/401/403/429). Ein Deckel im Formular
+    ergibt aber einen 200 mit Fehlermeldung -- wie jede andere ungueltige Eingabe auch, und aus
+    demselben Grund: der Ersteller soll seine Liste zurueckbekommen und kuerzen koennen, nicht in
+    einer Sackgasse landen (Plan 3.2). Gepruefte Zusage ist deshalb nicht der Code, sondern die
+    Wirkung: es entsteht keine Umfrage und es geht keine Mail raus.
     """
-    response = lenient_client.post(
+    response = client.post(
         "/vote/create",
         _create_payload(voter_mails="\n".join(f"opfer{i}@example.org" for i in range(500))),
     )
-    assert response.status_code in (400, 401, 403, 429)
+    assert response.status_code == 200
+    assert not Poll.objects.filter(title="Bugtest").exists()
+    assert mailoutbox == [], "auch nicht an den Ersteller"
+    assert "At most 150 recipients" in response.content.decode()
 
 
 @pytest.mark.django_db
