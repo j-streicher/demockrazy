@@ -221,10 +221,11 @@ Rücksicht auf `timeout`.
 Monitoring-Probe gegen `localhost` bekommt einen 400 und sieht wie ein Ausfall aus.** Also entweder
 mit passendem `Host`-Header proben oder `ALLOWED_HOSTS` erweitern.
 
-### C5. Ein systemd-Timer für den getakteten Mailversand — **noch nicht jetzt**
+### C5. Ein systemd-Timer für den getakteten Mailversand — **jetzt nötig**
 
-**Wird erst gebraucht, wenn Ziel 2 gebaut ist**, steht aber schon hier, weil es das einzige ist, was
-der Batch-Versand im Deployment kostet — und weil es deine Entscheidung ist, ob dir diese Form passt.
+⚠️ **Der Versand ist gebaut, der Timer fehlt. Ohne ihn verschickt Produktion nach dem Deploy
+gar keine Mail mehr** — `create()` reiht nur noch ein. Das ist der einzige Punkt in dieser Datei,
+der aus einer Änderung von mir zwingend folgt.
 
 Gebraucht wird ein Timer plus Service, der als der demockrazy-Nutzer
 
@@ -248,7 +249,20 @@ der gepinnten nixpkgs. Das hatte ich vorher falsch behauptet.)*
 
 Zwei Einstellungen steuern die Taktung, beide mit deinen Zahlen als Default:
 `DEMOCKRAZY_MAIL_BATCH_SIZE=30` und `DEMOCKRAZY_MAIL_BATCH_PAUSE=2`. **Falls die `450` im Log wieder
-auftauchen, ist die Pause die Schraube** – siehe die Rechnung in §11.7 und **F20**.
+auftauchen, ist die Pause die Schraube** – siehe die Rechnung in [plan.md](plan.md) §11.7 und **F20**.
+
+Gemessen mit deinen Zahlen: 101 Mails, 4 Batches, **7,2 s**. Mit `PAUSE=60` wären es ~3,5 Minuten.
+
+Zum Prüfen nach dem Deploy, ohne etwas zu verschicken:
+
+```bash
+DJANGO_SETTINGS_MODULE=demockrazy_config manage.py send_pending_mails --pause 0
+```
+
+Bei leerer Warteschlange sagt er `0 verschickt, 0 aufgegeben, 0 warten noch (0 Batches).` — dann
+sind Pfade, Rechte und die Sperrdatei in Ordnung. Die Sperrdatei entsteht neben der Datenbank, also
+als `/var/lib/demockrazy/db.mailsend.lock`; das Verzeichnis muss beschreibbar sein (ist es, dort
+liegt die Datenbank).
 
 ---
 

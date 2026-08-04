@@ -1,7 +1,7 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: 2026-08-04, Branch `update/modernize-2026`, 66 Commits über `master` (Basis `3074dbb`).
+Stand: 2026-08-04, Branch `update/modernize-2026`, 74 Commits über `master` (Basis `3074dbb`).
 Arbeitsbaum ist sauber, alles committed, **nichts gepusht** -- die CI hat also noch nie gelaufen,
 sie greift erst beim ersten Push.
 
@@ -66,7 +66,7 @@ grün ist, ist dort grün.
 
 **Sollwerte, an denen du merkst, dass alles in Ordnung ist:**
 
-- `pytest` → **192 passed** (kein xfailed mehr, siehe §5)
+- `pytest` → **211 passed** (kein xfailed mehr, siehe §5)
 - `manage.py check` → **no issues (0 silenced)**
 - `makemigrations --check` → **No changes detected**
 - `ruff format --check` → alle Dateien unverändert
@@ -82,27 +82,31 @@ python3 manage.py runserver --settings=demockrazy.dev_settings
 
 | Pfad | Inhalt |
 |---|---|
-| [../vote/models.py](../vote/models.py) | `Poll`, `Choice`, `Token`, `PollType`; die zwei `UniqueConstraint`s, `get_absolute_url()` |
+| [../vote/models.py](../vote/models.py) | `Poll`, `Choice`, `Token`, `PollType`, `OutgoingMail` (die Mail-Warteschlange); die zwei `UniqueConstraint`s, `get_absolute_url()` |
 | [../vote/forms.py](../vote/forms.py) | `PollCreateForm` – Validierung der Erstellung, Dedup der Adressen, Empfänger-Deckel (3.8), `parse_lines()` |
 | [../vote/views.py](../vote/views.py) | die sieben Views, nur noch Ablaufsteuerung; dazu der Token-Umzug aus der URL ins Cookie (3.9, B9) |
 | [../vote/services/polls.py](../vote/services/polls.py) | `create_poll()` – Umfrage + Choices + Tokens per `bulk_create`, atomar |
-| [../vote/services/mail.py](../vote/services/mail.py) | `poll_created_messages()` rendert, `deliver()` verschickt |
+| [../vote/services/mail.py](../vote/services/mail.py) | `poll_created_messages()` rendert, `enqueue()` reiht ein, `send_pending()` verschickt getaktet (§7). `deliver()` gibt es nicht mehr |
+| [../vote/management/commands/send_pending_mails.py](../vote/management/commands/send_pending_mails.py) | Der Versender für den systemd-Timer -- dünn, die Arbeit steht im Service. Hält eine `flock`-Sperre |
 | [../vote/templates/vote/mail/](../vote/templates/vote/mail/) | die vier Mail-Templates; **enden absichtlich ohne Zeilenumbruch** |
 | [../vote/urls.py](../vote/urls.py) | die acht Routen als `path()`, dazu der eigene `identifier`-Converter |
 | [../demockrazy/views.py](../demockrazy/views.py) | nur `/healthz` – Betriebs-Endpunkt, gehört nicht in `vote` |
 | [../demockrazy/checks.py](../demockrazy/checks.py) | System-Check gegen stille Fehlkonfiguration der SQLite-`OPTIONS` (5.4) |
 | [../demockrazy/tests/](../demockrazy/tests/) | Projektebene: `test_healthz`, `test_transactions` (was `ATOMIC_REQUESTS` wirklich tut), `test_staticfiles` (fährt `collectstatic` echt), `test_checks` |
-| [../vote/migrations/](../vote/migrations/) | `0001`+`0002` rekonstruieren Prod von 2016, `0003` bringt Constraints und `choices` |
-| [../vote/tests/](../vote/tests/) | `test_models`, `test_forms`, `test_views`, `test_mail_service`, `test_poll_service`, `test_known_bugs`, `test_templates`, `conftest` |
+| [../vote/migrations/](../vote/migrations/) | `0001`+`0002` rekonstruieren Prod von 2016, `0003` bringt Constraints und `choices`, `0004` die Mail-Warteschlange (rein additiv) |
+| [../vote/tests/](../vote/tests/) | `test_models`, `test_forms`, `test_views`, `test_mail_service`, `test_poll_service`, `test_known_bugs`, `test_templates`, `test_send_pending_mails`, `conftest` |
 | [../demockrazy/settings.py](../demockrazy/settings.py) | Defaults; dazu `dev_settings.py` (runserver) und `test_settings.py` (pytest) |
 | [../vote/static/](../vote/static/) | Bootstrap 5.3.8 und Chart.js 4.5.1, vendored. **In beiden Verzeichnissen liegt eine `PROVENANCE.md` – vor dem Anfassen lesen**, die Bundles sind bewusst um je eine Zeile geändert (`sourceMappingURL`), sonst bricht `collectstatic` ab |
 | [../vote/templates/base.html](../vote/templates/base.html) | Navbar, Assets; kein jQuery mehr |
 
 Zwei Dinge, die man beim ersten Blick in die Tests wissen will:
 
-- **`conftest.py::create_poll` führt die `on_commit`-Callbacks aus.** Ohne das käme in einem
-  `django_db`-Test nie eine Mail an, weil die Testtransaktion nicht committet (3.4). Wer einen
-  neuen Test schreibt, der Mails erwartet, braucht `django_capture_on_commit_callbacks`.
+- **`conftest.py::create_poll` leert auch die Mail-Warteschlange** (mit `pause=0`). Seit §11.7
+  verschickt `create()` nichts mehr, es reiht nur ein -- ohne diesen zweiten Schritt hätte kein Test
+  eine Mail zu lesen. Wer prüfen will, dass der Request *selbst* nichts verschickt, nimmt nicht die
+  Fixture, sondern postet direkt (siehe `test_views.py::TestCreateQueuesMails`).
+  *(Hier stand ein Hinweis auf `django_capture_on_commit_callbacks` -- den braucht es nicht mehr,
+  das `on_commit` ist entfallen.)*
 - **`db.sqlite3` im Repo-Root ist ein veraltetes Phase-0-Artefakt** (gitignored) und hat noch die
   Spaltenreihenfolge einer zusammengefassten Migration. Nicht als Referenz für das Prod-Schema
   nehmen – dafür ist [phase-2-migrations.md](phase-2-migrations.md) zuständig.
@@ -164,11 +168,13 @@ Colmena-Flakes, nicht aus `pyproject.toml`. **Zwei Änderungen im Repo des Users
 
 Die Spec kommt vom User. Was für *jede* Variante gilt und in Phase 3 entstehen soll:
 
-1. ✅ **Erledigt mit 3.4:** Mail-Versand ist ein Service ([vote/services/mail.py](../vote/services/mail.py)).
-   `poll_created_messages()` rendert, `deliver()` verschickt. **Ein Batch-Versender ersetzt
-   `deliver()`** und lässt das Rendern unberührt.
-2. ✅ **Erledigt mit 3.4:** Versand hängt an `transaction.on_commit()`, der Callback rührt die
-   Datenbank nicht an (B7).
+1. ✅ **Erledigt mit 3.4, eingelöst mit §11.7:** Mail-Versand ist ein Service
+   ([vote/services/mail.py](../vote/services/mail.py)). `poll_created_messages()` rendert,
+   `enqueue()` reiht ein, `send_pending()` verschickt getaktet. **`deliver()` ist weg** -- es war
+   genau die Stelle, die der Batch-Versender laut Plan ersetzen sollte.
+2. ✅ **Anders eingelöst als geplant:** das `on_commit` von 3.4 ist entfallen. Das Einreihen läuft
+   in **derselben Transaktion** wie die Tokens, und verschickt wird in einem anderen Prozess, der
+   nur committete Zeilen sieht -- B7 hält damit strukturell statt über einen Callback.
 3. ✅ **Erledigt mit 3.4:** Mail-Texte liegen als Templates in `vote/templates/vote/mail/`,
    Autoescaping aus, Wortlaut byteweise per Test festgenagelt.
 4. ✅ **F8 ist entschieden: „lieber anonymer".** Kein dauerhafter Zustellstatus pro Adresse, keine
@@ -177,23 +183,27 @@ Die Spec kommt vom User. Was für *jede* Variante gilt und in Phase 3 entstehen 
    existieren, weil der Mailtext den Token enthält; sie wandert damit vom RAM auf die Platte, aber
    nur für die Dauer des Versands. Preisgegeben wäre *wer eingeladen wurde*, **nicht wie jemand
    gestimmt hat** – der Token wird bei der Abgabe gelöscht, die Stimme trägt keine Kennung.
-   Aus demselben Grund loggt `deliver()` weder Adresse noch Umfragekennung; der Text einer
-   SMTP-Exception kann die Adresse aber selbst enthalten.
+   Aus demselben Grund loggt der Versender weder Adresse noch Umfragekennung; der Text einer
+   SMTP-Exception kann die Adresse aber selbst enthalten. **Umgesetzt ist das jetzt** -- die Zeile
+   trägt keine Poll-Kennung und keinen Zeitstempel und wird bei Erfolg gelöscht (§11.7).
 5. ✅ **Missbrauchsschutz erledigt mit 3.8** (B4, F5): Deckel bei 150 Empfängern pro Umfrage,
    konfigurierbar. Ein Batch-Versender skaliert damit nicht den Missbrauch mit.
-6. **Das Problem selbst ist inzwischen gemessen, nicht vermutet** – [plan.md](plan.md) §11, der
-   wichtigste Abschnitt für Ziel 2. Der Mailserver drosselt nach *Nachrichten pro Zeitfenster*
+6. **Das Problem war gemessen, nicht vermutet** – [plan.md](plan.md) §11, der wichtigste
+   Abschnitt für Ziel 2. Der Mailserver drosselt nach *Nachrichten pro Zeitfenster*
    (`450 4.7.1 too much mail from`; 30 gingen immer durch, bei 50 kam der Fehler), und der
-   Versand läuft **synchron im Request** – `on_commit` verschiebt ihn nicht, weil es ohne offenen
+   Versand lief **synchron im Request** – `on_commit` verschob ihn nicht, weil es ohne offenen
    `atomic`-Block sofort ausführt (Folge von B16).
 7. ✅ **Eine SMTP-Verbindung statt einer pro Mail** (§11.6). Gemessen: 101 Nachrichten in 101
-   Verbindungen → 101 in 1. **Nicht die Kur** – gedrosselt werden Nachrichten, nicht Verbindungen –,
-   aber es verkürzt die Wartezeit, die der Ersteller heute aussitzt.
-8. **Die Taktung hat der User vorgegeben: 30er Batches, 2 s Intervall.** Der Entwurf dazu steht
-   vollständig in [plan.md](plan.md) §11.7 – **noch nicht gebaut, wartet auf ein OK.** Darin auch
-   die Rechnung, warum 2 s zwischen den Batches die gemessene Grenze nicht einhält, und warum das
-   trotzdem tragbar ist (der `450` ist temporär und wird wiederholt; beide Zahlen sind Settings).
-   Offen bleiben **Bounce-Handling**, die **Fortschrittsanzeige** und **F20**.
+   Verbindungen → 101 in 1. Nicht die Kur, aber der billigste Schritt.
+8. ✅ **Getakteter Versand gebaut** (§11.7): Warteschlange `OutgoingMail`, Service `send_pending()`,
+   Command `send_pending_mails` mit `flock`-Sperre. **30er Batches, 2 s Pause – vom User vorgegeben**
+   und über `DEMOCKRAZY_MAIL_BATCH_SIZE`/`_PAUSE` einstellbar. In §11.7 steht auch die Rechnung,
+   warum 2 s zwischen den Batches die gemessene Grenze **nicht** einhält, und warum das tragbar ist:
+   der `450` ist temporär, der Lauf bricht ab, der nächste Timer-Aufruf trifft ein zurückgesetztes
+   Fenster. **Wenn die `450` im Log auftauchen: Pause auf 60.**
+   ⚠️ **Der systemd-Timer fehlt noch** und liegt außerhalb dieses Repos – [to-check.md](to-check.md)
+   §C5. Ohne ihn wird in Produktion nichts verschickt.
+9. Offen bleiben **Bounce-Handling**, die **Fortschrittsanzeige** (nur Summen, F8) und **F20**.
 
 ## 8. Offene Fragen an den User
 
@@ -235,9 +245,10 @@ nix run nixpkgs#sqlite -- -readonly /var/lib/demockrazy/db.sqlite3 \
 **Alle Phasen sind durch, und das Bug-Register ist leer** – B1 bis B18, zuletzt **B9** mit 3.9
 (Token-Umzug aus dem Query-String ins Cookie), dazu die zwei fehlenden Unique-Constraints. Ohne
 Häkchen steht nur noch B14, und der ist inhaltlich in 2.7 aufgegangen. Mailversand und
-Poll-Erstellung sind Services, der Versand hängt an `on_commit`, die Umfrage-Erstellung kostet
-konstant 5 Statements, das Routing läuft über `path()`.
-**Die Vorarbeit für Ziel 2 (§7.1–3) ist vollständig** – ein Batch-Versender ersetzt `mail.deliver()`.
+Poll-Erstellung sind Services, die Umfrage-Erstellung kostet konstant 5 Statements, das Routing
+läuft über `path()`.
+**Ziel 2 ist gebaut** – Warteschlange, getakteter Versender und Management-Command stehen (§11.7);
+`mail.deliver()` ist dadurch entfallen.
 
 **B16 ist bei 5.5 aufgefallen und lohnt zwei Sätze, weil es Annahmen umstößt:**
 `ATOMIC_REQUESTS = True` stand seit 2016 **modulweit** in `settings.py`, Django liest es aber pro
@@ -268,19 +279,23 @@ gehen raus – im schlechtesten Fall ignoriert der Browser ihn), und der **vorha
 liesse sich jetzt einbinden, was vorher nicht sinnvoll ging: seit 4.1/4.3 ist alles vendored, es gibt
 keinen Fremd-Host mehr. Beides in [deployment.md](deployment.md).
 
-**Danach Ziel 2 (Batch-Mails).** Das ist der eigentliche Auftrag, und er ist jetzt vorbereitet:
+**Ziel 2 (Batch-Mails) ist gebaut** – die Umsetzung steht vollständig in [plan.md](plan.md) §11.7,
+inklusive der Messungen. Wie es läuft:
 
-- Die **Problembeschreibung ist gemessen**, nicht vermutet – [plan.md](plan.md) §11. Kurz: der
-  Mailserver drosselt nach *Nachrichten pro Zeitfenster* (`450 4.7.1 too much mail from`; 30 gingen
-  immer durch, bei 50 kam der Fehler), `deliver()` baut **eine SMTP-Verbindung pro Empfänger**
-  (nachgezählt: 101 Mails = 101 Verbindungen), und der Versand läuft **synchron im Request** –
-  `on_commit` verschiebt ihn nicht, weil es ohne offenen `atomic`-Block sofort ausführt (Folge B16).
-- **F8 ist entschieden: "lieber anonymer".** Kein dauerhafter Zustellstatus pro Adresse. Was das für
-  eine Queue bedeutet – und warum die Einbuße kleiner ist, als sie klingt – steht in §11.4. **Vor dem
-  ersten Modell lesen.**
-- **Die Taktung ist vorgegeben** (30er Batches, 2 s Intervall), der Entwurf dazu steht in §11.7 und
-  wartet auf ein OK. Offen bleiben **Bounce-Handling**, die **Fortschrittsanzeige** und **F20** (der
-  genaue Rate-Limit-Wert, an dem hängt, ob die 2 s reichen).
+- `create()` reiht ein, ein **Management-Command** verschickt: `manage.py send_pending_mails`,
+  30 Nachrichten, 2 s Pause, bis die Warteschlange leer ist. Beides vom User vorgegeben und über
+  `DEMOCKRAZY_MAIL_BATCH_SIZE`/`_PAUSE` konfigurierbar.
+- **Das Problem war gemessen, nicht vermutet:** der Mailserver drosselt nach *Nachrichten pro
+  Zeitfenster* (`450 4.7.1 too much mail from`; 30 gingen immer durch, bei 50 kam der Fehler), und
+  der Versand lief synchron im Request mit einer SMTP-Verbindung **pro Empfänger** (101 Mails = 101
+  Verbindungen).
+- **F8 ist eingelöst, nicht nur entschieden:** die Warteschlangenzeile trägt keine Poll-Kennung,
+  keinen Zeitstempel, und sie wird bei Erfolg gelöscht. §11.4 erklärt, warum die Einbuße kleiner ist,
+  als sie klingt.
+- ⚠️ **Was noch fehlt, liegt außerhalb dieses Repos:** der **systemd-Timer**, der den Command
+  aufruft ([to-check.md](to-check.md) §C5). Ohne ihn wird in Produktion nichts verschickt.
+- Offen bleiben **Bounce-Handling**, die **Fortschrittsanzeige** und **F20** (der genaue
+  Rate-Limit-Wert, an dem hängt, ob die 2 s reichen -- die Rechnung dazu steht in §11.7).
 
 Was beim Routing (3.7) zu beachten war und weiter gilt, falls jemand `urls.py` anfasst:
 die sieben öffentlichen Pfade sind **zeichengleich** zu halten (Regel 5), `test_views.py::TestUrls`
