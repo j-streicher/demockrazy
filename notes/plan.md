@@ -85,7 +85,7 @@ Wiederherstellbar über `git revert 4e15012`.
 | Tests | `vote/tests.py` enthielt nur einen Kommentar | keine Testabdeckung |
 | `default.nix` | Legacy `with import <nixpkgs> {}`, `stdenv.mkDerivation` als Shell-Hack | Duplikat zum Flake |
 | CI | `actions/checkout@v3`, `cachix/install-nix-action@v18`, `docker/login-action` auf altem SHA | nur Build, kein Test/Lint |
-| Frontend | Bootstrap 3.3.6 (2016), jQuery 2.2.4 (2016), Highcharts 4.2.5 (2016) – alle vendored | **alle drei ersetzt:** Bootstrap 5.3.8 (4.1), jQuery entfallen (4.2), Chart.js 4.5.1 statt Highcharts (4.3). 1,36 MB → 665 KB, Lizenzen durchgehend MIT |
+| Frontend | Bootstrap 3.3.6 (2016), jQuery 2.2.4 (2016), Highcharts 4.2.5 (2016) – alle vendored | **alle drei ersetzt:** Bootstrap 5.3.8 (4.1), jQuery entfallen (4.2), Chart.js 4.5.1 statt Highcharts (4.3). 1,36 MB → 528 KB, Lizenzen durchgehend MIT |
 | Datenbank (Prod) | **SQLite**, `/var/lib/demockrazy/db.sqlite3` | Lock-Risiko, siehe B13. *(Korrigiert: der Zusatz „+ `ATOMIC_REQUESTS=True`" war falsch – die Option war nie wirksam, B16.)* |
 | k8s / Docker / sops | k8s-libsonnet 1.25, PG 14, GHCR-Images | **toter Code** – Deployment abgeschaltet, siehe Phase 5 |
 
