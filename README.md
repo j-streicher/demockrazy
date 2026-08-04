@@ -68,6 +68,21 @@ The wording of the mails is not configuration: it lives in `vote/templates/vote/
 templates disable autoescaping (they are plain text) and end without a trailing newline, both
 deliberately — `vote/tests/test_mail_service.py` pins the exact output.
 
+## Frontend
+
+Bootstrap 5.3.8 and Highcharts are vendored under `vote/static/`, deliberately not loaded from a
+CDN: the pages should work without a connection to any foreign host. There is no build step and no
+JavaScript dependency beyond those two files — Bootstrap 5 needs no jQuery.
+
+Before touching the Bootstrap files, read
+`vote/static/bootstrap-5.3.8-dist/PROVENANCE.md`. They are not byte-identical to upstream: the
+`sourceMappingURL` comment is removed from both, because `collectstatic` aborts on a reference to
+the `.map` files, which are not vendored. It runs on every service start, so an abort keeps the
+service from coming up.
+
+Static file names are hashed via `ManifestStaticFilesStorage`. `collectstatic` writes the manifest;
+with `DEBUG = True` Django skips hashing, so `runserver` needs no `collectstatic`.
+
 ## Deployment
 
 Production is `wahlcomputer.mayflower.de`, rolled out with colmena and running on SQLite. The

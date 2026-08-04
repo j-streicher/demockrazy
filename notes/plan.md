@@ -9,7 +9,7 @@
 
 | # | Ziel | Status |
 |---|------|--------|
-| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · Phase 3 bis 3.7 ✅ · CI ✅ · 5.5 ✅ · 4.4/4.5 ✅ · 4.2 halb ✅ · **alles Unblockierte ist durch** – offen: 3.8 (F5), 4.1 (F19), 4.3 (F4), 5.4 (F13), 2.7 (F15) |
+| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · Phase 3 bis 3.7 ✅ · CI ✅ · 5.5 ✅ · **Phase 4 bis auf 4.3 ✅** – offen: 3.8 (F5), 4.3 (F4), 5.4 (F13), 2.7 (F15) |
 | 2 | Batch-Modus für Mails bauen | **Spec folgt vom User** – nur Vorarbeit leisten, siehe §11 |
 
 **Wichtig:** Ziel 2 wird vom User später erklärt. Ziel 1 nicht so umbauen, dass Ziel 2 blockiert wird –
@@ -85,7 +85,7 @@ Wiederherstellbar über `git revert 4e15012`.
 | Tests | `vote/tests.py` enthielt nur einen Kommentar | keine Testabdeckung |
 | `default.nix` | Legacy `with import <nixpkgs> {}`, `stdenv.mkDerivation` als Shell-Hack | Duplikat zum Flake |
 | CI | `actions/checkout@v3`, `cachix/install-nix-action@v18`, `docker/login-action` auf altem SHA | nur Build, kein Test/Lint |
-| Frontend | Bootstrap 3.3.6 (2016), jQuery 2.2.4 (2016), Highcharts 4.2.5 (2016) – alle vendored | |
+| Frontend | Bootstrap 3.3.6 (2016), jQuery 2.2.4 (2016), Highcharts 4.2.5 (2016) – alle vendored | Bootstrap → 5.3.8 und jQuery raus mit 4.1/4.2; Highcharts offen (B8) |
 | Datenbank (Prod) | **SQLite**, `/var/lib/demockrazy/db.sqlite3` | Lock-Risiko, siehe B13. *(Korrigiert: der Zusatz „+ `ATOMIC_REQUESTS=True`" war falsch – die Option war nie wirksam, B16.)* |
 | k8s / Docker / sops | k8s-libsonnet 1.25, PG 14, GHCR-Images | **toter Code** – Deployment abgeschaltet, siehe Phase 5 |
 
@@ -110,6 +110,7 @@ Wiederherstellbar über `git revert 4e15012`.
 | B15 | `choice`-Wert ohne Zahl → 500 | ✅ **behoben** in 3.3 (neu gefunden) |
 | B16 | `ATOMIC_REQUESTS` seit 2016 wirkungslos | ✅ **behoben** in 5.5 (neu gefunden); **F18** offen |
 | B17 | Mehrzeilige `{# … #}` sind keine Kommentare | ✅ **behoben** in 4.2 (neu gefunden) |
+| B18 | `.gitignore: static/` schloss die App-Assets aus | ✅ **behoben** in 4.1 (neu gefunden) |
 
 Alle als `xfail(strict=True)` spezifiziert in
 [vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py); B2, B3, B6, B11 und B12 stehen
@@ -192,6 +193,17 @@ entstanden – ohne jede Transaktion. Ein Fehler auf halbem Weg ließ Mails drau
 zurück, und ein hängender SMTP-Server blockierte den Request. ✅ Behoben in 3.4/3.5: `create_poll()`
 ist atomar, der Versand hängt an `on_commit`.
 → Kernmotivation für Ziel 2.
+
+**B18 – `.gitignore` schloss die Quell-Assets der App aus.** *(neu gefunden in 4.1)*
+Die Regel war `static/`, eingeführt in `72871d9` (2016-06-09). **Ohne führenden Slash trifft das
+jedes Verzeichnis namens `static` auf jeder Ebene** – gemeint war `STATIC_ROOT` (die
+`collectstatic`-Ausgabe unter `BASE_DIR`), getroffen wurde zusätzlich `vote/static/` mit den
+Quell-Assets, die ins Repo *gehören*.
+**Der Beleg ist, was dort getrackt war:** nur `css/main.css` und `highcharts-custom.js`, beide älter
+als die Regel, plus das Bootstrap-3-Verzeichnis. Jedes seither hinzugefügte Asset fiel still heraus –
+`git add` verweigerte ohne `-f`. Aufgefallen, weil ich beim Vendoren von Bootstrap 5 hineingelaufen
+bin: die neuen Dateien wären nicht mitgekommen, und in Produktion hätte die Seite kein CSS gehabt.
+✅ Auf `/static/` verankert, also auf das, was `STATIC_ROOT` tatsächlich ist.
 
 **B8 – Highcharts 4.2.5 ist proprietär lizenziert.**
 Kein Free-/Open-Source-Lizenzmodell für kommerzielle Nutzung. Vendored in
@@ -514,17 +526,41 @@ Tests für niemanden außer mir nutzbar und in CI wertlos. **Behoben in 2.1**, a
 
 ## 8. Phase 4 – Frontend
 
-- [ ] **4.1 Bootstrap 3.3.6 → 5.3.x** (vendored, kein CDN – CSP-freundlich): `base.html`,
-      Navbar, `form-group` → `mb-3`, `nav-pills`/`badge` in
-      [token_state.html](../vote/templates/vote/token_state.html), Alerts.
-- [~] **4.2 jQuery entfernen** – **halb erledigt, Rest hängt an 4.1.** Der Chart-Init in
-      `results.html` benutzt kein jQuery mehr. **Im vendorten File geprüft statt angenommen:**
-      Highcharts 4.2.5 ist standalone und registriert `$.fn.highcharts` nur, *wenn* jQuery da ist –
-      `new Highcharts.Chart({chart: {renderTo: …}})` ist die 4.x-API (das kleingeschriebene
-      `Highcharts.chart` gibt es erst ab 5.x). Auch kein Ready-Handler nötig, der Block rendert am
-      Ende von `<body>`.
-      **`jquery-2.2.4.min.js` muss trotzdem bleiben, bis 4.1 durch ist:** Bootstrap 3s JS braucht es
-      für die einklappende Navbar. Das ist der einzige verbleibende Nutzer.
+- [x] **4.1 Bootstrap 3.3.6 → 5.3.8** ✅ – vendored, kein CDN (die Seite soll ohne Fremdverbindung
+      laufen, ein CDN wäre der einzige externe Host im Dokument). **Version gegen die GitHub-API
+      geprüft, nicht erinnert:** v5.3.8 (2025-08-26) ist das aktuellste Release. Nur
+      `bootstrap.min.css` + `bootstrap.bundle.min.js` (das Bundle enthält Popper), keine Maps.
+      Herkunft, Checksummen und die **eine** Änderung stehen in
+      [vote/static/bootstrap-5.3.8-dist/PROVENANCE.md](../vote/static/bootstrap-5.3.8-dist/PROVENANCE.md).
+      **Diese Änderung ist keine Kosmetik:** beide Bundles enden mit einem `sourceMappingURL`-Verweis
+      auf die nicht mitgelieferten `.map`-Dateien, und `ManifestStaticFilesStorage` (4.4) löst solche
+      Verweise auf und **bricht ab**, wenn das Ziel fehlt. `collectstatic` läuft in Prod im
+      `preStart` – ein Abbruch dort heißt, der Dienst startet nicht. **Der Test aus 4.4 hat es
+      gefangen**, genau der Fall, für den er geschrieben wurde. Letzte Zeile jeder Datei entfernt.
+      Klassen-Migration: `form-group` → `mb-3`, `<select>` → `form-select`, Labels → `form-label`,
+      `navbar-inverse`/`navbar-fixed-top`/`navbar-toggle`/`icon-bar` → 5.x-Navbar mit `data-bs-*`,
+      `sr-only` → `visually-hidden`. **`body { padding-top }` folgt der gemessenen Navbar-Höhe:**
+      56px in 5.3.8 gegen 50px in 3 – der alte Wert verdeckte die Überschrift um 6px.
+      **Drei vorbestehende Markup-Defekte mitbehoben:** `token_state.html` war ein
+      `ul.nav.nav-pills` mit `role="tablist"`/`role="presentation"` für etwas, das weder Navigation
+      noch Tabs ist (ein Screenreader kündigte Reiter an, die niemand anklicken kann), plus ein
+      führendes leeres `<label>`; die Radios in `poll.html` standen ohne Gruppierung, getrennt von
+      `<br/>`; und die ja/nein-Radios der Multiple-Choice-Matrix hatten **gar keinen zugänglichen
+      Namen** – nur ein `<label>` ohne `for` in der Textspalte, das auf nichts zeigte.
+      **`name`/`id` sind zeichengleich geblieben** (`choice`, `choice<pk>` mit `yes`/`no`): daran
+      hängt `vote()`, und es sind Mails mit Links auf offene Umfragen unterwegs.
+      **Im Browser verifiziert**, weil pytest davon nichts sieht: keine Bootstrap-3-Reste und kein
+      jQuery auf allen sechs Seiten, keine leeren Labels, kein `for` ins Leere, Navbar-Toggler
+      öffnet und schließt ohne jQuery, Chart rendert, kein horizontaler Überlauf bei 375px – und
+      **einmal echt abgestimmt**: POST auf `/vote/<id>/vote`, Redirect auf `/success`, Stimme
+      gezählt, Token gelöscht, Umfrage automatisch geschlossen.
+- [x] **4.2 jQuery entfernen** ✅ – in zwei Schritten. Zuerst der Chart-Init in `results.html`:
+      **im vendorten File geprüft statt angenommen**, Highcharts 4.2.5 ist standalone und registriert
+      `$.fn.highcharts` nur, *wenn* jQuery da ist – `new Highcharts.Chart({chart: {renderTo: …}})`
+      ist die 4.x-API (das kleingeschriebene `Highcharts.chart` gibt es erst ab 5.x). Kein
+      Ready-Handler nötig, der Block rendert am Ende von `<body>`.
+      Danach mit 4.1 der letzte Nutzer: Bootstrap 3s JS brauchte jQuery für die einklappende Navbar.
+      `jquery-2.2.4.min.js` ist weg.
 - [x] **B10 mit 4.2 behoben** ✅ – Diagrammdaten kommen per `json_script` aus der View statt als in
       ein JS-Stringliteral interpolierte Werte. **Vorher gemessen:** betroffen waren `&`, `'`, `"`
       und `<` – im Diagramm stand sichtbar `Bier &amp; Brezn`, wo die Tabelle `Bier & Brezn` zeigte.
@@ -701,7 +737,7 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
 | F8 | Anonymität vs. Zustellstatus pro Empfänger – wie weit darf Ziel 2 das aufweichen? (§11.4) | Ziel 2 |
 | **F17** | **Überschreibt das NixOS-Modul einen der vier Mail-Text-Settings?** 3.4 hat `VOTE_MAIL_SUBJECT`, `VOTE_MAIL_TEXT`, `VOTE_ADMIN_MAIL_SUBJECT`, `VOTE_ADMIN_MAIL_TEXT` aus `settings.py` entfernt – der Text kommt jetzt aus Templates. Setzt `demockrazy_config` (oder die `djangoSettings`-Option) einen davon, wird der Wert nach dem Deploy **stillschweigend ignoriert** und Prod verschickt den Repo-Wortlaut. Prüfung im Repo des Users: `grep -rn 'VOTE_MAIL\|VOTE_ADMIN_MAIL\|VOTE_BASE_URL\|VOTE_MAIL_FROM'`. Meine Modul-Analyse in [deployment.md](deployment.md) listet keinen dieser vier, und die alte `local_settings.py` überschrieb nur `VOTE_BASE_URL`/`VOTE_MAIL_FROM`/`VOTE_SEND_MAILS` – die drei sind bewusst geblieben. Trifft die Annahme nicht zu, gehört der Text ins Template. | **vor dem Deploy** |
 | F13 | Wie groß sind Abstimmungen real (Empfänger pro Poll, parallele Polls)? Entscheidet SQLite-Tuning vs. Postgres (B13) und die Batch-Größen für Ziel 2. | 5.4, Ziel 2 |
-| **F19** | **Darf ich Bootstrap 5.3.x herunterladen und vendoren – und aus welcher Quelle?** 4.1 braucht die Dateien im Repo (kein CDN, CSP-freundlich, so ist der Bestand). Ich lade nichts ohne ausdrückliche Freigabe. Zu klären: (a) Freigabe überhaupt, (b) Quelle – offizielles `bootstrap-5.3.x-dist.zip` von getbootstrap.com bzw. GitHub-Release, oder lieber über nixpkgs/`fetchurl` mit Hash im Flake, damit die Herkunft reproduzierbar ist, (c) ob nur CSS+JS-Bundle oder auch die Maps. **Empfehlung: GitHub-Release-Dist, nur `bootstrap.min.css` + `bootstrap.bundle.min.js`, ohne Maps** – das ersetzt 544 KB Bootstrap 3 und die 49 KB jQuery. Ohne diese Antwort bleiben 4.1 und der Rest von 4.2 liegen. | **4.1, 4.2** |
+| ~~F19~~ | ~~Bootstrap 5 vendoren – Freigabe und Quelle?~~ → **freigegeben, GitHub-Release-Dist.** Umgesetzt in 4.1: v5.3.8, nur `bootstrap.min.css` + `bootstrap.bundle.min.js`, ohne Maps. Herkunft und Checksummen in [PROVENANCE.md](../vote/static/bootstrap-5.3.8-dist/PROVENANCE.md). | – |
 | **F18** | **Soll `ATOMIC_REQUESTS` tatsächlich an?** Es war seit 2016 wirkungslos und ist mit 5.5 entfernt (B16) – der Zustand ist damit *unverändert*, nur nicht mehr falsch dokumentiert. Einschalten (in `DATABASES['default']`) hieße: jeder Request nimmt eine Transaktion, auch die reine Ergebnisseite, auf einer SQLite-Datei mit 4 uwsgi-Prozessen (B13). **Meine Empfehlung: aus lassen.** Die zwei Stellen, die Atomarität brauchen, haben sie explizit und getestet; die Option würde vor allem das Lock-Fenster verbreitern. Falls doch an, gehört sie in dieselbe Entscheidung wie WAL/`timeout` (5.4) und `/healthz` bleibt per `non_atomic_requests` ausgenommen. | 5.4 (nicht blockierend) |
 | ~~F16~~ | ~~Sind die drei Verschärfungen aus 3.1 gewollt?~~ → **ja**, vom User bestätigt (alle sechs Felder Pflicht, Djangos Adressvalidator, `title` auf 200 Zeichen). Seit 3.2 in der View wirksam. | – |
 
@@ -716,15 +752,15 @@ Phase 2  Migrations, Django 5.2, Settings                             ✅ außer
 Phase 5  5.1 k8s-Cleanup ✅ · 5.2 Deployment verstanden ✅ · 5.3 CI ✅ · 5.4/5.5 offen
 Phase 6  README ✅ · Handover ✅
 
-offen, in sinnvoller Reihenfolge:
-  Phase 4  4.4 ✅ · 4.5 ✅ · 4.2 halb ✅ (Rest hängt an 4.1)
-             └─ 4.1 braucht F19 (Bootstrap-5-Dateien vendoren)
-             └─ 4.3 braucht F4  (Highcharts-Lizenz)
-  Phase 3  nur noch 3.8 (Zugangsschutz) – braucht F5
-  5.4      SQLite-Härtung – braucht F13, dazu F18 entscheiden
-  2.7      TLS-Hardening – braucht F15
+Phase 4  4.1 ✅ · 4.2 ✅ · 4.4 ✅ · 4.5 ✅ · offen: 4.3 (braucht F4)
 
-**Damit ist alles Unblockierte abgearbeitet.** Was offen ist, wartet auf F4, F5, F13, F15 oder F19.
+offen, alles auf eine Antwort wartend:
+  4.3      Highcharts ersetzen – braucht F4
+  3.8      Zugangsschutz      – braucht F5
+  5.4      SQLite-Härtung     – braucht F13, dazu F18 entscheiden
+  2.7      TLS-Hardening      – braucht F15
+
+**Alles Unblockierte ist abgearbeitet.** Was offen ist, wartet auf F4, F5, F13 oder F15.
 
 erledigt in Phase 3: 3.1 Forms · 3.2 create()/manage() · 3.3 vote() · 3.4 Mail-Service ·
 3.5 Poll-Service · 3.6 Models/Constraints · 3.7 path()
@@ -732,9 +768,9 @@ erledigt in Phase 3: 3.1 Forms · 3.2 create()/manage() · 3.3 vote() · 3.4 Mai
   └─ 3.4 ist die Schnittstelle für ZIEL 2 (Batch-Mails, nach Spec)
 ```
 
-**Nächster Schritt: keiner, der nicht auf eine Antwort wartet.** Zuerst **F19** (Bootstrap-Dateien),
-das schaltet 4.1 und den Rest von 4.2 frei – das ist der größte verbleibende Brocken.
-Danach nach Antwortlage: F4 → 4.3, F5 → 3.8, F13/F18 → 5.4, F15 → 2.7.
+**Nächster Schritt: keiner, der nicht auf eine Antwort wartet.** Nach Antwortlage:
+F4 → 4.3, F5 → 3.8, F13/F18 → 5.4, F15 → 2.7. Der größte Posten ist 4.3, und der ist eine
+Lizenzfrage, keine technische.
 **Vor dem Deploy:** F17 klären; die Migration `0003` schreibt `vote_poll` und `vote_token` neu
 (Details in [phase-2-migrations.md](phase-2-migrations.md)), Backup liegt vor (borg 03:00/04:00).
 **Die Vorarbeit für Ziel 2 (§11.1–3) ist mit 3.4 vollständig** – ein Batch-Versender ersetzt

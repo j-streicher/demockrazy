@@ -1,7 +1,7 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: 2026-08-04, Branch `update/modernize-2026`, 51 Commits über `master` (Basis `3074dbb`).
+Stand: 2026-08-04, Branch `update/modernize-2026`, 55 Commits über `master` (Basis `3074dbb`).
 Arbeitsbaum ist sauber, alles committed, **nichts gepusht** -- die CI hat also noch nie gelaufen,
 sie greift erst beim ersten Push.
 
@@ -12,7 +12,7 @@ sie greift erst beim ersten Push.
 | Datei | Wofür |
 |---|---|
 | **dieses Dokument** | Orientierung, Arbeitsregeln, offene Fragen, nächster Schritt |
-| [plan.md](plan.md) | Der Plan mit allen Phasen, Bug-Nummern B1–B17, Fragen F1–F19. **Das Hauptdokument.** |
+| [plan.md](plan.md) | Der Plan mit allen Phasen, Bug-Nummern B1–B18, Fragen F1–F19. **Das Hauptdokument.** |
 | [deployment.md](deployment.md) | Wie Produktion wirklich läuft. **Vor jeder Settings-/Deploy-Änderung lesen.** |
 | [phase-2-migrations.md](phase-2-migrations.md) | Warum die Migrations so aussehen, wie sie aussehen |
 | [phase-0-baseline.md](phase-0-baseline.md) | Baseline-Messungen; enthält eine als überholt markierte Analyse |
@@ -36,8 +36,9 @@ insbesondere für Ziel 2 relevant (§7).
 ## 3. Zwei Ziele
 
 1. **Auf heutige Standards bringen.** Phase 0, 1 und 2 (außer 2.7) sind fertig, Phase 3 ist bis
-   3.7 durch, CI steht (5.3), `/healthz` steht (5.5), Phase 4 ist bis auf 4.1/4.3 durch.
-   **Alles Unblockierte ist abgearbeitet** – der Rest wartet auf F4, F5, F13, F15 oder F19 (§8).
+   3.7 durch, CI steht (5.3), `/healthz` steht (5.5), Phase 4 ist bis auf 4.3 durch (Bootstrap 5.3.8
+   vendored, jQuery weg). **Alles Unblockierte ist abgearbeitet** – der Rest wartet auf F4, F5, F13
+   oder F15 (§8).
 2. **Batch-Modus für Mails.** *Spec steht noch aus, der User erklärt sie später.* Nicht spekulativ
    bauen. Phase 3 so anlegen, dass es andockt (§7).
 
@@ -75,7 +76,7 @@ Lokal starten (nicht mit `manage.py runserver` allein – siehe §6, Falle 3):
 python3 manage.py runserver --settings=demockrazy.dev_settings
 ```
 
-### Wo was liegt (Stand nach 4.5)
+### Wo was liegt (Stand nach 4.1)
 
 | Pfad | Inhalt |
 |---|---|
@@ -91,6 +92,8 @@ python3 manage.py runserver --settings=demockrazy.dev_settings
 | [../vote/migrations/](../vote/migrations/) | `0001`+`0002` rekonstruieren Prod von 2016, `0003` bringt Constraints und `choices` |
 | [../vote/tests/](../vote/tests/) | `test_models`, `test_forms`, `test_views`, `test_mail_service`, `test_poll_service`, `test_known_bugs`, `test_templates`, `conftest` |
 | [../demockrazy/settings.py](../demockrazy/settings.py) | Defaults; dazu `dev_settings.py` (runserver) und `test_settings.py` (pytest) |
+| [../vote/static/bootstrap-5.3.8-dist/](../vote/static/bootstrap-5.3.8-dist/) | Bootstrap 5.3.8, vendored. **`PROVENANCE.md` daneben lesen, bevor jemand die Dateien anfasst** – sie sind bewusst um eine Zeile geändert |
+| [../vote/templates/base.html](../vote/templates/base.html) | Navbar, Assets; kein jQuery mehr |
 
 Zwei Dinge, die man beim ersten Blick in die Tests wissen will:
 
@@ -234,11 +237,9 @@ daran ein `script`-Element und verschluckte das Datenelement dahinter: **200 ohn
 **Nichts, was nicht auf eine Antwort wartet** – deshalb ist §8 diesmal der wichtigere Abschnitt.
 Nach Antwortlage:
 
-- **F19 → 4.1** (Bootstrap 3.3.6 → 5.3.x vendored) **und der Rest von 4.2.** Der größte
-  verbleibende Brocken. `jquery-2.2.4.min.js` hat nur noch *einen* Nutzer: Bootstrap 3s JS für die
-  einklappende Navbar. Mit Bootstrap 5 fällt beides zusammen weg.
-- **F4 → 4.3** (Highcharts ersetzen). Der `json_script`-Teil ist mit 4.2 schon erledigt, der
-  Bibliothekswechsel erbt ihn.
+- **F4 → 4.3** (Highcharts ersetzen). Der größte verbleibende Posten, aber eine **Lizenzfrage, keine
+  technische**: der `json_script`-Teil ist mit 4.2 erledigt, der Bibliothekswechsel erbt ihn, und
+  Highcharts ist die letzte Datei im Frontend, die nicht MIT/Apache ist.
 - **F5 → 3.8**, **F13/F18 → 5.4**, **F15 → 2.7**.
 
 Was beim Routing (3.7) zu beachten war und weiter gilt, falls jemand `urls.py` anfasst:
@@ -311,6 +312,13 @@ Offen: **3.8** braucht F5, **4.1** braucht F19, **4.3** braucht F4, **2.7** brau
 - **Der Mayflower-nixpkgs-Fork existiert wegen der `mayflower.*`-NixOS-Module.** Ein Wechsel auf
   upstream nixpkgs hätte den Deploy gebrochen – der User hat mich rechtzeitig auf `mf-next`
   umgelenkt. Input bleibt `github:mayflower/nixpkgs/mf-next`.
+- **`.gitignore` hatte zehn Jahre lang die Quell-Assets der App ausgeschlossen** (B18): die Regel
+  hieß `static/` statt `/static/` und traf damit auch `vote/static/`, nicht nur `STATIC_ROOT`.
+  Getrackt war dort nur, was älter als die Regel war; jedes neue Asset fiel still heraus. Beim
+  Vendoren von Bootstrap 5 wäre die Folge gewesen: **Produktion ohne CSS.** Wer im Frontend etwas
+  hinzufügt, prüft nach `git add`, ob die Datei wirklich im `git status` steht.
+- **Mehrzeilige `{# … #}` sind keine Kommentare** (B17). Steht in §9 mit dem ganzen Hergang; hier nur
+  die Kurzform, weil man es sonst zweimal lernt.
 - **`processes = 4` im uwsgi auf einer SQLite-Datei** ist genau das Lock-Szenario aus B13. WAL und
   `timeout` in `DATABASES['default']['OPTIONS']` wären eine kleine wirksame Härtung; der User kann
   das über die `djangoSettings`-Option des Moduls sogar ohne Modul-Änderung testen.
