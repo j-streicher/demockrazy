@@ -100,6 +100,21 @@ Two consequences worth knowing before changing anything here:
 - The Django version comes from the nixpkgs that evaluates the host, not from `pyproject.toml`.
   This file documents the requirement; it does not enforce it.
 
+The database is SQLite, and four uwsgi processes share the one file. `DATABASES['default']
+['OPTIONS']` therefore sets `transaction_mode='IMMEDIATE'`, WAL journalling and a 20 second
+`timeout`. `IMMEDIATE` is the one that matters: with Django's `DEFERRED` default, a transaction that
+reads before it writes has to upgrade its lock, and SQLite cannot make that wait -- it returns
+`SQLITE_BUSY` at once, ignoring `timeout`. Measured with 8 concurrent read-then-write transactions
+x 25 rounds: 36 of 200 succeed on the defaults, 200 of 200 with these options.
+
+Those options do not reach production on their own. A settings module that replaces `DATABASES`
+wholesale drops them, which is what production's generated module does. `manage.py check` reports
+their absence, so run it against the real settings after deploying:
+
+```
+DJANGO_SETTINGS_MODULE=demockrazy_config python3 manage.py check
+```
+
 `GET /healthz` returns `200 ok` when the process can serve requests and read the database, and
 `503 database unavailable` when it cannot. It deliberately does not test writability: that would
 mean writing on every probe, and with four uwsgi processes on one SQLite file the check would become

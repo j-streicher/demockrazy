@@ -9,7 +9,7 @@
 
 | # | Ziel | Status |
 |---|------|--------|
-| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | **Phase 0–4 vollständig ✅**, Phase 5 bis auf 5.4, Phase 6 ✅ – offen nur noch: **5.4** (SQLite-Härtung) und **2.7** (TLS, braucht F15) |
+| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | **Phase 0–6 vollständig ✅ außer 2.7.** Das Bug-Register ist bis auf **B9** abgearbeitet. Offen ist nur noch 2.7, und das ist zum größten Teil **gegenstandslos** geworden, nachdem der Proxy vorliegt – es bleibt eine Frage (F15) und ein Vorschlag für den Proxy, nichts im Repo. |
 | 2 | Batch-Modus für Mails bauen | **Spec folgt vom User** – nur Vorarbeit leisten, siehe §11 |
 
 **Wichtig:** Ziel 2 wird vom User später erklärt. Ziel 1 nicht so umbauen, dass Ziel 2 blockiert wird –
@@ -101,12 +101,12 @@ Wiederherstellbar über `git revert 4e15012`.
 | B6 | Doppelte Adressen → doppelte Tokens | ✅ **behoben** in 3.1/3.2 |
 | B7 | Mailversand innerhalb der Transaktion | ✅ **behoben** in 3.4 |
 | B8 | Highcharts proprietär lizenziert | ✅ **behoben** in 4.3 (Chart.js, MIT) |
-| B9 | Token im URL-Query-String | offen, Entscheidung nötig |
+| B9 | Token im URL-Query-String | **offen, der einzige verbleibende Bug.** Nur additiv änderbar (Regel 4/5), Entscheidung nötig |
 | B10 | Templating in Inline-JS | ✅ **behoben** in 4.2 (`json_script`) |
 | B11 | `manage()` crasht ohne `token`-Feld | ✅ **behoben** in 3.2 |
 | B12 | `ValidationError` ungefangen | ✅ **behoben** in 3.1/3.2 |
-| B13 | Prod läuft auf SQLite (Lock-Risiko) | offen → 5.4, **braucht F13** |
-| B14 | TLS-Hardening unvollständig | offen → 2.7, **braucht F15** |
+| B13 | Prod läuft auf SQLite (Lock-Risiko) | ✅ **behoben** in 5.4 (WAL + IMMEDIATE + timeout) |
+| B14 | TLS-Hardening unvollständig | **größtenteils gegenstandslos**: der Proxy setzt `forceSSL` + HSTS. Rest → 2.7, betrifft den Proxy, braucht F15 |
 | B15 | `choice`-Wert ohne Zahl → 500 | ✅ **behoben** in 3.3 (neu gefunden) |
 | B16 | `ATOMIC_REQUESTS` seit 2016 wirkungslos | ✅ **behoben** in 5.5 (neu gefunden); **F18** offen |
 | B17 | Mehrzeilige `{# … #}` sind keine Kommentare | ✅ **behoben** in 4.2 (neu gefunden) |
@@ -389,13 +389,28 @@ Tests für niemanden außer mir nutzbar und in CI wertlos. **Behoben in 2.1**, a
       `DJANGO_SETTINGS_MODULE=demockrazy_config` im systemd-Service).
 - [x] **2.6 Deprecation-Warnungen als Fehler** ✅ – schon mit 1.1 in `pyproject.toml` erledigt
       (`filterwarnings = error::DeprecationWarning, error::PendingDeprecationWarning`).
-- [ ] **2.7 `check --deploy` grün bekommen – BLOCKIERT durch F15.**
-      Bereits erledigt bzw. gegenstandslos: `DEBUG`, `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`
-      (setzt das Modul), `LOGGING` (setzt das Modul), `ALLOWED_HOSTS`.
-      Offen: `SECURE_SSL_REDIRECT`, `SECURE_HSTS_SECONDS`, `CSRF_TRUSTED_ORIGINS`,
-      `SECURE_PROXY_SSL_HEADER`. **Nicht anfassen, bis F15 geklärt ist** – TLS endet vorgelagert,
-      ohne Proxy-Header erzeugt `SECURE_SSL_REDIRECT` eine Redirect-Schleife. Diese Werte gehören
-      ins NixOS-Modul (oder über dessen `djangoSettings`-Option), nicht in die Repo-Defaults.
+- [ ] **2.7 TLS-Hardening – neu gefasst, nachdem der Proxy vorliegt (F15 teilweise beantwortet).**
+      **Das Ziel "`check --deploy` grün" war falsch gesetzt.** Der User hat die Config des
+      vorgelagerten nginx geliefert (Analyse: [deployment.md](deployment.md)), und daraus folgt:
+      - `SECURE_SSL_REDIRECT` **nicht setzen** – `forceSSL = true` macht die Umleitung schon oben.
+      - `SECURE_HSTS_SECONDS` **nicht setzen** – HSTS steht dort mit einem Jahr; in Django wäre es
+        ein **zweiter** `Strict-Transport-Security`-Header, also undefiniertes Verhalten statt Schutz.
+      - ⇒ `check --deploy` wird für diese zwei **dauerhaft meckern, und das ist richtig so.** Der
+        Check kann den Proxy nicht sehen. Grün wäre hier nur durch doppelte Header zu erkaufen.
+      **Neuer Nebenbefund:** `X-Frame-Options` ist heute **widersprüchlich** – Proxy sagt
+      `sameorigin`, Djangos Middleware `DENY`, beide Header gehen raus. Bei widersprüchlichen Werten
+      ist Browserverhalten nicht festgelegt, im schlechtesten Fall wird der Header ignoriert. Eine
+      Seite sollte ihn besitzen; da die App nicht eingebettet werden soll, ist Djangos `DENY` das
+      strengere und das Snippet für diesen vhost überflüssig.
+      **Was wirklich offen ist:** kommt `X-Forwarded-Proto` bei Django an? Ohne den Header hält Django
+      den Request für `http`, und die CSRF-Origin-Prüfung müsste **jede Stimmabgabe mit 403**
+      abweisen. Sie tut es nicht, also liefert etwas das Schema – Header oder `CSRF_TRUSTED_ORIGINS`.
+      Gebraucht wird `services.nginx.recommendedProxySettings` auf dem Proxy-Host und der
+      vollständige `proxyPass`.
+      **Wirksamster verbleibender Schritt, und er gehört nicht ins Repo:** den vorhandenen
+      `nginxCSPSnippet` auf diesen vhost einbinden. Das ging vorher nicht sinnvoll, geht aber jetzt –
+      **seit 4.1/4.3 ist alles vendored**, es gibt keinen Fremd-Host mehr, und das inline-Script der
+      Ergebnisseite ist durch das `'unsafe-inline'` des Snippets gedeckt.
 
 ## 7. Phase 3 – Code-Modernisierung
 
@@ -666,10 +681,34 @@ Deployment-Härtung). **5.1 und 5.2 sind erledigt**, offen bleiben CI, SQLite-H�
       Push. Für Fork-PRs müsste der zweite Trigger dazu.
       Der Vorgänger-Workflow baute nur die Images des abgeschalteten k8s-Deployments und ist mit
       `4e15012` entfallen – seither hatte das Repo **gar keine** CI.
-- [ ] **5.4 SQLite-Betrieb absichern (B13).** WAL-Modus und `timeout` über
-      `DATABASES['default']['OPTIONS']`. **Backup ist geklärt:** borg onsite 03:00 + offsite 04:00
-      auf `/var/lib/demockrazy`. Verschärfend: das Modul startet **4 uwsgi-Prozesse** auf einer
-      SQLite-Datei. Postgres nur, wenn die Last es hergibt – vorher messen, braucht F13.
+- [x] **5.4 SQLite-Betrieb absichert (B13)** ✅ – **kein Postgres**: F13 sagt 60–100 Empfänger, das
+      trägt SQLite. Drei Optionen in `DATABASES['default']['OPTIONS']`, und die wichtigste ist nicht
+      die naheliegende:
+      **`transaction_mode="IMMEDIATE"`.** Djangos Default ist `DEFERRED`, da nimmt SQLite die
+      Schreibsperre erst beim ersten Schreibzugriff. Eine Transaktion, die mit einem SELECT anfängt
+      und danach schreibt – **genau die Form von `vote()`** – muss ihre Leseperre hochstufen, und das
+      kann SQLite nicht warten lassen: sofortiges `SQLITE_BUSY`, **ohne `timeout` zu beachten**.
+      `IMMEDIATE` nimmt die Sperre beim BEGIN, damit greift der `timeout`.
+      **Gemessen statt begründet**, 8 Threads × 25 Lese-dann-Schreib-Transaktionen auf einer Zeile:
+      mit Djangos Defaults **36 von 200 erfolgreich, 164 × `database is locked`**; mit den Optionen
+      **200 von 200**, Zähler exakt 200, für 0,13 s mehr Laufzeit. Die Konkurrenz ist absichtlich
+      härter als die Realität (echte Wähler kommen verteilt), aber der Mechanismus greift bei jeder
+      echten Gleichzeitigkeit – also genau nach dem Einladungsversand.
+      **Hier zahlt sich F18 aus:** `IMMEDIATE` ist nur deshalb billig, weil `ATOMIC_REQUESTS` aus
+      bleibt. `atomic()` gibt es an den zwei Stellen, die schreiben. Mit ATOMIC_REQUESTS würde
+      `IMMEDIATE` *jeden* Request serialisieren, auch die Ergebnisseite.
+      **WAL** dazu, damit Leser und Schreiber sich nicht blockieren. **Bewusst kein
+      `synchronous=NORMAL`**, was sonst gern mit WAL empfohlen wird: das tauscht Dauerhaftigkeit
+      gegen Geschwindigkeit, und hier sind Commits *Stimmen*.
+      **Backup war schon geklärt:** borg onsite 03:00 + offsite 04:00 auf `/var/lib/demockrazy`;
+      WAL legt `-wal`/`-shm` daneben, die werden mitgesichert.
+      ⚠️ **Die Falle ist dieselbe wie bei B16:** `demockrazy_config` setzt `DATABASES` komplett neu
+      und verliert die `OPTIONS` – still, genau wie zehn Jahre lang bei `ATOMIC_REQUESTS`. Deshalb
+      liegt ein **System-Check** dabei ([demockrazy/checks.py](../demockrazy/checks.py)), der das
+      Fehlen meldet. Gegen die echten Prod-Settings prüfbar mit
+      `DJANGO_SETTINGS_MODULE=demockrazy_config python3 manage.py check`.
+      Ohne `Tags.database`, weil `check` so getaggte Checks ohne `--database` auslässt – dann wäre er
+      genau in der Situation still, für die er existiert.
       Testbar ohne Modul-Änderung über die `djangoSettings`-Option des Moduls.
 - [x] **5.5 `/healthz`-Endpoint** ✅ – in [demockrazy/views.py](../demockrazy/views.py), geroutet aus
       [demockrazy/urls.py](../demockrazy/urls.py). Projektebene, nicht `vote`: es ist ein
@@ -734,10 +773,28 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
    `transaction.on_commit()` (B7). Der Callback rührt die Datenbank nicht an.
 3. ~~**Mail-Inhalte als Django-Templates**~~ ✅ mit 3.4 erledigt – liegen unter
    `vote/templates/vote/mail/`, Autoescaping aus, Wortlaut per Test festgenagelt.
-4. **Zustand pro Empfänger ist modellierbar.** Aktuell ist die Zuordnung Mail→Token *absichtlich*
-   nicht persistiert (Anonymität!). Ein Batch-Modus mit Retry/Status braucht aber „welche Adresse
-   wurde erfolgreich zugestellt“. **Das ist ein Konflikt mit dem Anonymitätsversprechen und muss
-   mit dem User geklärt werden**, bevor irgendein Modell entsteht.
+4. **Zustand pro Empfänger – F8 ist entschieden: "lieber anonymer".** Damit gilt: **kein dauerhafter
+   Zustellstatus pro Adresse**, und der Ersteller bekommt allenfalls Summen ("97 von 100 verschickt"),
+   keine Adressliste. Was daraus folgt, ist nicht trivial und sollte vor der Implementierung gelesen
+   werden:
+
+   **Ein Versender mit Taktung und Retry muss Adresse und Token zusammen halten, bis zugestellt ist** –
+   der gerenderte Mailtext *enthält* den Token. Heute existiert diese Paarung nur im RAM, für die
+   Dauer eines Requests. Bei Taktung über Minuten (siehe unten) landet sie auf der Platte, sonst
+   verliert ein Neustart mitten im Versand die restlichen Mails, ohne dass jemand sagen kann, welche.
+
+   **Wie groß die Einbuße wirklich ist, lohnt genau hinzusehen:** die Tokens liegen *schon heute*
+   vollständig in `vote_token`. Neu wäre allein die Zuordnung "welcher Token gehört zu welcher
+   Adresse". Wer die während des Versandfensters lesen kann, erfährt **wer eingeladen wurde** und
+   könnte mit Schreibzugriff in dessen Namen abstimmen. Was er **nicht** erfährt, ist **wie jemand
+   gestimmt hat** – der Token wird bei der Stimmabgabe gelöscht, und die Stimme trägt keine Kennung.
+   **Das Kernversprechen bleibt also unberührt**; preisgegeben wäre eine *temporäre Einladungsliste*.
+
+   Vorschlag entsprechend "lieber anonymer", zu bestätigen wenn die Spec kommt:
+   Queue-Zeile trägt nur `(Empfänger, Betreff, Text, Versuche)` – **keine Poll-Kennung**, damit die
+   Zeile für sich nicht sagt, um welche Abstimmung es geht; **Löschen bei Erfolg**, nicht als
+   "zugestellt" markieren; **keine Historie**; Fortschritt nur als Zahl. Damit ist die Paarung
+   zeitlich begrenzt statt dauerhaft, und nach dem Versand ist der Zustand wieder wie heute.
 5. ~~**Missbrauchsschutz vor Skalierung** (B4)~~ ✅ mit 3.8 erledigt – Deckel bei 150.
 6. Offen zu klären, sobald die Spec da ist: Queue/Worker (Celery? `django-tasks`? DB-Queue +
    Management-Command + CronJob?), Bounce-Handling, Idempotenz, Fortschrittsanzeige für den
@@ -803,12 +860,12 @@ Zustellbericht – und der braucht die Entscheidung aus **F8** (Anonymität).
 | ~~F10~~ | ~~Darf der tote Deployment-Code raus?~~ → **ja**, erledigt in `4e15012`. Nach Einsicht ins NixOS-Modul auch nachträglich als risikofrei bestätigt. | – |
 | ~~F11~~ | ~~Wie wird deployt?~~ → **vollständig beantwortet**, Modul liegt vor. Analyse: **[notes/deployment.md](deployment.md)**. Wichtigstes Ergebnis: das Modul pinnt `rev = 3074dbb`, und die Django-Version kommt aus der nixpkgs des Colmena-Flakes – **zwei Änderungen im User-Repo nötig**, sonst erreicht das Upgrade Prod nicht. Löschcommit `4e15012` bestätigt risikofrei. | – |
 | ~~F14~~ | ~~Setzt Prod `DEBUG = False`?~~ → **ja**, explizit im generierten `demockrazy_config`. Kein Leak, kein Hotfix. | – |
-| **F20** | **Wie hoch ist das Rate-Limit von `smtp.mayflower.de`?** Gebraucht wird der konfigurierte Wert von `smtpd_client_message_rate_limit` (bzw. was eine Policy dort setzt) und die Länge des Zeitfensters (`anvil_rate_time_unit`, Default 60 s) – dazu die **vollständige** Fehlerzeile, weil der abgeschnittene Teil hinter *from* sagt, worauf gezählt wird (Client-IP oder Absenderadresse). Davon hängen Batch-Größe und Pause ab; ohne die Zahl wäre jede Taktung geraten. | **Ziel 2** |
-| **F15** | **Wie kommt Django in Prod ans `https`-Schema?** Node öffnet nur Port 80, kein `forceSSL`, kein `SECURE_PROXY_SSL_HEADER` im Modul – TLS wird vorgelagert terminiert. Setzt der Proxy `X-Forwarded-Proto`? Ohne diese Antwort keine TLS-/CSRF-Settings anfassen (Redirect-Schleife bzw. CSRF-403). | 2.7 |
+| **F20** | **Wie hoch ist das Rate-Limit von `smtp.mayflower.de`?** Gebraucht wird der konfigurierte Wert von `smtpd_client_message_rate_limit` (bzw. was eine Policy dort setzt) und die Länge des Zeitfensters (`anvil_rate_time_unit`, Default 60 s) – dazu die **vollständige** Fehlerzeile, weil der abgeschnittene Teil hinter *from* sagt, worauf gezählt wird (Client-IP oder Absenderadresse). **Eingegrenzt vom User: 30 gingen immer durch, bei 50 kam der 450er** – die Grenze liegt also zwischen 30 und 50 pro Fenster. Davon hängen Batch-Größe und Pause ab; für eine belastbare Taktung fehlt der genaue Wert. | **Ziel 2** |
+| **F15** | **Teilweise beantwortet.** Der Proxy liegt vor: `forceSSL` + HSTS + FrameOpts/GeneralProtect-Snippets, CSP definiert aber nicht eingebunden (Analyse in [deployment.md](deployment.md)). Damit sind `SECURE_SSL_REDIRECT` und `SECURE_HSTS_SECONDS` **gegenstandslos**. **Es fehlt noch:** `services.nginx.recommendedProxySettings` auf dem Proxy-Host und der vollständige `proxyPass` – daran hängt, ob `X-Forwarded-Proto` ankommt, und damit die Auflösung des CSRF-Rätsels. | 2.7 |
 | ~~F12~~ | ~~Prod-Schema-Stand?~~ → **geliefert.** Prod hat zwei Migrations (2016), DB liegt unter `/var/lib/demockrazy/db.sqlite3`. Ausgewertet in [notes/phase-2-migrations.md](phase-2-migrations.md). **Kleiner Rest inzwischen erledigt:** `PRAGMA table_info(vote_poll)` auf Prod bestätigt `type varchar(20) NOT NULL` an Position 8 und die Spaltenreihenfolge der zwei rekonstruierten Migrations. | – |
 | ~~F4~~ | ~~Highcharts-Lizenz oder ersetzen?~~ -> **ersetzen, Chart.js (MIT).** Umgesetzt in 4.3. | – |
 | ~~F5~~ | ~~Zugangsschutz für Poll-Erstellung?~~ -> **Deckel auf die Empfängerzahl, kein IP-Rate-Limit.** Umgesetzt in 3.8, Wert 150. | – |
-| F8 | Anonymität vs. Zustellstatus pro Empfänger – wie weit darf Ziel 2 das aufweichen? (§11.4) | Ziel 2 |
+| ~~F8~~ | ~~Anonymität vs. Zustellstatus pro Empfänger?~~ -> **"lieber anonymer".** Kein dauerhafter Status pro Adresse, keine Adressliste für den Ersteller. Was daraus für die Queue folgt – und wie klein die Einbuße tatsächlich ist – steht in §11.4. | – |
 | **F17** | **Überschreibt das NixOS-Modul einen der vier Mail-Text-Settings?** 3.4 hat `VOTE_MAIL_SUBJECT`, `VOTE_MAIL_TEXT`, `VOTE_ADMIN_MAIL_SUBJECT`, `VOTE_ADMIN_MAIL_TEXT` aus `settings.py` entfernt – der Text kommt jetzt aus Templates. Setzt `demockrazy_config` (oder die `djangoSettings`-Option) einen davon, wird der Wert nach dem Deploy **stillschweigend ignoriert** und Prod verschickt den Repo-Wortlaut. Prüfung im Repo des Users: `grep -rn 'VOTE_MAIL\|VOTE_ADMIN_MAIL\|VOTE_BASE_URL\|VOTE_MAIL_FROM'`. Meine Modul-Analyse in [deployment.md](deployment.md) listet keinen dieser vier, und die alte `local_settings.py` überschrieb nur `VOTE_BASE_URL`/`VOTE_MAIL_FROM`/`VOTE_SEND_MAILS` – die drei sind bewusst geblieben. Trifft die Annahme nicht zu, gehört der Text ins Template. | **vor dem Deploy** |
 | ~~F13~~ | ~~Wie groß sind Abstimmungen real?~~ -> **60–100 Empfänger pro Umfrage.** Damit genügt SQLite mit WAL + `timeout`, **kein Postgres** (5.4). Und der Kern der Antwort: **ab ~40–50 scheitert der Massenversand heute** – das ist das Problem, das Ziel 2 lösen soll, siehe §11. | – |
 | ~~F19~~ | ~~Bootstrap 5 vendoren – Freigabe und Quelle?~~ → **freigegeben, GitHub-Release-Dist.** Umgesetzt in 4.1: v5.3.8, nur `bootstrap.min.css` + `bootstrap.bundle.min.js`, ohne Maps. Herkunft und Checksummen in [PROVENANCE.md](../vote/static/bootstrap-5.3.8-dist/PROVENANCE.md). | – |
@@ -826,19 +883,21 @@ Phase 2  Migrations, Django 5.2, Settings                             ✅ außer
 Phase 5  5.1 k8s-Cleanup ✅ · 5.2 Deployment verstanden ✅ · 5.3 CI ✅ · 5.4/5.5 offen
 Phase 6  README ✅ · Handover ✅
 
-Phase 3  vollständig ✅ (3.8 mit F5 entschieden)
-Phase 4  vollständig ✅ (4.1 Bootstrap 5 · 4.2 jQuery raus · 4.3 Chart.js · 4.4 · 4.5)
+Phase 3  vollständig ✅   Phase 4  vollständig ✅   Phase 5  vollständig ✅   Phase 6  ✅
 
 offen:
-  5.4      SQLite-Härtung – **jetzt machbar**: F13 beantwortet (60–100), F18 entschieden (aus).
-           WAL + `timeout`, kein Postgres.
-  2.7      TLS-Hardening  – braucht F15 (Proxy-Config vom User)
+  2.7  TLS-Hardening – **zum größten Teil gegenstandslos**, seit der Proxy vorliegt: `forceSSL`
+       und HSTS stehen dort schon, in Django wären sie doppelt. Es bleibt (a) die Restfrage aus
+       **F15** (`X-Forwarded-Proto`, und damit das CSRF-Rätsel), (b) der widersprüchliche
+       `X-Frame-Options` (Proxy `sameorigin` vs. Django `DENY` – beide gehen raus), (c) der
+       Vorschlag, den vorhandenen CSP-Snippet einzubinden, was erst seit 4.1/4.3 sinnvoll geht.
+       **Alle drei betreffen den Proxy, nicht dieses Repo.**
 
-**Ziel 1 ist damit bis auf 5.4 und 2.7 fertig.** Die Bug-Liste ist bis auf **B9** (Token im
-Query-String, additive Änderung, Entscheidung offen) abgearbeitet.
+**Ziel 1 ist damit inhaltlich fertig.** Vom Bug-Register bleibt **B9** (Token im Query-String) –
+eine Änderung wäre nur additiv möglich und braucht eine Entscheidung, ob der Aufwand lohnt.
 
-ZIEL 2 (Batch-Mails) hat jetzt eine gemessene Problembeschreibung, siehe §11 – offen sind die
-Spec, **F8** (Anonymität vs. Zustellstatus) und **F20** (Rate-Limit-Wert).
+ZIEL 2 (Batch-Mails) hat eine gemessene Problembeschreibung (§11) und mit **F8** die
+Anonymitäts-Entscheidung. Offen: die Spec und **F20** (der genaue Rate-Limit-Wert).
 
 erledigt in Phase 3: 3.1 Forms · 3.2 create()/manage() · 3.3 vote() · 3.4 Mail-Service ·
 3.5 Poll-Service · 3.6 Models/Constraints · 3.7 path()
@@ -846,9 +905,11 @@ erledigt in Phase 3: 3.1 Forms · 3.2 create()/manage() · 3.3 vote() · 3.4 Mai
   └─ 3.4 ist die Schnittstelle für ZIEL 2 (Batch-Mails, nach Spec)
 ```
 
-**Nächster Schritt: 5.4** (WAL + `timeout` für SQLite) – das ist mit F13 und F18 unblockiert und
-der letzte technische Punkt von Ziel 1. Danach wartet nur noch **2.7** auf F15.
-Für Ziel 2 fehlt die Spec; die Problembeschreibung steht in §11, offen sind F8 und F20.
+**Nächster Schritt: keiner im Repo.** Ziel 1 ist inhaltlich fertig; was von 2.7 übrig ist, gehört in
+den Proxy und braucht F15. Danach ist **Ziel 2** dran – die Problembeschreibung steht in §11, die
+Anonymitätsfrage ist mit F8 entschieden, es fehlen die Spec und **F20**.
+**Vor dem Deploy** bleibt die Liste in [handover.md](handover.md) §9 – **F17** ist der einzige Punkt,
+der noch eine Antwort braucht.
 **Vor dem Deploy:** F17 klären; die Migration `0003` schreibt `vote_poll` und `vote_token` neu
 (Details in [phase-2-migrations.md](phase-2-migrations.md)), Backup liegt vor (borg 03:00/04:00).
 **Die Vorarbeit für Ziel 2 (§11.1–3) ist mit 3.4 vollständig** – ein Batch-Versender ersetzt
