@@ -1,7 +1,7 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: 2026-08-04, Branch `update/modernize-2026`, 58 Commits über `master` (Basis `3074dbb`).
+Stand: 2026-08-04, Branch `update/modernize-2026`, 61 Commits über `master` (Basis `3074dbb`).
 Arbeitsbaum ist sauber, alles committed, **nichts gepusht** -- die CI hat also noch nie gelaufen,
 sie greift erst beim ersten Push.
 
@@ -35,9 +35,11 @@ insbesondere für Ziel 2 relevant (§7).
 
 ## 3. Zwei Ziele
 
-1. **Auf heutige Standards bringen.** **Phase 0 bis 4 sind vollständig fertig**, Phase 6 auch,
-   von Phase 5 fehlt nur 5.4. Offen sind genau zwei Punkte: **5.4** (SQLite-Härtung, mit F13/F18
-   jetzt unblockiert) und **2.7** (TLS, braucht F15). Die Bug-Liste ist bis auf **B9** abgearbeitet.
+1. **Auf heutige Standards bringen – inhaltlich fertig.** Phase 0 bis 6 sind durch, das
+   Bug-Register bis auf **B9** (Token im Query-String, nur additiv änderbar). Von 2.7 ist der
+   größte Teil **gegenstandslos** geworden, nachdem der Proxy vorliegt: `forceSSL` und HSTS stehen
+   dort schon, in Django wären sie doppelt. Was bleibt, betrifft den **Proxy, nicht dieses Repo** –
+   §8, F15.
 2. **Batch-Modus für Mails.** *Spec steht noch aus, der User erklärt sie später.* Nicht spekulativ
    bauen. Phase 3 so anlegen, dass es andockt (§7).
 
@@ -63,7 +65,7 @@ grün ist, ist dort grün.
 
 **Sollwerte, an denen du merkst, dass alles in Ordnung ist:**
 
-- `pytest` → **163 passed** (kein xfailed mehr, siehe §5)
+- `pytest` → **169 passed** (kein xfailed mehr, siehe §5)
 - `manage.py check` → **no issues (0 silenced)**
 - `makemigrations --check` → **No changes detected**
 - `ruff format --check` → alle Dateien unverändert
@@ -75,7 +77,7 @@ Lokal starten (nicht mit `manage.py runserver` allein – siehe §6, Falle 3):
 python3 manage.py runserver --settings=demockrazy.dev_settings
 ```
 
-### Wo was liegt (Stand nach 4.3)
+### Wo was liegt (Stand nach 5.4)
 
 | Pfad | Inhalt |
 |---|---|
@@ -87,7 +89,8 @@ python3 manage.py runserver --settings=demockrazy.dev_settings
 | [../vote/templates/vote/mail/](../vote/templates/vote/mail/) | die vier Mail-Templates; **enden absichtlich ohne Zeilenumbruch** |
 | [../vote/urls.py](../vote/urls.py) | die acht Routen als `path()`, dazu der eigene `identifier`-Converter |
 | [../demockrazy/views.py](../demockrazy/views.py) | nur `/healthz` – Betriebs-Endpunkt, gehört nicht in `vote` |
-| [../demockrazy/tests/](../demockrazy/tests/) | Projektebene: `test_healthz`, `test_transactions` (was `ATOMIC_REQUESTS` wirklich tut), `test_staticfiles` (fährt `collectstatic` echt) |
+| [../demockrazy/checks.py](../demockrazy/checks.py) | System-Check gegen stille Fehlkonfiguration der SQLite-`OPTIONS` (5.4) |
+| [../demockrazy/tests/](../demockrazy/tests/) | Projektebene: `test_healthz`, `test_transactions` (was `ATOMIC_REQUESTS` wirklich tut), `test_staticfiles` (fährt `collectstatic` echt), `test_checks` |
 | [../vote/migrations/](../vote/migrations/) | `0001`+`0002` rekonstruieren Prod von 2016, `0003` bringt Constraints und `choices` |
 | [../vote/tests/](../vote/tests/) | `test_models`, `test_forms`, `test_views`, `test_mail_service`, `test_poll_service`, `test_known_bugs`, `test_templates`, `conftest` |
 | [../demockrazy/settings.py](../demockrazy/settings.py) | Defaults; dazu `dev_settings.py` (runserver) und `test_settings.py` (pytest) |
@@ -171,9 +174,9 @@ Die Spec kommt vom User. Was für *jede* Variante gilt und in Phase 3 entstehen 
 
 | # | Frage | Blockiert |
 |---|---|---|
-| **F15** | Setzt der vorgelagerte Proxy `X-Forwarded-Proto`? Gibt es ein Mayflower-Default für `SECURE_PROXY_SSL_HEADER`? Nebenrätsel: seit Django 4.0 wird der `Origin`-Header strikt geprüft – ohne Proxy-Header müssten POSTs (also **jede Stimmabgabe**) mit 403 scheitern; sie tun es offenbar nicht, also liefert irgendwas das Schema. Das will ich verstanden haben. | **2.7** |
-| **F8** | Anonymität vs. Zustellstatus pro Empfänger – wie weit darf Ziel 2 das aufweichen? | Ziel 2 |
-| **F20** | **Wie hoch ist das Rate-Limit von `smtp.mayflower.de`?** Gebraucht wird der Wert von `smtpd_client_message_rate_limit` (oder was eine Policy dort setzt), die Fensterlänge (`anvil_rate_time_unit`, Default 60 s) und die **vollständige** Fehlerzeile – der abgeschnittene Teil hinter *from* sagt, worauf gezählt wird (Client-IP oder Absenderadresse). Ohne diese Zahl wäre jede Taktung geraten. | **Ziel 2** |
+| **F15** | **Fast beantwortet.** Der Proxy liegt vor (Analyse in [deployment.md](deployment.md)): `forceSSL` + HSTS stehen dort, `SECURE_SSL_REDIRECT`/`SECURE_HSTS_SECONDS` sind damit gegenstandslos. **Es fehlt:** `services.nginx.recommendedProxySettings` auf dem Proxy-Host und der vollständige `proxyPass` – daran hängt, ob `X-Forwarded-Proto` ankommt. Warum das zählt: ohne den Header hält Django den Request für `http`, und die CSRF-Origin-Prüfung müsste **jede Stimmabgabe mit 403** abweisen. Sie tut es nicht, also liefert etwas das Schema. | **2.7** |
+| ~~F8~~ | ~~Anonymität vs. Zustellstatus?~~ -> **"lieber anonymer".** Kein dauerhafter Status pro Adresse. Konsequenzen für die Queue in [plan.md](plan.md) §11.4 – **vor dem ersten Modell lesen.** | – |
+| **F20** | **Wie hoch ist das Rate-Limit von `smtp.mayflower.de`?** Eingegrenzt: **30 gingen immer durch, bei 50 kam der 450er.** Gebraucht wird der Wert von `smtpd_client_message_rate_limit` (oder was eine Policy dort setzt), die Fensterlänge (`anvil_rate_time_unit`, Default 60 s) und die **vollständige** Fehlerzeile – der abgeschnittene Teil hinter *from* sagt, worauf gezählt wird (Client-IP oder Absenderadresse). Ohne diese Zahl wäre jede Taktung geraten. | **Ziel 2** |
 | **F17** | Überschreibt das NixOS-Modul `VOTE_MAIL_SUBJECT`/`VOTE_MAIL_TEXT`/`VOTE_ADMIN_MAIL_*`? 3.4 hat sie aus `settings.py` entfernt, der Text kommt aus Templates. Ein Override dort wird nach dem Deploy still ignoriert. Prüfen mit `grep -rn 'VOTE_MAIL\|VOTE_ADMIN_MAIL'` im Colmena-Repo. | **vor dem Deploy** |
 
 ~~Kleinigkeit: die `type`-Spalte war in der Prod-Schema-Ausgabe abgeschnitten.~~ **Erledigt** –
@@ -232,21 +235,24 @@ daran ein `script`-Element und verschluckte das Datenelement dahinter: **200 ohn
 
 ### Was als nächstes dran ist
 
-**5.4 – SQLite-Härtung.** Mit F13 und F18 unblockiert und der letzte technische Punkt von Ziel 1:
-WAL-Modus und `timeout` in `DATABASES['default']['OPTIONS']`. **Kein Postgres** – reale Umfragen
-haben 60–100 Empfänger, das trägt SQLite. Über die `djangoSettings`-Option des Moduls sogar ohne
-Modul-Änderung testbar.
+**Im Repo nichts.** Ziel 1 ist inhaltlich fertig. Was von 2.7 übrig ist, gehört in den Proxy und
+braucht **F15** (kommt `X-Forwarded-Proto` an?). Zwei Punkte dort lohnen unabhängig davon:
+`X-Frame-Options` ist heute **widersprüchlich** (Proxy `sameorigin`, Django `DENY`, beide Header
+gehen raus – im schlechtesten Fall ignoriert der Browser ihn), und der **vorhandene CSP-Snippet**
+liesse sich jetzt einbinden, was vorher nicht sinnvoll ging: seit 4.1/4.3 ist alles vendored, es gibt
+keinen Fremd-Host mehr. Beides in [deployment.md](deployment.md).
 
-**2.7 – TLS-Hardening.** Wartet auf **F15**: der User liefert die Proxy-Konfiguration nach. Vorher
-nichts anfassen, sonst Redirect-Schleife oder 403 auf jede Stimmabgabe.
+**Danach Ziel 2 (Batch-Mails).** Das ist der eigentliche Auftrag, und er ist jetzt vorbereitet:
 
-**Ziel 2 (Batch-Mails)** hat jetzt eine gemessene Problembeschreibung statt einer Vermutung – sie
-steht in [plan.md](plan.md) §11 und ist **das Wichtigste, was diese Session hinterlässt**. Kurz:
-der Mailserver drosselt nach *Nachrichten pro Zeitfenster* (`450 4.7.1 too much mail from`, real bei
-50 Mails), `deliver()` baut heute **eine SMTP-Verbindung pro Empfänger** (nachgezählt: 101 Mails =
-101 Verbindungen), und der Versand läuft **synchron im Request** – `on_commit` verschiebt ihn nicht,
-weil es ohne offenen `atomic`-Block sofort ausführt (Folge von B16).
-Fehlt noch: die Spec, **F8** (Anonymität vs. Zustellstatus) und **F20** (der konkrete Limit-Wert).
+- Die **Problembeschreibung ist gemessen**, nicht vermutet – [plan.md](plan.md) §11. Kurz: der
+  Mailserver drosselt nach *Nachrichten pro Zeitfenster* (`450 4.7.1 too much mail from`; 30 gingen
+  immer durch, bei 50 kam der Fehler), `deliver()` baut **eine SMTP-Verbindung pro Empfänger**
+  (nachgezählt: 101 Mails = 101 Verbindungen), und der Versand läuft **synchron im Request** –
+  `on_commit` verschiebt ihn nicht, weil es ohne offenen `atomic`-Block sofort ausführt (Folge B16).
+- **F8 ist entschieden: "lieber anonymer".** Kein dauerhafter Zustellstatus pro Adresse. Was das für
+  eine Queue bedeutet – und warum die Einbuße kleiner ist, als sie klingt – steht in §11.4. **Vor dem
+  ersten Modell lesen.**
+- Offen: die **Spec** und **F20** (der genaue Rate-Limit-Wert, für Batch-Größe und Pause).
 
 Was beim Routing (3.7) zu beachten war und weiter gilt, falls jemand `urls.py` anfasst:
 die sieben öffentlichen Pfade sind **zeichengleich** zu halten (Regel 5), `test_views.py::TestUrls`
@@ -262,13 +268,18 @@ prüft sie zusammen mit dem Converter-Verhalten. Der Namespace `polls` und die `
    Prod-Abbild, Daten unversehrt ([phase-2-migrations.md](phase-2-migrations.md)). `migrate` läuft
    im `preStart` vor dem Dienststart, es gibt also keine parallelen Schreiber; borg-Backup liegt vor.
 3. **`rev`+`sha256` im Modul bumpen** und das Colmena-Flake auf `mf-next` (§6, Falle 4).
-
-4. **`/healthz` braucht einen passenden `Host`-Header.** `ALLOWED_HOSTS` ist in Prod
+4. **Die SQLite-`OPTIONS` aus 5.4 erreichen Prod nicht von allein.** `demockrazy_config` setzt
+   `DATABASES` komplett neu und verliert sie dabei – **derselbe Mechanismus wie bei B16.** Deshalb
+   gibt es einen System-Check dafür; nach dem Deploy prüfbar mit
+   `DJANGO_SETTINGS_MODULE=demockrazy_config python3 manage.py check`. Ohne die Optionen sind es
+   gemessen **164 von 200** gleichzeitigen Stimmabgaben, die mit `database is locked` scheitern.
+5. **`/healthz` braucht einen passenden `Host`-Header.** `ALLOWED_HOSTS` ist in Prod
    `["wahlcomputer.mayflower.de"]` – eine Monitoring-Probe gegen `localhost` bekommt einen 400 und
    sieht wie ein Ausfall aus. Gehört ins Modul, nicht in die Repo-Defaults.
 
-Offen: **3.8** braucht F5, **4.1** braucht F19, **4.3** braucht F4, **2.7** braucht F15,
-**5.4** braucht F13 (+ F18).
+Von diesen fünf Punkten braucht nur **F17** noch eine Antwort; die anderen vier sind Handgriffe
+am Modul. Der Rest der Fragen (§8) blockiert **nichts im Repo** mehr – F15 betrifft den Proxy,
+F20 gehört zu Ziel 2.
 
 ## 10. Arbeitsregeln (haben sich bewährt, bitte beibehalten)
 

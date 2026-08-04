@@ -136,3 +136,55 @@ Der `try/except` am Ende von [demockrazy/settings.py](../demockrazy/settings.py)
   Härtung – gehört ins Modul oder über die `djangoSettings`-Option.
 - Die `djangoSettings`-Option (verbatim Settings) ist ein guter Hebel: damit lässt sich Neues in
   Produktion testen, ohne das Modul zu ändern.
+
+## Der vorgelagerte Proxy – vom User geliefert 2026-08-04 (zu F15)
+
+Die TLS-Terminierung liegt **nicht** auf der Node, sondern auf einem vorgeschalteten nginx. Dessen
+vhost:
+
+```nix
+"wahlcomputer.mayflower.de" = {
+  forceSSL = true;
+  enableACME = true;
+  extraConfig =
+    config.mayflower.snippets.nginxHSTSSnippet
+    + config.mayflower.snippets.nginxFrameOptsSnippet
+    + config.mayflower.snippets.nginxGeneralProtectSnippet;
+  locations."/".proxyPass = "http://wahlcomputer.…";
+};
+```
+
+Die Snippets setzen:
+
+| Snippet | Header |
+|---|---|
+| `nginxHSTSSnippet` | `Strict-Transport-Security: max-age=31536000;` (1 Jahr, ohne `includeSubDomains`/`preload`) |
+| `nginxFrameOptsSnippet` | `X-Frame-Options: sameorigin` |
+| `nginxGeneralProtectSnippet` | `X-XSS-Protection: 1; mode=block`, `Referrer-Policy: same-origin, strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff` |
+| `nginxCSPSnippet` | existiert, ist auf diesem vhost aber **nicht** eingebunden |
+
+**Das dreht 2.7 um.** Von den vier offenen Settings sind zwei gegenstandslos und eines gefährlich:
+
+- **`SECURE_SSL_REDIRECT` – nicht setzen, unnötig.** `forceSSL = true` macht die
+  HTTP→HTTPS-Umleitung bereits einen Hop weiter oben. In Django wäre sie doppelt und ohne
+  `SECURE_PROXY_SSL_HEADER` eine Redirect-Schleife.
+- **`SECURE_HSTS_SECONDS` – nicht setzen, sonst doppelter Header.** HSTS steht schon, mit einem Jahr.
+  Zwei `Strict-Transport-Security`-Header sind undefiniertes Verhalten, kein zusätzlicher Schutz.
+- **Neuer Nebenbefund: `X-Frame-Options` ist heute widersprüchlich.** Der Proxy sagt `sameorigin`,
+  Djangos `XFrameOptionsMiddleware` sagt per Default `DENY` – **beide Header gehen raus**. Bei
+  widersprüchlichen Werten ist das Browserverhalten nicht festgelegt; im schlechtesten Fall wird der
+  Header ignoriert, also *schwächer* als jede der beiden Absichten. Eine Seite sollte ihn besitzen.
+  Da die App nicht eingebettet werden soll, ist `DENY` das strengere und Djangos Default richtig –
+  dann gehört das `FrameOpts`-Snippet für diesen vhost weg. Umgekehrt geht auch, aber nicht beides.
+- **Offen bleibt allein die Kernfrage von F15:** kommt `X-Forwarded-Proto` bei Django an? Das hängt
+  an `services.nginx.recommendedProxySettings` auf dem Proxy-Host; der `proxyPass`-Wert war
+  abgeschnitten. **Warum das zählt:** ohne diesen Header hält Django den Request für `http`, und
+  Djangos CSRF-Prüfung vergleicht seit 4.0 den `Origin`-Header gegen `http://…` statt `https://…` →
+  **403 auf jede Stimmabgabe**. Das passiert offenbar nicht, also liefert *irgendwas* das Schema –
+  entweder der Header, oder ein gesetztes `CSRF_TRUSTED_ORIGINS`. Das will ich gesehen haben, bevor
+  hier etwas geändert wird.
+- **Neue Option, die es vorher nicht gab:** der `nginxCSPSnippet` ließe sich jetzt einbinden. Sein
+  `default-src 'none'; script-src 'unsafe-inline' 'self'; style-src 'self' 'unsafe-inline'` passt zum
+  Bestand **seit alles vendored ist** (4.1/4.3) – kein CDN, keine Fremd-Hosts, und das inline-Script
+  auf der Ergebnisseite ist durch `'unsafe-inline'` gedeckt. Das wäre der wirksamste verbleibende
+  Härtungsschritt, und er gehört in den Proxy, nicht in Django.
