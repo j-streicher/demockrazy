@@ -96,9 +96,19 @@ DATABASES = {
     }
 }
 
-# Jeder Request läuft in einer Transaktion. Wichtig für die Stimmabgabe: ein unvollständiger
-# Multiple-Choice-POST darf keine Teilstimme hinterlassen (siehe vote/tests/test_views.py).
-ATOMIC_REQUESTS = True
+# Hier stand von 2016 bis 2026 ein modulweites `ATOMIC_REQUESTS = True` (Commit 154e5f6, direkt
+# unter DATABASES). Django liest die Option aber **pro Datenbank**, aus
+# `DATABASES['default']['ATOMIC_REQUESTS']` -- ein modulweiter Wert wird nie gelesen. Gemessen:
+# `connections.settings['default']['ATOMIC_REQUESTS']` war die ganze Zeit `False`. Produktion hätte
+# den Wert ohnehin verloren, weil das generierte `demockrazy_config` `DATABASES` komplett neu setzt.
+#
+# Entfernt statt an die richtige Stelle verschoben, weil Einschalten eine echte
+# Verhaltensänderung wäre -- und zwar in der riskantesten Richtung: dann nähme *jeder* Request eine
+# Transaktion auf einer SQLite-Datei, die vier uwsgi-Prozesse teilen (B13), auch die reine
+# Ergebnisseite. Wo Atomarität gebraucht wird, steht sie explizit im Code und ist getestet:
+# `vote.services.polls.create_poll()` und der `atomic()`-Block in `vote.views.vote()`, der die
+# Teilstimme eines unvollständigen Multiple-Choice-POST zurücknimmt. Beides lief nie über diese
+# Option. Festgehalten in demockrazy/tests/test_transactions.py.
 
 # Die Tabellen stammen von 2015/16 und haben AutoField-Primärschlüssel. Explizit denselben Wert
 # setzen, statt Djangos neuen BigAutoField-Default zu übernehmen: das vermeidet eine

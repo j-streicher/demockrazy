@@ -17,9 +17,10 @@ from ..models import Choice, Poll, Token
 def create_poll(*, title, poll_type, question_text, choices, num_tokens):
     """Legt Umfrage, Choices und Tokens an und liefert `(poll, tokens)`.
 
-    `transaction.atomic` ist im Request redundant (`ATOMIC_REQUESTS`) und dort nur ein Savepoint --
-    es steht hier, damit die Funktion auch außerhalb eines Requests nicht auf halbem Weg
-    stehenbleiben kann.
+    `transaction.atomic` ist **nicht** redundant -- das war eine falsche Annahme aus 3.5. Das
+    modulweite `ATOMIC_REQUESTS` in den Settings hat Django nie gelesen (Begründung dort), es gibt
+    also keine Transaktion um den Request. Dieser Dekorator ist das Einzige, was verhindert, dass
+    die Funktion auf halbem Weg stehenbleibt -- im Request wie außerhalb.
 
     Die Tokens kommen in derselben Reihenfolge zurück, in der sie erzeugt wurden; der Aufrufer
     ordnet sie den Empfängern zu.
