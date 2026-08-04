@@ -223,6 +223,19 @@ EMAIL_PORT = 25
 EMAIL_USE_TLS = True
 EMAIL_USE_SSL = False
 
+# Djangos Default ist `EMAIL_TIMEOUT = None`, und dann bekommt der Socket **keine** Zeitgrenze --
+# nachgesehen statt vermutet: das Backend gibt `timeout` gar nicht an `smtplib` weiter, `smtplib`
+# nimmt den Socket-Default, und `socket.getdefaulttimeout()` ist ebenfalls `None`. Ein Mailserver,
+# der die Verbindung annimmt und dann schweigt, blockiert den Aufrufer damit **unbegrenzt**.
+#
+# Das ist heute schon relevant, nicht erst für Ziel 2: der Versand läuft synchron im Request
+# (siehe notes/plan.md §11), ein hängender Server hält also einen uwsgi-Prozess -- und es gibt
+# vier. Für den getakteten Versender (§11.7) kommt hinzu, dass er sich selbst sperrt: ein Lauf,
+# der nie endet, hält die Sperre und es geht überhaupt keine Mail mehr raus.
+#
+# 10 s sind großzügig für einen Mailserver im selben Netz und trotzdem endlich.
+EMAIL_TIMEOUT = _env_int("DEMOCKRAZY_MAIL_TIMEOUT", 10)
+
 VOTE_MAIL_FROM = "wahlleitung@demo.ckrazy"
 VOTE_BASE_URL = "http://127.0.0.1:8000"
 VOTE_SEND_MAILS = _env_flag("DEMOCKRAZY_SEND_MAILS", default=False)

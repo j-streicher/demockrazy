@@ -857,10 +857,221 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
    "zugestellt" markieren; **keine Historie**; Fortschritt nur als Zahl. Damit ist die Paarung
    zeitlich begrenzt statt dauerhaft, und nach dem Versand ist der Zustand wieder wie heute.
 5. ~~**Missbrauchsschutz vor Skalierung** (B4)~~ ✅ mit 3.8 erledigt – Deckel bei 150.
-6. Offen zu klären, sobald die Spec da ist: **Queue/Worker** (Celery? `django-tasks`? DB-Queue +
-   Management-Command + CronJob?), **Bounce-Handling**, **Idempotenz**. Die **Fortschrittsanzeige**
-   ist durch F8 schon eingeschränkt: nur Summen, keine Adressliste. Die **Taktung** (Batch-Größe und
-   Pause) hängt an F20.
+6. ✅ **Gemeinsame SMTP-Verbindung** – vorgezogen, weil es an keiner Spec hängt. `deliver()` baut
+   eine Verbindung für die ganze Umfrage statt eine pro Mail. Gemessen über die echte View mit
+   einem zählenden Backend: **101 Nachrichten in 101 Verbindungen → 101 Nachrichten in 1**.
+   **Ausdrücklich nicht die Kur:** gedrosselt werden Nachrichten, nicht Verbindungen, und deren
+   Zahl bleibt gleich. Es verkürzt nur die Wartezeit, die der Ersteller heute synchron aussitzt.
+7. **Taktung: vom User vorgegeben (2026-08-04) – „30er Batches mit 2 Sekunden Verzögerung".**
+   Ausgearbeitet in §11.7. Offen bleibt **F20** für die genaue Fensterlänge; die zwei Zahlen werden
+   deshalb konfigurierbar, mit den Wünschen des Users als Default.
+8. Noch offen, sobald die restliche Spec da ist: **Bounce-Handling** und die
+   **Fortschrittsanzeige** – letztere ist durch F8 schon eingeschränkt auf Summen ohne Adressliste.
+
+### 11.7 Entwurf des getakteten Versands – **noch nicht gebaut, zur Bestätigung**
+
+**Die Vorgabe des Users (2026-08-04, dreimal bestätigt): 30er Nachrichten-Batches mit 2 Sekunden
+Intervall.** Das ist die Taktung, die gebaut wird. Die Rechnung dazu gehört aber daneben:
+
+| | Nachrichten in der ersten Minute |
+|---|---|
+| 30er Batches, 2 s Pause | 100 Empfänger in ~7 s ⇒ **alle 101** |
+| gemessen als immer erfolgreich | **30** |
+| gemessen als Fehler (`450`) | 50 |
+
+⚠️ **Wenn das Zählfenster 60 s ist** – der Postfix-Default für `anvil_rate_time_unit`, und genau das
+ist **F20** – dann bringt eine 2-Sekunden-Pause zwischen den Batches den `450` an derselben Stelle
+zurück, weil sie die *Zahl der Nachrichten pro Minute* kaum senkt. Die Pause, die zur Messung passt,
+wäre eine **Fensterlänge** zwischen den Batches: 30 Nachrichten, 60 s Pause, 30 Nachrichten.
+
+**Warum die Vorgabe trotzdem tragbar ist und ich sie so baue:** der `450` ist ein 4xx, also
+temporär, und der Entwurf unten **wiederholt** ihn. Es geht dadurch keine Einladung verloren – es
+kostet Logzeilen und Wartezeit. Und **beide Zahlen sind Einstellungen**, keine Konstanten:
+`DEMOCKRAZY_MAIL_BATCH_SIZE=30` und `DEMOCKRAZY_MAIL_BATCH_PAUSE=2`, mit den Wünschen des Users als
+Default. Tauchen die `450` im Log auf, ist die Kur **eine Zahl** und kein Deploy von Code.
+
+**1. Raus aus dem Request – der einzige Punkt ohne Alternative.**
+Bei 2 s Pause dauert der Versand nur Sekunden, das würde ein Request noch aushalten. Sobald die
+Pause aber auf Fensterlänge hoch muss, sind es Minuten, und `proxy_read_timeout` (nginx) und
+`harakiri` (uwsgi) schneiden vorher ab. Der Versand gehört deshalb **von Anfang an** in einen eigenen
+Prozess – damit die Pause eine Zahl bleibt und nicht wieder eine Architekturfrage wird.
+
+**2. Die Warteschlange – ihre Form kommt aus F8, nicht aus Bequemlichkeit.**
+Ein Modell `OutgoingMail` mit `recipient`, `subject`, `body`, `attempts`. **Keine Poll-Kennung**
+(§11.4): die Zeile soll für sich nicht sagen, um welche Abstimmung es geht. **Löschen bei Erfolg**,
+kein `sent`-Flag, keine Historie; Reihenfolge über die ID, damit die Einladungsfolge erhalten bleibt.
+⚠️ **Was die Taktung an F8 kostet, und das ist neu:** heute lebt die Paarung Adresse↔Token nur im
+RAM eines Requests. Mit einer Warteschlange liegt sie **auf der Platte** – bei 2 s Pause für
+Sekunden, bei 60 s für Minuten. Genau die Einbuße, die §11.4 vorhergesehen hat. Preisgegeben wäre
+*wer eingeladen wurde*, **nicht wie jemand gestimmt hat**; das Kernversprechen bleibt unberührt.
+
+**3. Einreihen atomar mit den Tokens.**
+`create()` rendert wie heute und schreibt die Zeilen **in derselben Transaktion** wie `create_poll()`.
+Sonst kann ein Absturz dazwischen Tokens ohne Einladung hinterlassen – Wähler, die ihren Token nie
+erfahren, und eine Umfrage, die nur noch der Ersteller schließen kann. Das `on_commit(deliver)` aus
+3.4 entfällt damit; seine Zusage („keine Mail raus, bevor die Tokens durabel sind", B7) erfüllt die
+Warteschlange strukturell, weil der Versender in einem anderen Prozess läuft und nur committete
+Zeilen sieht.
+
+**4. Der Versender: ein Management-Command, kein Daemon.**
+`manage.py send_pending_mails`, und in dieser Reihenfolge:
+
+- **Sperre zuerst** – `flock` auf eine Datei neben der Datenbank. Läuft schon ein Versand, beendet
+  sich der zweite sofort und still. Damit braucht die Tabelle **keine Claim-Spalte**, und ein Timer,
+  der in einen laufenden Versand feuert, tut nichts Schädliches.
+- `batch_size` Zeilen nach ID nehmen, über **eine** SMTP-Verbindung verschicken (steht seit 11.6),
+  jede erfolgreiche Zeile löschen.
+- `pause` Sekunden warten, nächster Batch, bis die Warteschlange leer ist oder ein Laufzeitbudget
+  erschöpft ist.
+- **Beim ersten 4xx den Lauf abbrechen**, nicht weiterprobieren: ein `450` heißt „du bist über dem
+  Limit", die nächsten 29 bekämen ihn auch und würden nur `attempts` verbrennen. Der Timer versucht
+  es beim nächsten Intervall erneut.
+- Ein 5xx ist dauerhaft: `attempts` hoch, nach N Versuchen Zeile löschen und protokollieren –
+  **ohne Adresse**, wie `deliver()` das heute schon tut (F8).
+- `VOTE_SEND_MAILS=False` druckt statt zu verschicken, genau wie `deliver()` heute.
+
+**4a. Blockiert der schlafende Versender die Abstimmung? Gemessen: nein – unter einer Bedingung.**
+Er läuft in einem eigenen Prozess, schreibt aber in **dieselbe SQLite-Datei** wie die vier
+uwsgi-Prozesse, und die steht seit 5.4 auf `transaction_mode=IMMEDIATE` – die Schreibsperre fällt
+schon beim `BEGIN`. Gemessen mit 8 gleichzeitigen Wählern × 25 Stimmabgaben gegen einen laufenden
+Versender (3 Batches à 30):
+
+| Versender | Stimmen | `database is locked` | Wartezeit je Stimme (Schnitt / schlimmste) |
+|---|---|---|---|
+| **A** `sleep` **außerhalb** der Transaktion, Lauf 6 s | 200/200 | 0 | **7 ms** / 0,2 s |
+| **A'** dasselbe, Lauf 24 s | 200/200 | 0 | **9 ms** / 0,2 s |
+| **B** eine Transaktion um den ganzen Lauf, 6 s | 200/200 | 0 | 253 ms / **6,6 s** |
+| **B'** dieselbe Transaktion, Lauf 25 s | **192/200** | **8** | 972 ms / **20,0 s** |
+
+**Die Bedingung ist also präzise benennbar: keine Transaktion darf über eine Pause reichen.** Hält
+man sie ein, ist die Länge des Laufs **völlig gleichgültig** (A gegen A': dieselben 7–9 ms). Hält man
+sie nicht ein, degradiert es zuerst nur (B: Stimmen dauern Sekunden statt Millisekunden) und wird
+dann zum Datenverlust, sobald der Lauf länger dauert als der `timeout` von 20 s – bei B' sind **acht
+Stimmen nicht gezählt worden**, und die schlimmste Wartezeit war exakt der Timeout.
+*(Meine Vorhersage „B legt die Abstimmung still" war zu grob: bei kurzen Läufen wartet der Wähler
+nur, verloren geht nichts. Erst jenseits des Timeouts kippt es.)*
+Konkret heißt das für den Command: `sleep` steht zwischen den Batches und **nie** in einem
+`atomic()`, und pro Mail gibt es eine eigene kurze Transaktion. Eine bloß *offene* Verbindung ist
+unkritisch – SQLite sperrt erst in einer Transaktion.
+
+**4b. Was tatsächlich blockieren kann, ist SMTP – und das ist heute schon so.**
+`EMAIL_TIMEOUT` war nicht gesetzt, und Djangos Default ist `None`. Nachgesehen statt vermutet: das
+Backend gibt `timeout` dann gar nicht an `smtplib` weiter, `smtplib` nimmt den Socket-Default, und
+`socket.getdefaulttimeout()` ist ebenfalls `None` – **ein Server, der die Verbindung annimmt und dann
+schweigt, blockiert unbegrenzt.** Heute hängt daran ein uwsgi-Prozess (der Versand läuft synchron im
+Request), und es gibt vier davon. Für den Versender wäre es schlimmer: er sperrt sich selbst, ein
+Lauf ohne Ende hält die Sperre, und dann geht **gar keine** Mail mehr raus.
+✅ **Deshalb vorgezogen und schon gesetzt:** `EMAIL_TIMEOUT = 10` (über `DEMOCKRAZY_MAIL_TIMEOUT`
+konfigurierbar), mit einem Test, der die Endlichkeit festhält. Dazu gehört später ein Laufzeitbudget
+im Command, damit ein Lauf sich auch dann beendet, wenn jede einzelne Verbindung brav in 10 s
+scheitert.
+
+**5. Idempotenz: verschicken, dann löschen.**
+Zwischen SMTP-Erfolg und `DELETE` kann der Prozess sterben, dann geht die Mail doppelt raus.
+**Absichtlich diese Richtung:** die zweite Mail trägt denselben Token, und der ist einmalig – eine
+doppelte Einladung ist harmlos, eine doppelte Stimme dadurch unmöglich. Der umgekehrte Fehler
+(löschen, dann verschicken) **verliert** eine Einladung, und dann fehlt ein Token für immer: die
+Umfrage schließt nicht mehr von selbst.
+
+**6. Was das im Deployment kostet – und was nicht.**
+Ein systemd-Timer, der den Command aufruft. **Kein Broker, kein Daemon, kein zusätzliches Paket.**
+Für hundert Mails im Minutentakt ist ein Timer genug, und die Datenbank ist schon da.
+→ [to-check.md](to-check.md) §C5. Warum nicht etwas Fertiges: siehe 6a, das ist nachgesehen worden.
+
+**6a. Hat Django selbst eine Queue? Nachgesehen, nicht erinnert – und es korrigiert eine Annahme.**
+
+*Was ich vorher geschrieben hatte: Celery und `django-tasks` bräuchten „ein Paket, das erst in der
+nixpkgs liegen muss". **Das war falsch.** In der gepinnten nixpkgs liegen alle: `django-tasks` 0.12.0,
+`celery` 5.6.3, `huey` 2.6.0, `django-q2` 1.9.0, `rq` 2.8, `django-rq` 4.1, `kombu`, `redis`,
+`django-celery-beat`. Das Verpackungsargument gibt es nicht.*
+
+Die Antwort auf die eigentliche Frage:
+
+- **Django 5.2.15 – das, was hier läuft – hat keine Queue.** Im installierten Baum nachgesehen: kein
+  `django.tasks`, keine Datei mit `task` oder `queue` im Namen, kein Setting mit `TASK`, `QUEUE`,
+  `WORKER` oder `BROKER`. Das Nächstgelegene ist `transaction.on_commit()` – ein Callback beim
+  Commit, im Prozess, **nicht persistiert**, seit 3.4 in Benutzung – und der Cache. Keins von beidem
+  übersteht einen Neustart.
+- **Django 6.0.6 hat `django.tasks`** (liegt in derselben nixpkgs). Aber: `TASKS` steht per Default
+  auf `django.tasks.backends.immediate.ImmediateBackend`, und es gibt **genau zwei** Backends,
+  `Immediate` und `Dummy`. `Immediate` ruft die Funktion **sofort und im selben Prozess** auf
+  (`task.call(...)`), `Dummy` merkt sie sich und führt sie nie aus. **Kein Datenbank-Backend, kein
+  Worker, kein Management-Command dafür** – die Commandliste von 6.0.6 enthält nichts in der
+  Richtung. `django.tasks` normiert also, *wie man eine Aufgabe deklariert und einreiht*; wer sie im
+  Hintergrund ausführt, ist ausdrücklich nicht dabei (so ist DEP 0014 gestaffelt).
+- **`django-tasks` 0.12.0** ist dasselbe Bild – die Referenzimplementierung, und sie enthält nur
+  `Immediate` und `Dummy`, keine Migrations, keinen Worker. `ImmediateBackend` deklariert nicht
+  einmal `supports_defer`, das `run_after`-Feld am Task ist dort also wirkungslos.
+
+**Folgerung, jetzt mit dem richtigen Grund:** ein fertiger Baustein, der die Arbeit abnimmt, existiert
+nicht. Mit `django.tasks` hätte man die API und müsste Tabelle, Versender, Zeitsteuerung **und** ein
+eigenes Backend darunter schreiben – mehr Arbeit als der Entwurf oben, nicht weniger. Celery und RQ
+brauchen weiterhin einen **Broker als zusätzlichen Dienst** auf der Node; `huey` mit SQLite-Storage
+käme ohne Broker aus, verlangt aber einen **dauerhaft laufenden Consumer** und eine zweite
+Datenbankdatei. Für 101 Mails ist ein Timer plus die vorhandene Tabelle das Kleinere.
+**Was `django.tasks` trotzdem wert ist:** als *Form* zum Nachbauen. Wer den Versender so schneidet,
+dass „einreihen" und „ausführen" getrennt bleiben, kann später auf ein Backend umstellen, ohne die
+Aufrufstellen anzufassen. Der Entwurf oben tut das schon – `enqueue` in `create()`, Ausführung im
+Command.
+⚠️ Ein Wechsel auf **Django 6** wäre ohnehin eine eigene Entscheidung: 5.2 ist LTS, 6.0 nicht, und
+die Version kommt aus der nixpkgs des Colmena-Flakes (§1).
+
+**6b. Der User bleibt auf der LTS (Entscheidung 2026-08-04). Welche Optionen bleiben dann?**
+
+**Alle.** Das ist der Kern: Django 6 hätte hier nichts beigetragen, was 5.2 fehlt – `django.tasks` hat
+auch dort **kein Datenbank-Backend und keinen Worker** (6a). Die LTS-Entscheidung streicht also keine
+einzige Möglichkeit; sie schließt nur die *Aussicht* auf ein künftiges Core-Backend aus, und das gibt
+es noch nicht.
+
+Was auf 5.2 zur Wahl steht, gegen **dieses** Deployment gerechnet (SQLite, vier uwsgi-Prozesse,
+NixOS-Modul außerhalb des Repos, ~101 Mails pro Umfrage):
+
+| | Zusätzliche Abhängigkeit | Zusätzlich auf der Node | Taktung | Einreihen atomar mit den Tokens |
+|---|---|---|---|---|
+| **A** eigene Tabelle + Command + Timer (§11.7) | keine | **ein systemd-Timer** | selbst, exakt wie vorgegeben | **ja** |
+| **B** A, aber über die `django-tasks`-API deklariert | `django-tasks` 0.12 (gepackt) | derselbe Timer | selbst (Immediate/Dummy können kein `run_after`) | ja |
+| **C** `django-q2` – Queue in der ORM-Datenbank | `django-q2` 1.9.0 (gepackt) | **dauerhafter `qcluster`-Daemon** | selbst | ja |
+| **D** `huey` mit SQLite-Storage | `huey` 2.6.0 (gepackt, Django-Anbindung eingebaut) | **dauerhafter Consumer** + zweite DB-Datei | selbst | nein (eigener Store) |
+| **E** Celery + Redis | `celery` 5.6.3, `redis` (gepackt) | **Redis als Dienst** + Worker-Daemon | **eingebaut**: `rate_limit="30/m"` | nein (Broker) |
+| **F** fertige Mail-Queue (`django-mailer`, `django-post-office`) | **nicht in der nixpkgs** | – | teils eingebaut | ja |
+
+Drei Befunde, die die Wahl entscheiden, und alle drei sind nachgesehen:
+
+- **F fällt an der Verpackung aus.** `django-mailer`, `django-post-office`, `django-mail-queue`,
+  `procrastinate`, `django-tasks-database` – **keins liegt in der gepinnten nixpkgs.** Hier greift das
+  Argument, das ich in 6a fälschlich gegen Celery erhoben hatte: das wäre echte Paketierungsarbeit im
+  Repo des Users.
+- **C schreibt dauernd in genau die Datei, um die 5.4 sich gekümmert hat.** Ein `qcluster` pollt die
+  Datenbank; das ist zusätzlicher Schreibverkehr auf der SQLite-Datei, die vier uwsgi-Prozesse teilen
+  (B13). Der Entwurf A schreibt nur, wenn wirklich eine Mail rausgeht.
+- **E ist funktional der beste Treffer und der teuerste Umbau.** Celerys `rate_limit` ist genau die
+  Zusage, die hier gebraucht wird, und man müsste sie nicht selbst schreiben. Der Preis ist ein
+  **zusätzlicher Dienst (Redis)** plus ein Worker-Daemon auf einer Node, die heute nginx und ein
+  uwsgi fährt – für 101 Mails.
+
+**Und eine Idee, die naheliegt und nachweislich nicht funktioniert:** Djangos eingebautes
+`filebased.EmailBackend` als Spool zu benutzen. Es klingt perfekt – keine Migration, kein Modell,
+nichts in der Datenbank. Nachgesehen: es schreibt **alle Nachrichten einer Verbindung in *eine*
+Datei**, aneinandergehängt und durch eine Zeile aus `-` getrennt, benannt nach Zeitstempel. Das ist
+ein Protokoll, keine Warteschlange – eine Datei je Nachricht gibt es nicht, und ein Dateilauf wäre
+außerdem **nicht** Teil der Token-Transaktion.
+
+**Empfehlung: A.** Ein Modell, ein Command, ein Timer, keine Abhängigkeit, und die Taktung ist genau
+die vorgegebene. B lohnt nur, wenn Vorwärtskompatibilität zu einem künftigen Core-Backend wichtiger
+ist als weniger Code – man bekommt die API und schreibt alles darunter trotzdem. C, D und E lohnen
+erst, wenn es **weitere** Hintergrundaufgaben geben soll; für diese eine ist ein Daemon oder ein
+Broker mehr Betrieb als Nutzen.
+**Timer-Intervall: eine Minute.** Der Preis ist ehrlich zu benennen: die erste Einladung geht bis zu
+eine Minute nach dem Anlegen raus, die Mail an den Ersteller auch. Das ist der Gegenwert dafür, dass
+nichts mehr im Request hängt.
+
+**7. Fortschritt: eine Zahl auf der Manage-Seite.**
+Die Bestätigungsseite kann es nicht zeigen – sie ist gerendert, bevor etwas rausgeht. Die
+Manage-Seite kann „n Einladungen noch nicht verschickt" anzeigen: eine Summe, keine Adressliste,
+also F8-konform. Klein und der einzige Ort, an dem der Ersteller überhaupt etwas erfährt.
+
+**8. Migration `0004`** – eine **neue** Tabelle. Additiv, und anders als `0003` schreibt SQLite dafür
+keine bestehende Tabelle neu.
 
 ---
 
