@@ -198,7 +198,7 @@ Option war nie wirksam (B16), eine Request-Transaktion gab es also nicht. Der Be
 anders begründet: `create()` verschickte die Mails **in der Save-Schleife**, während die Tokens
 entstanden – ohne jede Transaktion. Ein Fehler auf halbem Weg ließ Mails draußen *und* halbe Daten
 zurück, und ein hängender SMTP-Server blockierte den Request. ✅ Behoben in 3.4/3.5: `create_poll()`
-ist atomar, der Versand hängt an `on_commit`.
+ist atomar, der Versand hing an `on_commit`. *(Nachtrag §11.7: das `on_commit` ist entfallen -- eingereiht wird in derselben Transaktion, verschickt in einem anderen Prozess.)*
 → Kernmotivation für Ziel 2.
 
 **B18 – `.gitignore` schloss die Quell-Assets der App aus.** *(neu gefunden in 4.1)*
@@ -295,6 +295,10 @@ Bootstrap-3-Klasse mehr.)*
    **beim User erfragen**, nicht im Dateisystem suchen. Er liefert es; so sind F12, die
    Duplikat-Prüfung vor 3.6 und der `PRAGMA`-Nachtrag entstanden. Ausführlich in
    [handover.md](handover.md) §10, Regel 10.
+10. **Code-Kommentare und Docstrings sehr kurz.** Ein bis zwei Zeilen, die auf die Begründung
+   *zeigen* (`Plan §11.7`, `B9`, `F8`), statt sie zu enthalten. Vom User am 2026-08-04 gewünscht.
+   **Dieses Dokument bleibt ausführlich** – hier gehört die Argumentation hin, und dann steht sie an
+   genau einer Stelle. Hinten angehängt, weil die Nummern 1–9 überall referenziert sind.
 
 ---
 
@@ -825,10 +829,11 @@ Risikoeinschätzung von **B13** und die Notiz zu **3.5** („im Request redundan
 
 ---
 
-## 11. Vorarbeit für Ziel 2 (Batch-Modus für Mails)
+## 11. Ziel 2 (Batch-Modus für Mails) – ✅ **gebaut**
 
-Spec kommt vom User. Bis dahin **nicht spekulativ implementieren**, aber Phase 3 so bauen, dass
-folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nötig:
+Diese Liste war die Vorarbeit, solange die Spec fehlte. Sie ist jetzt das Protokoll: was verlangt war,
+wie es eingelöst wurde, und wo die Umsetzung von der Planung abweicht. Der Versand selbst steht in
+**§11.7** samt Messungen, die Abweichungen in **§11.7a**.
 
 1. ~~**Mail-Versand ist eine aufrufbare Service-Funktion**~~ ✅ mit 3.4 erledigt, mit §11.7
    eingelöst: `mail.poll_created_messages()` rendert, `mail.enqueue()` reiht ein,
@@ -1246,8 +1251,12 @@ Phase 3  Code-Modernisierung                                          ✅ vollst
 Phase 4  Frontend                                                     ✅ vollständig
 Phase 5  Deployment & CI                                              ✅ vollständig (5.1–5.5)
 Phase 6  Dokumentation                                                ✅ vollständig
+Phase 7  Umfassendes Review (§14)                                     ⏳ wartet auf das
+                                                                        Startsignal des Users
 
 offen:
+  7.1  Das Review -- der einzige offene Punkt, der **nicht** auf eine Antwort von außen wartet,
+       sondern auf ein Startsignal. Umfang und Vorgehen in review.md.
   2.7  TLS-Hardening – **zum größten Teil gegenstandslos**, seit der Proxy vorliegt: `forceSSL`
        und HSTS stehen dort schon, in Django wären sie doppelt. Es bleibt (a) die Restfrage aus
        **F15** (`X-Forwarded-Proto`, und damit das CSRF-Rätsel), (b) der widersprüchliche

@@ -1,9 +1,16 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: 2026-08-04, Branch `update/modernize-2026`, 78 Commits über `master` (Basis `3074dbb`).
+Stand: 2026-08-04, Branch `update/modernize-2026`, 80 Commits über `master` (Basis `3074dbb`).
 Arbeitsbaum ist sauber, alles committed, **nichts gepusht** -- die CI hat also noch nie gelaufen,
 sie greift erst beim ersten Push.
+
+> **Nächster Schritt:** das **umfassende Review** ([review.md](review.md), Plan §14). Es ist
+> vorbereitet und **startet erst, wenn der User es sagt** -- nicht von selbst anfangen. Details in §9.
+>
+> **Beide Projektziele sind inhaltlich fertig** und das Bug-Register ist leer. Was noch offen ist,
+> wartet auf eine Antwort des Users (§8) oder liegt außerhalb dieses Repos
+> ([to-check.md](to-check.md)).
 
 ---
 
@@ -32,18 +39,22 @@ automatisch, wenn alle Tokens verbraucht sind; erst dann sind die Ergebnisse sic
 hat einen separaten Management-Token und kann vorzeitig schließen.
 
 **Die Anonymität ist das Kernversprechen.** Sie ist in `vote/tests/test_views.py::TestAnonymity`
-abgesichert. Nichts darf sie aufweichen, ohne dass der User es ausdrücklich entscheidet – das ist
-insbesondere für Ziel 2 relevant (§7).
+abgesichert. Nichts darf sie aufweichen, ohne dass der User es ausdrücklich entscheidet. Wie das
+beim Mailversand konkret aussieht -- und wo es die Fortschrittsanzeige beschnitten hat -- steht in §7.
 
-## 3. Zwei Ziele
+## 3. Zwei Ziele – beide fertig – und ein Review
 
-1. **Auf heutige Standards bringen – inhaltlich fertig.** Phase 0 bis 6 sind durch, **das
-   Bug-Register ist vollständig abgearbeitet** (B9 als letzter, mit 3.9). Von 2.7 ist der
-   größte Teil **gegenstandslos** geworden, nachdem der Proxy vorliegt: `forceSSL` und HSTS stehen
-   dort schon, in Django wären sie doppelt. Was bleibt, betrifft den **Proxy, nicht dieses Repo** –
-   §8, F15.
-2. **Batch-Modus für Mails.** *Spec steht noch aus, der User erklärt sie später.* Nicht spekulativ
-   bauen. Phase 3 so anlegen, dass es andockt (§7).
+1. ✅ **Auf heutige Standards bringen.** Phase 0 bis 6 sind durch, **das Bug-Register ist
+   vollständig abgearbeitet** (B9 als letzter, mit 3.9). Von 2.7 ist der größte Teil
+   **gegenstandslos** geworden, nachdem der Proxy vorliegt: `forceSSL` und HSTS stehen dort schon,
+   in Django wären sie doppelt. Was bleibt, betrifft den **Proxy, nicht dieses Repo** – §8, F15.
+2. ✅ **Batch-Modus für Mails.** Gebaut: Warteschlange `OutgoingMail`, Management-Command
+   `send_pending_mails`, **30er Batches mit 2 s Pause** (vom User vorgegeben, konfigurierbar).
+   Details und Messungen in [plan.md](plan.md) §11.7, Zusammenfassung in §7.
+   ⚠️ **Der systemd-Timer fehlt und liegt außerhalb dieses Repos** ([to-check.md](to-check.md) §C5)
+   -- ohne ihn reiht Produktion nach dem Deploy ein und verschickt nie.
+3. ⏳ **Umfassendes Review** des ganzen Branches, [review.md](review.md) / Plan §14.
+   **Startet auf Zuruf, nicht von selbst.**
 
 ## 4. Umgebung und Verifikationsschleife
 
@@ -79,7 +90,7 @@ Lokal starten (nicht mit `manage.py runserver` allein – siehe §6, Falle 3):
 python3 manage.py runserver --settings=demockrazy.dev_settings
 ```
 
-### Wo was liegt (Stand nach 5.4)
+### Wo was liegt
 
 | Pfad | Inhalt |
 |---|---|
@@ -165,9 +176,10 @@ Colmena-Flakes, nicht aus `pyproject.toml`. **Zwei Änderungen im Repo des Users
 `rev`+`sha256` bumpen, und das Colmena-Flake auf `mf-next` (dort Django 5.2.15; `mf-stable` hat
 4.2.28 und ist EOL). Darauf hinweisen, aber **nicht selbst ausrollen** (Regel 5).
 
-## 7. Vorarbeit für Ziel 2 (Batch-Mails) – nicht vorgreifen, aber freihalten
+## 7. Ziel 2 (Batch-Mails) – gebaut. Was dabei gilt
 
-Die Spec kommt vom User. Was für *jede* Variante gilt und in Phase 3 entstehen soll:
+Diese Liste war die Vorarbeit, solange die Spec fehlte; sie ist jetzt das Protokoll dessen, was
+umgesetzt wurde und was man beim Anfassen wissen muss. Vollständig in [plan.md](plan.md) §11.7.
 
 1. ✅ **Erledigt mit 3.4, eingelöst mit §11.7:** Mail-Versand ist ein Service
    ([vote/services/mail.py](../vote/services/mail.py)). `poll_created_messages()` rendert,
@@ -204,7 +216,15 @@ Die Spec kommt vom User. Was für *jede* Variante gilt und in Phase 3 entstehen 
    Fenster. **Wenn die `450` im Log auftauchen: Pause auf 60.**
    ⚠️ **Der systemd-Timer fehlt noch** und liegt außerhalb dieses Repos – [to-check.md](to-check.md)
    §C5. Ohne ihn wird in Produktion nichts verschickt.
-9. Offen bleiben **Bounce-Handling**, die **Fortschrittsanzeige** (nur Summen, F8) und **F20**.
+9. ✅ **Fortschrittsanzeige gebaut – aber kleiner als geplant, und zwar wegen F8** (§11.7 Punkt 7).
+   Geplant war „n Einladungen dieser Umfrage warten noch". Das geht **nicht**: eine
+   Warteschlangenzeile trägt keine Poll-Kennung, es gibt also keinen Weg, sie dieser Umfrage
+   zuzuordnen, und eine indirekte Kennung würde nichts helfen -- wer die Warteschlange lesen kann,
+   liest auch `vote_poll`. Gebaut ist die logisch sichere Richtung, als **Bit statt Zahl**: leere
+   Warteschlange heißt, die Einladungen dieser Umfrage sind raus. Eine *Zahl* wäre eine Aussage über
+   andere Umfragen, und die Manage-Seite braucht keinen Token.
+10. Offen bleiben **Bounce-Handling** (hängt an F8 -- ein dauerhafter Status pro Adresse ist genau
+   das, was nicht gespeichert werden soll) und **F20**.
 
 ## 8. Offene Fragen an den User
 
@@ -243,13 +263,15 @@ nix run nixpkgs#sqlite -- -readonly /var/lib/demockrazy/db.sqlite3 \
 
 ## 9. Nächster Schritt
 
-**Alle Phasen sind durch, und das Bug-Register ist leer** – B1 bis B18, zuletzt **B9** mit 3.9
-(Token-Umzug aus dem Query-String ins Cookie), dazu die zwei fehlenden Unique-Constraints. Ohne
-Häkchen steht nur noch B14, und der ist inhaltlich in 2.7 aufgegangen. Mailversand und
-Poll-Erstellung sind Services, die Umfrage-Erstellung kostet konstant 5 Statements, das Routing
-läuft über `path()`.
-**Ziel 2 ist gebaut** – Warteschlange, getakteter Versender und Management-Command stehen (§11.7);
-`mail.deliver()` ist dadurch entfallen.
+**Phase 0 bis 6 sind durch, Phase 7 (das Review) ist offen und wartet auf den User.**
+Das **Bug-Register ist leer** – B1 bis B18, zuletzt **B9** mit 3.9 (Token-Umzug aus dem
+Query-String ins Cookie), dazu die zwei fehlenden Unique-Constraints. Ohne Häkchen steht nur noch
+B14, und der ist inhaltlich in 2.7 aufgegangen. Mailversand und Poll-Erstellung sind Services, die
+Umfrage-Erstellung kostet konstant 5 Statements, das Routing läuft über `path()`, und der Versand
+läuft getaktet aus einer Warteschlange (§7).
+
+Zwei Befunde aus dem Verlauf lohnen je zwei Sätze, weil sie Annahmen umstoßen -- wer hier
+weiterarbeitet, läuft sonst in dieselben Fallen.
 
 **B16 ist bei 5.5 aufgefallen und lohnt zwei Sätze, weil es Annahmen umstößt:**
 `ATOMIC_REQUESTS = True` stand seit 2016 **modulweit** in `settings.py`, Django liest es aber pro
@@ -257,8 +279,10 @@ Datenbank – die Option war zehn Jahre lang wirkungslos, in Produktion auch. **
 Transaktion um einen Request.** Atomar sind nur `create_poll()` und der `atomic()`-Block in
 `vote()`, beide explizit und getestet. Wer hier etwas über Transaktionen annimmt, prüft es an
 [../demockrazy/tests/test_transactions.py](../demockrazy/tests/test_transactions.py) nach.
-Der Befund hat B7s Begründung, B13s Risikoeinschätzung und die 3.5-Notiz korrigiert; **F18** fragt,
-ob die Option tatsächlich an soll (Empfehlung: nein).
+Der Befund hat B7s Begründung, B13s Risikoeinschätzung und die 3.5-Notiz korrigiert. **F18 ist
+inzwischen beantwortet: nein** – gemessen, dass die Option die Teilstimme aus `vote()` gar nicht
+zurückrollen würde, weil die View den `KeyError` selbst fängt und eine 200-Seite liefert. Der
+explizite Block leistet also etwas, das `ATOMIC_REQUESTS` nicht kann.
 
 **B17 lohnt ebenfalls zwei Sätze, weil es eine Falle ist, die kein Test sah:**
 **mehrzeilige `{# … #}` sind in Django keine Kommentare** (`tag_re` ohne `re.DOTALL`). Sie landen
@@ -279,30 +303,10 @@ Fehlerklassen K1–K8, also gegen das, was in diesem Projekt schon real schiefge
 daraus lohnen den Blick, bevor jemand anfängt: **keine Reparatur während des Reviews** (sonst fehlt
 der Nachweis) und **die Testsuite ist Prüfgegenstand, nicht Prüfinstanz** (K4).
 
-**Von Ziel 1 im Repo nichts.** Ziel 1 ist inhaltlich fertig. Was von 2.7 übrig ist, gehört in den Proxy und
-braucht **F15** (kommt `X-Forwarded-Proto` an?). Zwei Punkte dort lohnen unabhängig davon:
-`X-Frame-Options` ist heute **widersprüchlich** (Proxy `sameorigin`, Django `DENY`, beide Header
-gehen raus – im schlechtesten Fall ignoriert der Browser ihn), und der **vorhandene CSP-Snippet**
-liesse sich jetzt einbinden, was vorher nicht sinnvoll ging: seit 4.1/4.3 ist alles vendored, es gibt
-keinen Fremd-Host mehr. Beides in [deployment.md](deployment.md).
-
-**Ziel 2 (Batch-Mails) ist gebaut** – die Umsetzung steht vollständig in [plan.md](plan.md) §11.7,
-inklusive der Messungen. Wie es läuft:
-
-- `create()` reiht ein, ein **Management-Command** verschickt: `manage.py send_pending_mails`,
-  30 Nachrichten, 2 s Pause, bis die Warteschlange leer ist. Beides vom User vorgegeben und über
-  `DEMOCKRAZY_MAIL_BATCH_SIZE`/`_PAUSE` konfigurierbar.
-- **Das Problem war gemessen, nicht vermutet:** der Mailserver drosselt nach *Nachrichten pro
-  Zeitfenster* (`450 4.7.1 too much mail from`; 30 gingen immer durch, bei 50 kam der Fehler), und
-  der Versand lief synchron im Request mit einer SMTP-Verbindung **pro Empfänger** (101 Mails = 101
-  Verbindungen).
-- **F8 ist eingelöst, nicht nur entschieden:** die Warteschlangenzeile trägt keine Poll-Kennung,
-  keinen Zeitstempel, und sie wird bei Erfolg gelöscht. §11.4 erklärt, warum die Einbuße kleiner ist,
-  als sie klingt.
-- ⚠️ **Was noch fehlt, liegt außerhalb dieses Repos:** der **systemd-Timer**, der den Command
-  aufruft ([to-check.md](to-check.md) §C5). Ohne ihn wird in Produktion nichts verschickt.
-- Offen bleiben **Bounce-Handling**, die **Fortschrittsanzeige** und **F20** (der genaue
-  Rate-Limit-Wert, an dem hängt, ob die 2 s reichen -- die Rechnung dazu steht in §11.7).
+**Sonst ist im Repo nichts offen.** Beide Ziele sind inhaltlich fertig (§3). Was übrig ist, wartet
+auf eine Antwort (§8: F15, F17, F20) oder liegt außerhalb dieses Repos
+([to-check.md](to-check.md)) -- **darunter der systemd-Timer, ohne den nach dem Deploy keine Mail
+rausgeht.** Nichts davon lässt sich hier erledigen.
 
 Was beim Routing (3.7) zu beachten war und weiter gilt, falls jemand `urls.py` anfasst:
 die sieben öffentlichen Pfade sind **zeichengleich** zu halten (Regel 5), `test_views.py::TestUrls`
@@ -361,6 +365,14 @@ dieses Aufrufs ist nur dort zu lösen. Alle drei in [to-check.md](to-check.md) �
    vor 3.6 und der `PRAGMA`-Nachtrag gelaufen; F17 wartet noch darauf. Betrifft insbesondere: das
    NixOS-Modul `mayflower.demockrazy`, das Colmena-Repo, alles auf der Prod-Node.
    Ausnahme sind offensichtlich projektbezogene Werkzeugaufrufe (`nix`, `git`, PyPI-/nixpkgs-Abfragen).
+11. **Code-Kommentare und Docstrings sehr kurz** – ein bis zwei Zeilen, die auf die Begründung
+   *zeigen*, statt sie zu enthalten: `Plan §11.7`, `B9`, `F8`. Vom User am 2026-08-04 ausdrücklich
+   gewünscht, nachdem ein 14-zeiliger Kommentar an einem einzigen `exists()`-Aufruf stand.
+   **Die Notizen bleiben ausführlich** – dort gehört die Argumentation hin, und dann steht sie an
+   genau einer Stelle. *(Aus früheren Commits stehen noch lange Docstrings in
+   `vote/services/mail.py` und `vote/models.py`; kürzen ist angeboten, nicht beauftragt.)*
+   **Diese Regel steht absichtlich hinten:** die Nummern 1–10 sind in Notizen *und* Code
+   Hunderte Male referenziert, Einsortieren hätte jeden Verweis verschoben.
 
 ## 11. Wichtige Erkenntnisse, die nicht offensichtlich sind
 
@@ -407,7 +419,7 @@ dieses Aufrufs ist nur dort zu lösen. Alle drei in [to-check.md](to-check.md) �
   das SMTP-Backend den Timeout nicht an `smtplib` weiter, das nimmt den Socket-Default, und der ist
   auch `None`. Ein Mailserver, der annimmt und dann schweigt, hätte einen der vier uwsgi-Prozesse
   gehalten. Steht jetzt auf 10 s (`DEMOCKRAZY_MAIL_TIMEOUT`), festgehalten in
-  `test_mail_service.py::TestDeliver`.
+  `test_mail_service.py::TestSendPending`.
 - **`processes = 4` im uwsgi auf einer SQLite-Datei** ist genau das Lock-Szenario aus B13.
   ✅ **Mit 5.4 gehärtet** – aber der entscheidende Schalter war nicht WAL, sondern
   `transaction_mode="IMMEDIATE"`: bei Djangos `DEFERRED` muss eine Transaktion, die erst liest und
