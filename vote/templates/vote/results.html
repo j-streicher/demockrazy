@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block content %}
 <h1>results for poll {{ poll.title }}</h1>
@@ -26,55 +27,69 @@
     </tr>
 </table>
 
-<div id="results-chart"></div>
+{% comment %}
+Das Diagramm ist die Zweitdarstellung -- alle Zahlen stehen vollständig in der Tabelle darüber.
+Deshalb trägt das Canvas nur ein knappes aria-label und keinen Versuch, seinen Inhalt für
+Screenreader nachzubauen: die Tabelle *ist* die zugängliche Fassung, und sie steht davor.
+{% endcomment %}
+<div class="mt-4" style="max-width: 32rem;">
+    <canvas id="results-chart" role="img"
+            aria-label="Pie chart of the results. The table above lists the same numbers."></canvas>
+</div>
 {% endblock %}
 
 {% block js %}
 {% comment %}
+Chart.js nur hier laden, nicht in base.html: gebraucht wird es auf einer von sechs Seiten, und es
+sind 204 KB. Highcharts hing vorher in base.html und ging damit auf jede Seite mit.
+
 Die Diagrammdaten kommen als JSON aus der View, nicht als in JS-Literale interpolierte Werte
 (B10). Vorher stand hier der Choice-Text direkt in einem JS-Stringliteral: Django escapte ihn
 fürs HTML, aber der Inhalt eines script-Elements wird vom Parser nicht entity-dekodiert -- aus
-`Bier & Brezn` wurde im Diagramm sichtbar `Bier &amp; Brezn`. `json_script` schreibt die Daten in
-ein eigenes script-Element mit type="application/json" und escapt sie für genau diesen Ort.
+`Bier & Brezn` wurde im Diagramm sichtbar `Bier &amp; Brezn`. `json_script` escapt für genau
+diesen Ort.
 {% endcomment %}
 {{ chart_series|json_script:"chart-series" }}
+<script src="{% static "chartjs-4.5.1/chart.umd.min.js" %}"></script>
 <script>
-// Kein DOM-ready-Wrapper und kein jQuery: dieser Block steht am Ende von <body>, also existieren
-// #results-chart und Highcharts hier schon. `$('#…').highcharts(…)` war nur die optionale
-// jQuery-Fassade von Highcharts -- die Bibliothek selbst braucht es nicht.
 (function () {
-    new Highcharts.Chart({
-        chart: {
-            renderTo: 'results-chart',
-            plotBackgroundColor: null,
-            plotBorderWidth: null,
-            plotShadow: false,
-            type: 'pie'
+    var series = JSON.parse(document.getElementById('chart-series').textContent);
+    var total = series.reduce(function (sum, entry) { return sum + entry.y; }, 0);
+
+    // Feste Palette statt Chart.js' Automatik: die Zahl der Optionen ist unbekannt, und so ist
+    // nachvollziehbar, welche Farben herauskommen. Wird zyklisch wiederverwendet.
+    var palette = ['#0d6efd', '#dc3545', '#198754', '#fd7e14', '#6f42c1', '#20c997', '#6c757d'];
+
+    // Der Prozentwert steht im Label, nicht in einem Datalabel-Plugin: so ist er ohne Hover und
+    // im Ausdruck sichtbar, und es bleibt bei einer einzigen Abhängigkeit.
+    var labels = series.map(function (entry) {
+        var share = total > 0 ? (100 * entry.y / total).toFixed(1) : '0.0';
+        return entry.name + ' — ' + share + ' %';
+    });
+
+    new Chart(document.getElementById('results-chart'), {
+        type: 'pie',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: series.map(function (entry) { return entry.y; }),
+                backgroundColor: series.map(function (entry, i) { return palette[i % palette.length]; }),
+                borderColor: '#fff',
+                borderWidth: 1
+            }]
         },
-        title: {
-            text: null
-        },
-        tooltip: {
-            pointFormat: '{series.name}: <b>{point.percentage:.1f}%</b>'
-        },
-        plotOptions: {
-            pie: {
-                allowPointSelect: true,
-                cursor: 'pointer',
-                dataLabels: {
-                    enabled: true,
-                    format: '<b>{point.name}</b>: {point.percentage:.1f} %',
-                    style: {
-                        color: (Highcharts.theme && Highcharts.theme.contrastTextColor) || 'black'
+        options: {
+            plugins: {
+                legend: { position: 'bottom' },
+                tooltip: {
+                    callbacks: {
+                        label: function (context) {
+                            return context.parsed === 1 ? '1 vote' : context.parsed + ' votes';
+                        }
                     }
                 }
             }
-        },
-        series: [{
-            name: 'Votes',
-            colorByPoint: true,
-            data: JSON.parse(document.getElementById('chart-series').textContent)
-        }]
+        }
     });
 })();
 </script>
