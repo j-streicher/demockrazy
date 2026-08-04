@@ -1,8 +1,11 @@
 """Anlegen einer Umfrage samt Choices und Tokens.
 
 Bis 3.5 stand das als zwei geschachtelte Save-Schleifen in `create()`: ein `INSERT` pro Choice und
-ein `INSERT` pro Token. Bei 200 Empfängern waren das 200 einzelne Statements, alle innerhalb der
-Request-Transaktion -- auf SQLite hält das den einzigen Schreib-Slot entsprechend lange (B13).
+ein `INSERT` pro Token. Bei 200 Empfängern waren das 200 einzelne Statements -- und, anders als hier
+mal behauptet, **nicht** in einer gemeinsamen Transaktion: ein `atomic()` gab es nicht, und das
+modulweite `ATOMIC_REQUESTS` hat Django nie gelesen (B16). Jedes INSERT war also seine eigene
+Transaktion, die den einzigen Schreib-Slot von SQLite nahm und wieder freigab -- 200 Mal (B13).
+Schlimmer noch: brach es auf halbem Weg ab, blieb die Hälfte stehen.
 
 Der Service kennt weder Request noch Formular, damit ein Management-Command (Ziel 2) ihn genauso
 aufrufen kann.

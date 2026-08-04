@@ -1,7 +1,7 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: 2026-08-04, Branch `update/modernize-2026`, 61 Commits über `master` (Basis `3074dbb`).
+Stand: 2026-08-04, Branch `update/modernize-2026`, 62 Commits über `master` (Basis `3074dbb`).
 Arbeitsbaum ist sauber, alles committed, **nichts gepusht** -- die CI hat also noch nie gelaufen,
 sie greift erst beim ersten Push.
 
@@ -13,6 +13,7 @@ sie greift erst beim ersten Push.
 |---|---|
 | **dieses Dokument** | Orientierung, Arbeitsregeln, offene Fragen, nächster Schritt |
 | [plan.md](plan.md) | Der Plan mit allen Phasen, Bug-Nummern B1–B18, Fragen F1–F20. **Das Hauptdokument.** |
+| **[to-check.md](to-check.md)** | **Alles, was außerhalb dieses Repos zu tun oder zu beantworten ist** – Proxy, NixOS-Modul, Prod-Node, offene Fragen. Mit Befehlen und Begründung. Die Liste für den User. |
 | [deployment.md](deployment.md) | Wie Produktion wirklich läuft. **Vor jeder Settings-/Deploy-Änderung lesen.** |
 | [phase-2-migrations.md](phase-2-migrations.md) | Warum die Migrations so aussehen, wie sie aussehen |
 | [phase-0-baseline.md](phase-0-baseline.md) | Baseline-Messungen; enthält eine als überholt markierte Analyse |
@@ -82,8 +83,8 @@ python3 manage.py runserver --settings=demockrazy.dev_settings
 | Pfad | Inhalt |
 |---|---|
 | [../vote/models.py](../vote/models.py) | `Poll`, `Choice`, `Token`, `PollType`; die zwei `UniqueConstraint`s, `get_absolute_url()` |
-| [../vote/forms.py](../vote/forms.py) | `PollCreateForm` – Validierung der Erstellung, Dedup der Adressen, `parse_lines()` |
-| [../vote/views.py](../vote/views.py) | die sechs Views, nur noch Ablaufsteuerung |
+| [../vote/forms.py](../vote/forms.py) | `PollCreateForm` – Validierung der Erstellung, Dedup der Adressen, Empfänger-Deckel (3.8), `parse_lines()` |
+| [../vote/views.py](../vote/views.py) | die sieben Views, nur noch Ablaufsteuerung |
 | [../vote/services/polls.py](../vote/services/polls.py) | `create_poll()` – Umfrage + Choices + Tokens per `bulk_create`, atomar |
 | [../vote/services/mail.py](../vote/services/mail.py) | `poll_created_messages()` rendert, `deliver()` verschickt |
 | [../vote/templates/vote/mail/](../vote/templates/vote/mail/) | die vier Mail-Templates; **enden absichtlich ohne Zeilenumbruch** |
@@ -106,11 +107,13 @@ Zwei Dinge, die man beim ersten Blick in die Tests wissen will:
   Spaltenreihenfolge einer zusammengefassten Migration. Nicht als Referenz für das Prod-Schema
   nehmen – dafür ist [phase-2-migrations.md](phase-2-migrations.md) zuständig.
 
-## 5. Was absichtlich rot ist – nicht „aufräumen"
+## 5. Was absichtlich so ist – nicht „aufräumen"
 
-**`ruff check` ist seit 3.3 sauber** – alle drei absichtlich roten Befunde sind über 3.2 und 3.3
-weggefallen, weil die Bugs behoben wurden, deren Symptome sie waren. Keiner wurde mit `noqa`
-zugedeckt. **Das Ruff-Gate in der CI steht seit 5.3** – ein neuer Befund macht den Build rot.
+**Nichts ist mehr rot** – das war eine Zeit lang anders und ist der Grund, warum dieser Abschnitt
+existiert. `ruff check` ist seit 3.3 sauber: alle drei absichtlich roten Befunde sind über 3.2 und
+3.3 weggefallen, weil die *Bugs* behoben wurden, deren Symptome sie waren. **Keiner wurde mit `noqa`
+zugedeckt** – das ist die Regel, die hier gelten soll. **Das Ruff-Gate in der CI steht seit 5.3**,
+ein neuer Befund macht den Build rot.
 
 **Es gibt keinen `xfail`-Test mehr.** Der letzte war **B4** (`/vote/create` nahm 500 Empfänger
 anstandslos an) und ist mit 3.8 gefallen – F5 hat den Deckel entschieden. Alle Tests in
@@ -122,9 +125,11 @@ Merke aus 3.8: mit dem Marker kann auch die *Erwartung* fallen. Der B4-Test verl
 ablehnenden Statuscode, solange die Maßnahme offen war; ein Formular-Deckel ergibt einen 200 mit
 Fehlermeldung. Geprüft wird jetzt die Wirkung, nicht der Code.
 
-Zwei `per-file-ignores` in `pyproject.toml` sind ebenfalls Absicht und keine Nachlässigkeit:
-`E501` für `test_mail_service.py` (schreibt den Mail-Wortlaut als Literale aus) und `RUF012` für
-`vote/models.py` (eine Liste ist Djangos Schnittstelle für `Meta.constraints`).
+**Drei** `per-file-ignores` in `pyproject.toml` sind ebenfalls Absicht und keine Nachlässigkeit:
+`F403` für `demockrazy/settings.py` (der `from .local_settings import *` am Dateiende **ist** der
+Konfigurationsmechanismus), `E501` für `test_mail_service.py` (schreibt den Mail-Wortlaut als
+Literale aus, Umbrechen würde ihn um seinen Zweck bringen) und `RUF012` für `vote/models.py` (eine
+Liste ist Djangos dokumentierte Schnittstelle für `Meta.constraints`).
 
 ## 6. Die Fallen – hier hätte ich Produktion kaputtgemacht
 
@@ -137,9 +142,14 @@ macht und den Key erst **danach** aus einer sops-Datei liest. Ein `os.environ[".
 `raise ImproperlyConfigured` in `settings.py` tötet den Service beim Start. Aktuell: Fallback auf
 einen Zufallskey pro Prozess.
 
-**Falle 2 – `SECURE_SSL_REDIRECT`/HSTS nicht anschalten.**
-Die Node öffnet nur Port 80, TLS endet vorgelagert. Ohne `SECURE_PROXY_SSL_HEADER` erzeugt das eine
-Redirect-Schleife. Diese Settings gehören ins Modul. **Blockiert 2.7, siehe F15.**
+**Falle 2 – `SECURE_SSL_REDIRECT`/HSTS nicht anschalten, und zwar auch nicht im Modul.**
+Die Node öffnet nur Port 80, TLS endet vorgelagert. **Seit die Proxy-Config vorliegt, ist das nicht
+mehr nur eine Warnung, sondern erledigt:** dort steht `forceSSL = true` und ein HSTS-Snippet mit
+einem Jahr. In Django wären beide **doppelt** – ein zweiter `Strict-Transport-Security`-Header ist
+undefiniertes Verhalten, und `SECURE_SSL_REDIRECT` ohne `SECURE_PROXY_SSL_HEADER` eine
+Redirect-Schleife. *(Hier stand „Diese Settings gehören ins Modul" – das war vor der Proxy-Config
+und ist überholt: sie gehören nirgendwohin.)* `check --deploy` meckert deshalb dauerhaft über diese
+zwei, und das ist richtig so. Was von 2.7 übrig ist, steht in [to-check.md](to-check.md) §B.
 
 **Falle 3 – `DEBUG = False` ist jetzt Default**, deshalb startet nacktes `runserver` nicht.
 Dafür gibt es `demockrazy/dev_settings.py`. Das ist kein Bug.
@@ -161,14 +171,22 @@ Die Spec kommt vom User. Was für *jede* Variante gilt und in Phase 3 entstehen 
    Datenbank nicht an (B7).
 3. ✅ **Erledigt mit 3.4:** Mail-Texte liegen als Templates in `vote/templates/vote/mail/`,
    Autoescaping aus, Wortlaut byteweise per Test festgenagelt.
-4. **Zielkonflikt, den nur der User auflösen kann (F8):** ein Batch-Modus mit Retry/Zustellstatus
-   braucht „welche Adresse wurde erfolgreich zugestellt". Genau diese Zuordnung wird heute
-   *absichtlich nicht* gespeichert. **Kein Modell dafür entwerfen, bevor das entschieden ist.**
+4. ✅ **F8 ist entschieden: „lieber anonymer".** Kein dauerhafter Zustellstatus pro Adresse, keine
+   Adressliste für den Ersteller. **Was daraus für eine Queue folgt, steht in [plan.md](plan.md)
+   §11.4 – vor dem ersten Modell lesen.** Kurz: die Paarung Adresse↔Token muss bis zur Zustellung
+   existieren, weil der Mailtext den Token enthält; sie wandert damit vom RAM auf die Platte, aber
+   nur für die Dauer des Versands. Preisgegeben wäre *wer eingeladen wurde*, **nicht wie jemand
+   gestimmt hat** – der Token wird bei der Abgabe gelöscht, die Stimme trägt keine Kennung.
    Aus demselben Grund loggt `deliver()` weder Adresse noch Umfragekennung; der Text einer
-   SMTP-Exception kann die Adresse aber selbst enthalten. Mit F8 zu bewerten.
-5. **Missbrauchsschutz zuerst (B4/F5):** `/vote/create` hat keinerlei Auth und kein Rate-Limit.
-   Jeder kann beliebig viele Mails über den Mayflower-SMTP verschicken. Ein Batch-Versender
-   darüber wäre ein Spam-Werkzeug.
+   SMTP-Exception kann die Adresse aber selbst enthalten.
+5. ✅ **Missbrauchsschutz erledigt mit 3.8** (B4, F5): Deckel bei 150 Empfängern pro Umfrage,
+   konfigurierbar. Ein Batch-Versender skaliert damit nicht den Missbrauch mit.
+6. **Das Problem selbst ist inzwischen gemessen, nicht vermutet** – [plan.md](plan.md) §11, der
+   wichtigste Abschnitt für Ziel 2. Der Mailserver drosselt nach *Nachrichten pro Zeitfenster*
+   (`450 4.7.1 too much mail from`; 30 gingen immer durch, bei 50 kam der Fehler), `deliver()` baut
+   **eine SMTP-Verbindung pro Empfänger** (nachgezählt: 101 Mails = 101 Verbindungen), und der
+   Versand läuft **synchron im Request** – `on_commit` verschiebt ihn nicht, weil es ohne offenen
+   `atomic`-Block sofort ausführt (Folge von B16). Offen: die Spec und **F20**.
 
 ## 8. Offene Fragen an den User
 
@@ -263,23 +281,22 @@ prüft sie zusammen mit dem Converter-Verhalten. Der Namespace `polls` und die `
 
 ### Vor dem Deploy (nicht von mir, Regel 7)
 
-1. **F17 klären** – der `grep` im Colmena-Repo (§8).
-2. **`0003` ist kein No-Op.** Es schreibt `vote_poll` und `vote_token` neu; geprüft gegen ein
-   Prod-Abbild, Daten unversehrt ([phase-2-migrations.md](phase-2-migrations.md)). `migrate` läuft
-   im `preStart` vor dem Dienststart, es gibt also keine parallelen Schreiber; borg-Backup liegt vor.
-3. **`rev`+`sha256` im Modul bumpen** und das Colmena-Flake auf `mf-next` (§6, Falle 4).
-4. **Die SQLite-`OPTIONS` aus 5.4 erreichen Prod nicht von allein.** `demockrazy_config` setzt
-   `DATABASES` komplett neu und verliert sie dabei – **derselbe Mechanismus wie bei B16.** Deshalb
-   gibt es einen System-Check dafür; nach dem Deploy prüfbar mit
-   `DJANGO_SETTINGS_MODULE=demockrazy_config python3 manage.py check`. Ohne die Optionen sind es
-   gemessen **164 von 200** gleichzeitigen Stimmabgaben, die mit `database is locked` scheitern.
-5. **`/healthz` braucht einen passenden `Host`-Header.** `ALLOWED_HOSTS` ist in Prod
-   `["wahlcomputer.mayflower.de"]` – eine Monitoring-Probe gegen `localhost` bekommt einen 400 und
-   sieht wie ein Ausfall aus. Gehört ins Modul, nicht in die Repo-Defaults.
+**Vollständig und mit Befehlen in [to-check.md](to-check.md)** – dort steht alles, was außerhalb
+dieses Repos passieren muss, nach Ort gruppiert (Proxy / Modul / Node / Antwort an mich). Kurzfassung:
 
-Von diesen fünf Punkten braucht nur **F17** noch eine Antwort; die anderen vier sind Handgriffe
-am Modul. Der Rest der Fragen (§8) blockiert **nichts im Repo** mehr – F15 betrifft den Proxy,
-F20 gehört zu Ziel 2.
+1. **F17 klären** – der `grep` nach `VOTE_MAIL` im Deployment-Repo. **Der einzige Punkt, der noch
+   eine Antwort braucht**; die übrigen sind Handgriffe.
+2. **Die SQLite-`OPTIONS` ins Modul übernehmen** (5.4). Geht sonst still verloren, weil
+   `demockrazy_config` `DATABASES` neu setzt – derselbe Mechanismus wie B16. Danach
+   `DJANGO_SETTINGS_MODULE=demockrazy_config python3 manage.py check` fahren, das meldet es.
+3. **`rev`+`sha256` bumpen** und das Colmena-Flake auf `mf-next` (§6, Falle 4).
+4. **`0003` ist kein No-Op** – schreibt `vote_poll` und `vote_token` neu, gegen ein Prod-Abbild
+   geprüft ([phase-2-migrations.md](phase-2-migrations.md)). Läuft im `preStart`, Backup liegt vor.
+5. **`/healthz`** braucht einen `Host`-Header, den `ALLOWED_HOSTS` akzeptiert.
+
+Am Proxy, unabhängig vom Deploy: den vorhandenen **CSP-Snippet** einbinden (geht erst, seit alles
+vendored ist) und den **widersprüchlichen `X-Frame-Options`** entwirren – Proxy sagt `sameorigin`,
+Django `DENY`, beide Header gehen raus. Beides in [to-check.md](to-check.md) §B.
 
 ## 10. Arbeitsregeln (haben sich bewährt, bitte beibehalten)
 
@@ -336,6 +353,12 @@ F20 gehört zu Ziel 2.
   hinzufügt, prüft nach `git add`, ob die Datei wirklich im `git status` steht.
 - **Mehrzeilige `{# … #}` sind keine Kommentare** (B17). Steht in §9 mit dem ganzen Hergang; hier nur
   die Kurzform, weil man es sonst zweimal lernt.
-- **`processes = 4` im uwsgi auf einer SQLite-Datei** ist genau das Lock-Szenario aus B13. WAL und
-  `timeout` in `DATABASES['default']['OPTIONS']` wären eine kleine wirksame Härtung; der User kann
-  das über die `djangoSettings`-Option des Moduls sogar ohne Modul-Änderung testen.
+- **`processes = 4` im uwsgi auf einer SQLite-Datei** ist genau das Lock-Szenario aus B13.
+  ✅ **Mit 5.4 gehärtet** – aber der entscheidende Schalter war nicht WAL, sondern
+  `transaction_mode="IMMEDIATE"`: bei Djangos `DEFERRED` muss eine Transaktion, die erst liest und
+  dann schreibt (die Form von `vote()`), ihre Sperre hochstufen, und **das kann SQLite nicht warten
+  lassen** – sofortiges `SQLITE_BUSY`, ohne Rücksicht auf `timeout`. Gemessen: mit den Defaults
+  scheitern **164 von 200** gleichzeitigen Stimmabgaben, mit der Härtung keine.
+  ⚠️ **Die Optionen erreichen Prod nicht von allein** (`demockrazy_config` setzt `DATABASES` neu –
+  derselbe Mechanismus wie B16), deshalb gibt es dafür einen System-Check. Siehe
+  [to-check.md](to-check.md) §C3.

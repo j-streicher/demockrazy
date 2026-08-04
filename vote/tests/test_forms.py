@@ -1,9 +1,12 @@
 """Tests für vote/forms.py.
 
-Das Formular ist in Plan-Schritt 3.1 entstanden und wird erst in 3.2 von `create()` benutzt.
-Diese Tests sind deshalb die einzige Absicherung, dass es sich so verhält wie die View-Helfer,
-die es ersetzt -- und dass es die drei Bugs behebt, die es beheben soll (B3, B6, B12).
-Das Ist-Verhalten der Helfer steht in notes/phase-0-baseline.md.
+Das Formular ist in 3.1 entstanden, seit 3.2 benutzt `create()` es, und seit 3.8 trägt es den Deckel
+auf die Empfängerzahl (B4). Diese Tests prüfen es direkt; dass die *View* sich entsprechend verhält,
+steht in test_views.py und test_known_bugs.py.
+
+Geschrieben wurden sie ursprünglich als einzige Absicherung, dass das Formular sich so verhält wie
+die View-Helfer, die es ersetzt (B3, B6, B12). Deren Ist-Verhalten steht in
+notes/phase-0-baseline.md.
 """
 
 import pytest

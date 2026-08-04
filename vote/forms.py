@@ -1,13 +1,17 @@
 """Formulare für die Umfrage-Erstellung.
 
-`create()` in [vote/views.py](views.py) liest die Eingaben heute direkt aus `request.POST` und
-prüft Mailadressen mit einer selbstgebauten Heuristik. Daraus folgen drei der bestätigten Bugs:
-ein fehlendes oder unbekanntes Feld endet als 500 statt als Fehlermeldung (B3), eine ungültige
-Adresse wirft einen ungefangenen `ValidationError` (B12), und doppelt eingetragene Adressen
-bekommen doppelte Tokens -- dieselbe Person stimmt also zweimal ab (B6).
+`PollCreateForm` validiert alles, was `/vote/create` annimmt, und ist seit 3.2 von `create()` in
+[views.py](views.py) benutzt.
 
-Dieses Modul ersetzt beides durch ein Django-Formular. **Verdrahtet wird es in Plan-Schritt 3.2**;
-bis dahin ist es nur über die Tests erreichbar. Siehe notes/plan.md §7.
+Warum es das Formular gibt: vorher las `create()` direkt aus `request.POST` und prüfte Mailadressen
+mit einer selbstgebauten Heuristik. Drei bestätigte Bugs kamen daher und sind mit dem Formular
+weggefallen -- ein fehlendes oder unbekanntes Feld endete als 500 statt als Fehlermeldung (B3), eine
+ungültige Adresse warf einen ungefangenen `ValidationError` (B12), und doppelt eingetragene Adressen
+bekamen doppelte Tokens, dieselbe Person konnte also zweimal abstimmen (B6). Dazu kommt seit 3.8 der
+Deckel auf die Empfängerzahl (B4).
+
+Die Feldnamen entsprechen den `name`-Attributen der bestehenden Vorlage; Details dazu am Formular
+selbst. Siehe notes/plan.md §7.
 """
 
 from django import forms

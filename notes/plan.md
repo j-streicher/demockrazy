@@ -112,11 +112,11 @@ Wiederherstellbar über `git revert 4e15012`.
 | B17 | Mehrzeilige `{# … #}` sind keine Kommentare | ✅ **behoben** in 4.2 (neu gefunden) |
 | B18 | `.gitignore: static/` schloss die App-Assets aus | ✅ **behoben** in 4.1 (neu gefunden) |
 
-Alle als `xfail(strict=True)` spezifiziert in
-[vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py); B2, B3, B6, B11 und B12 stehen
-dort inzwischen ohne Marker als Regressionstests. **Offen ist von den 500-Pfaden nur noch B4**
-(braucht F5) sowie die zwei fehlenden Unique-Constraints. B15 kam erst in 3.3 dazu und war sofort
-behoben, hatte also nie einen Marker.
+Ursprünglich alle als `xfail(strict=True)` spezifiziert in
+[vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py). **Dort steht inzwischen kein
+Marker mehr** – B2, B3, B4, B6, B10, B11, B12 und die zwei Unique-Constraints sind Regressionstests
+geworden. Von den 500-Pfaden ist keiner mehr offen. B15 kam erst in 3.3 dazu und war sofort behoben,
+hatte also nie einen Marker.
 
 
 **B1 – Migrations sind gitignored.**
@@ -169,10 +169,12 @@ Vorher messen, nicht raten – und klären, wie oft/wie groß Abstimmungen real 
 **B14 – TLS-Hardening-Settings fehlen in Prod.** *(korrigiert 2026-08-03)*
 `SESSION_COOKIE_SECURE` und `CSRF_COOKIE_SECURE` **sind** gesetzt – das Modul macht das über
 `secureCookies` (Default `true`). Der Befund war insoweit zu pauschal.
-Es fehlen: `SECURE_SSL_REDIRECT`, `SECURE_HSTS_SECONDS`, `CSRF_TRUSTED_ORIGINS` und
-`SECURE_PROXY_SSL_HEADER`. **Nicht blind einschalten** – TLS endet vorgelagert, ohne Proxy-Header
-gibt `SECURE_SSL_REDIRECT` eine Redirect-Schleife. Gehört ins Modul, nicht in die Repo-Defaults.
-→ 2.7, blockiert durch F15. Details in [notes/deployment.md](deployment.md).
+Als fehlend notiert waren `SECURE_SSL_REDIRECT`, `SECURE_HSTS_SECONDS`, `CSRF_TRUSTED_ORIGINS` und
+`SECURE_PROXY_SSL_HEADER`. **Mit der Proxy-Config (2026-08-04) ist das überholt:** dort stehen
+`forceSSL` und HSTS bereits, die ersten zwei wären in Django also doppelt und gehören **nirgendwohin**
+– auch nicht ins Modul. Offen ist nur noch, ob `X-Forwarded-Proto` ankommt (F15); davon hängt ab, ob
+`SECURE_PROXY_SSL_HEADER` oder `CSRF_TRUSTED_ORIGINS` gebraucht wird.
+→ 2.7, Details in [notes/deployment.md](deployment.md), Handlungsliste in [to-check.md](to-check.md).
 
 **B11 – `manage()` crasht bei POST ohne `token`-Feld.**
 [vote/views.py](../vote/views.py) – `request.POST['token']` ohne Guard → `MultiValueDictKeyError` → 500.
@@ -258,8 +260,9 @@ Gegenstandslos: **kein `HttpResponseNotAllowed`-Handling**. War für 3.2 vorgese
 verworfen – ein GET auf `/vote/create` rendert das Formular, weil ein 405 für einen Menschen aus der
 Browser-History eine Sackgasse ist. Begründung bei 3.2.
 
-Noch offen:
-- Bootstrap-3-Markup durchgehend → 4.1.
+Damit ist von den kleineren Punkten **keiner mehr offen.** *(Hier stand bis zuletzt
+„Bootstrap-3-Markup durchgehend → 4.1" – das ist mit 4.1 erledigt, im Markup steht keine
+Bootstrap-3-Klasse mehr.)*
 
 ---
 
@@ -335,7 +338,7 @@ Die sicheren Defaults im Repo sind mit 2.4 erledigt, die 500-Pfade folgen in Pha
       die Bug-Spezifikation in 1.4 ist mir wichtiger als zwei Runner.
 - [x] **1.4 Testsuite** in [vote/tests/](../vote/tests/): **56 Tests grün, 9 xfailed** *(Stand bei
       1.4; aktueller Sollwert steht in [handover.md](handover.md) §4)*.
-      Models, alle sechs Views, Anonymitätsgarantien, plus ein URL-Form-Test als Absicherung von
+      Models, alle sieben Views, Anonymitätsgarantien, plus ein URL-Form-Test als Absicherung von
       Regel 4. Die 9 Bugs stehen in [vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py)
       als `xfail(strict=True)` – sie beschreiben das Soll-Verhalten und machen die Suite rot, sobald
       Phase 3 sie fixt (= Erinnerung, den Marker zu entfernen).
@@ -518,7 +521,8 @@ Tests für niemanden außer mir nutzbar und in CI wertlos. **Behoben in 2.1**, a
       Enum-Mitglied. `get_amount_used_unused()` zählt und summiert in der Datenbank
       (`Sum()` → `None` bei einer Umfrage ohne Choices, eigener Test). `get_absolute_url()` ist kein
       Zierrat – die Wähler-Mail baut ihren Link darauf.
-      **Die letzten zwei `xfail`-Marker sind weg**, offen ist nur noch B4 (braucht F5).
+      **Die letzten zwei `xfail`-Marker sind weg**, offen war zu diesem Zeitpunkt nur noch B4
+      *(inzwischen mit 3.8 behoben, es gibt keinen `xfail` mehr)*.
       Ein `per-file-ignore` dazugekommen: `RUF012` für `vote/models.py`, weil eine Liste Djangos
       dokumentierte Schnittstelle für `Meta.constraints` ist.
 - [x] **3.7 `re_path` → `path`** ✅ – sieben der acht Routen brauchten nie einen Ausdruck; die
@@ -548,7 +552,8 @@ Tests für niemanden außer mir nutzbar und in CI wertlos. **Behoben in 2.1**, a
       einen **200 mit Fehlermeldung** – wie jede andere ungültige Eingabe, und aus demselben Grund
       (der Ersteller soll kürzen können, nicht in einer Sackgasse landen, 3.2). Geprüfte Zusage ist
       jetzt die *Wirkung*: keine Umfrage, keine Mail, auch nicht an den Ersteller.
-      **Das war der letzte `xfail` der Suite** – Sollwert ist ab hier `163 passed`, ohne xfailed.
+      **Das war der letzte `xfail` der Suite** – seither gibt es keinen mehr, und der Sollwert hat
+      kein `xfailed` mehr. Die aktuelle Zahl steht in [handover.md](handover.md) §4, nicht hier.
 
 ## 8. Phase 4 – Frontend
 
@@ -595,7 +600,8 @@ Tests für niemanden außer mir nutzbar und in CI wertlos. **Behoben in 2.1**, a
       Diagramm jetzt *fett*, statt die Entities zu zeigen – Highcharts parst in Labels eine kleine
       Tag-Whitelist. **Geprüft, ob daran mehr hängt: nein** – `javascript:`-Hrefs und `on*`-Handler
       werden gestrichen, heraus kommen nur `<tspan>`s. Wörtlich anzeigen ginge erst mit dem
-      Bibliothekswechsel in 4.3 (braucht F4).
+      Bibliothekswechsel – *und mit 4.3 ist genau das eingetreten: Chart.js zeichnet auf ein Canvas,
+      das kein Markup kennt, der Text erscheint jetzt wörtlich.*
       Nebeneffekt: `choice_set` wurde für Tabelle und Diagramm zweimal abgefragt, jetzt einmal.
 - [x] **4.3 Highcharts ersetzt (B8)** ✅ – **Chart.js 4.5.1, MIT** (F4). Damit ist das Frontend
       durchgehend MIT/Apache, der Lizenztext liegt als `LICENSE.md` daneben.
@@ -796,9 +802,10 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
    "zugestellt" markieren; **keine Historie**; Fortschritt nur als Zahl. Damit ist die Paarung
    zeitlich begrenzt statt dauerhaft, und nach dem Versand ist der Zustand wieder wie heute.
 5. ~~**Missbrauchsschutz vor Skalierung** (B4)~~ ✅ mit 3.8 erledigt – Deckel bei 150.
-6. Offen zu klären, sobald die Spec da ist: Queue/Worker (Celery? `django-tasks`? DB-Queue +
-   Management-Command + CronJob?), Bounce-Handling, Idempotenz, Fortschrittsanzeige für den
-   Poll-Ersteller.
+6. Offen zu klären, sobald die Spec da ist: **Queue/Worker** (Celery? `django-tasks`? DB-Queue +
+   Management-Command + CronJob?), **Bounce-Handling**, **Idempotenz**. Die **Fortschrittsanzeige**
+   ist durch F8 schon eingeschränkt: nur Summen, keine Adressliste. Die **Taktung** (Batch-Größe und
+   Pause) hängt an F20.
 
 ---
 
@@ -908,8 +915,9 @@ erledigt in Phase 3: 3.1 Forms · 3.2 create()/manage() · 3.3 vote() · 3.4 Mai
 **Nächster Schritt: keiner im Repo.** Ziel 1 ist inhaltlich fertig; was von 2.7 übrig ist, gehört in
 den Proxy und braucht F15. Danach ist **Ziel 2** dran – die Problembeschreibung steht in §11, die
 Anonymitätsfrage ist mit F8 entschieden, es fehlen die Spec und **F20**.
-**Vor dem Deploy** bleibt die Liste in [handover.md](handover.md) §9 – **F17** ist der einzige Punkt,
-der noch eine Antwort braucht.
+**Alles, was außerhalb dieses Repos zu tun ist, steht in [to-check.md](to-check.md)** – Proxy,
+NixOS-Modul, Prod-Node und die offenen Fragen, mit Befehlen und Begründung. **F17** ist der einzige
+Punkt davon, der noch eine Antwort braucht.
 **Vor dem Deploy:** F17 klären; die Migration `0003` schreibt `vote_poll` und `vote_token` neu
 (Details in [phase-2-migrations.md](phase-2-migrations.md)), Backup liegt vor (borg 03:00/04:00).
 **Die Vorarbeit für Ziel 2 (§11.1–3) ist mit 3.4 vollständig** – ein Batch-Versender ersetzt
