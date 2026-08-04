@@ -13,6 +13,7 @@ sie greift erst beim ersten Push.
 |---|---|
 | **dieses Dokument** | Orientierung, Arbeitsregeln, offene Fragen, nächster Schritt |
 | [plan.md](plan.md) | Der Plan mit allen Phasen, Bug-Nummern B1–B18, Fragen F1–F20. **Das Hauptdokument.** |
+| **[review.md](review.md)** | **Das umfassende Review**: Umfang, Vorgehen, 15 Kriterien, die Fehlerklassen dieses Projekts. **Wartet auf das Startsignal des Users, Befunde noch leer.** Geplant als plan.md §14 |
 | **[to-check.md](to-check.md)** | **Alles, was außerhalb dieses Repos zu tun oder zu beantworten ist** – Proxy, NixOS-Modul, Prod-Node, offene Fragen. Mit Befehlen und Begründung. Die Liste für den User. |
 | [deployment.md](deployment.md) | Wie Produktion wirklich läuft. **Vor jeder Settings-/Deploy-Änderung lesen.** |
 | [phase-2-migrations.md](phase-2-migrations.md) | Warum die Migrations so aussehen, wie sie aussehen |
@@ -272,7 +273,13 @@ daran ein `script`-Element und verschluckte das Datenelement dahinter: **200 ohn
 
 ### Was als nächstes dran ist
 
-**Im Repo nichts.** Ziel 1 ist inhaltlich fertig. Was von 2.7 übrig ist, gehört in den Proxy und
+**Das umfassende Review** ([review.md](review.md), Plan §14) – vorbereitet, aber es **startet erst auf
+Zuruf des Users**. Umfang ist der ganze Branch *und* der Ist-Zustand; gesucht wird gegen die
+Fehlerklassen K1–K8, also gegen das, was in diesem Projekt schon real schiefgegangen ist. Zwei Regeln
+daraus lohnen den Blick, bevor jemand anfängt: **keine Reparatur während des Reviews** (sonst fehlt
+der Nachweis) und **die Testsuite ist Prüfgegenstand, nicht Prüfinstanz** (K4).
+
+**Von Ziel 1 im Repo nichts.** Ziel 1 ist inhaltlich fertig. Was von 2.7 übrig ist, gehört in den Proxy und
 braucht **F15** (kommt `X-Forwarded-Proto` an?). Zwei Punkte dort lohnen unabhängig davon:
 `X-Frame-Options` ist heute **widersprüchlich** (Proxy `sameorigin`, Django `DENY`, beide Header
 gehen raus – im schlechtesten Fall ignoriert der Browser ihn), und der **vorhandene CSP-Snippet**

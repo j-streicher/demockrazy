@@ -12,6 +12,8 @@
 | 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | **Phase 0–6 vollständig ✅ außer 2.7. Das Bug-Register ist vollständig abgearbeitet** – B9 ist mit 3.9 gefallen. Offen ist nur noch 2.7, und das ist zum größten Teil **gegenstandslos** geworden, nachdem der Proxy vorliegt – es bleibt eine Frage (F15) und ein Vorschlag für den Proxy, nichts im Repo. |
 | 2 | Batch-Modus für Mails bauen | **Gebaut** (§11.7): Warteschlange, getakteter Versender, Management-Command. 30er Batches / 2 s vom User vorgegeben. ⚠️ Der **systemd-Timer** fehlt noch und liegt außerhalb dieses Repos ([to-check.md](to-check.md) §C5). Offen: Bounce-Handling, Fortschrittsanzeige, **F20** |
 
+| 3 | Umfassendes Review des ganzen Branches | **Geplant, §14.** Startet auf Zuruf des Users – **noch nicht gelaufen.** Umfang, Kriterien und Vorgehen stehen in [review.md](review.md), Befunde kommen ebenfalls dorthin |
+
 **Wichtig:** Ziel 2 wird vom User später erklärt. Ziel 1 nicht so umbauen, dass Ziel 2 blockiert wird –
 im Gegenteil: die Mail-Logik so herausziehen, dass ein Batch-Versand sauber andocken kann (§11).
 
@@ -1207,6 +1209,33 @@ Zustellbericht – und der braucht die Entscheidung aus **F8** (Anonymität).
 
 ---
 
+## 14. Phase 7 – Umfassendes Review
+
+> **Startet auf Zuruf des Users. Noch nicht gelaufen.** Vollständig ausgearbeitet in
+> [review.md](review.md): Umfang, Vorgehen, 15 Kriterien, Schweregrade, Befundformat.
+
+- [ ] **7.1 Review durchführen.** Umfang ist **der ganze Branch (`master..HEAD`) *und* der
+      Ist-Zustand** – ein Diff zeigt nicht, was jemand hätte ändern müssen und nicht getan hat, ein
+      Blick nur auf den Endzustand nicht, was unterwegs eingeschleppt wurde.
+      Geprüft wird in dieser Reihenfolge: **Anonymität, Auth, Injection, Nebenläufigkeit,
+      Fehlerbehandlung, Informationslecks, Missbrauch/DoS, Geheimnisse, Migrations/Deploy,
+      Testqualität, Performance, Lieferkette, Barrierefreiheit, Wartbarkeit, Dokumentation.**
+      Das Kernversprechen zuerst, Kosmetik zuletzt.
+      **Vier Regeln, die das Review belastbar machen** (Begründung in review.md §2):
+      (a) ich habe alles selbst geschrieben, deshalb wird gegen eine **Liste der Fehlerklassen
+      gesucht, die in diesem Projekt real vorgekommen sind** (K1–K8 in review.md §3) statt auf
+      Einfälle gewartet;
+      (b) jeder Befund ist **gemessen oder ausdrücklich als ungemessen markiert**, nie „könnte";
+      (c) **keine Reparatur während des Reviews** – wer im Vorbeigehen behebt, verliert den Nachweis
+      und hört auf zu suchen;
+      (d) **Negativraum wird protokolliert** – ohne „so wurde geprüft, kein Befund" ist das nicht von
+      „nicht hingesehen" zu unterscheiden.
+      **Die Testsuite ist Prüfgegenstand, nicht Prüfinstanz** – nach K4 (die erste Phase-0-Sonde
+      meldete Erfolg auf zwei identischen Tracebacks) ist „die Tests sind grün" kein Argument.
+- [ ] **7.2 Befunde abarbeiten.** Ein Commit je Befund, mit Verweis auf die Nummer in review.md.
+      Erst nach 7.1, damit die Liste vollständig ist, bevor sie sich bewegt.
+      Was außerhalb dieses Repos liegt, wandert nach [to-check.md](to-check.md) statt in einen Commit.
+
 ## 13. Reihenfolge / Abhängigkeiten
 
 ```
@@ -1240,7 +1269,10 @@ erledigt in Phase 3: 3.1 Forms · 3.2 create()/manage() · 3.3 vote() · 3.4 Mai
   └─ 3.4 ist die Schnittstelle für ZIEL 2 (Batch-Mails, nach Spec)
 ```
 
-**Nächster Schritt: keiner im Repo für Ziel 1.** Was von 2.7 übrig ist, gehört in den Proxy und
+**Nächster Schritt: das Review (§14), sobald der User es freigibt.** Es ist der einzige offene
+Punkt, der nicht auf eine Antwort von außen wartet.
+
+**Für Ziel 1 ist im Repo nichts offen.** Was von 2.7 übrig ist, gehört in den Proxy und
 braucht F15. Danach ist **Ziel 2** dran – die Problembeschreibung steht in §11, die Anonymitätsfrage
 ist mit F8 entschieden, es fehlen die **Spec** und **F20**.
 **Alles, was außerhalb dieses Repos zu tun ist, steht in [to-check.md](to-check.md)** – Proxy,
