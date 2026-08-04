@@ -70,15 +70,18 @@ deliberately — `vote/tests/test_mail_service.py` pins the exact output.
 
 ## Frontend
 
-Bootstrap 5.3.8 and Highcharts are vendored under `vote/static/`, deliberately not loaded from a
+Bootstrap 5.3.8 and Chart.js 4.5.1 are vendored under `vote/static/`, deliberately not loaded from a
 CDN: the pages should work without a connection to any foreign host. There is no build step and no
-JavaScript dependency beyond those two files — Bootstrap 5 needs no jQuery.
+JavaScript dependency beyond those two — Bootstrap 5 needs no jQuery. Chart.js is loaded by
+`results.html` only, not by `base.html`, because one of the six pages draws a chart.
 
-Before touching the Bootstrap files, read
-`vote/static/bootstrap-5.3.8-dist/PROVENANCE.md`. They are not byte-identical to upstream: the
-`sourceMappingURL` comment is removed from both, because `collectstatic` aborts on a reference to
-the `.map` files, which are not vendored. It runs on every service start, so an abort keeps the
-service from coming up.
+Both are MIT, as is this repository. That is not incidental: the chart library used to be Highcharts,
+which has no free licence for commercial use.
+
+Each vendored directory carries a `PROVENANCE.md` — read it before touching those files. They are not
+byte-identical to upstream: the `sourceMappingURL` comment is removed from each bundle, because
+`collectstatic` aborts on a reference to the `.map` files, which are not vendored. It runs on every
+service start, so an abort keeps the service from coming up.
 
 Static file names are hashed via `ManifestStaticFilesStorage`. `collectstatic` writes the manifest;
 with `DEBUG = True` Django skips hashing, so `runserver` needs no `collectstatic`.

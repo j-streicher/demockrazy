@@ -1,7 +1,7 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: 2026-08-04, Branch `update/modernize-2026`, 55 Commits über `master` (Basis `3074dbb`).
+Stand: 2026-08-04, Branch `update/modernize-2026`, 58 Commits über `master` (Basis `3074dbb`).
 Arbeitsbaum ist sauber, alles committed, **nichts gepusht** -- die CI hat also noch nie gelaufen,
 sie greift erst beim ersten Push.
 
@@ -12,7 +12,7 @@ sie greift erst beim ersten Push.
 | Datei | Wofür |
 |---|---|
 | **dieses Dokument** | Orientierung, Arbeitsregeln, offene Fragen, nächster Schritt |
-| [plan.md](plan.md) | Der Plan mit allen Phasen, Bug-Nummern B1–B18, Fragen F1–F19. **Das Hauptdokument.** |
+| [plan.md](plan.md) | Der Plan mit allen Phasen, Bug-Nummern B1–B18, Fragen F1–F20. **Das Hauptdokument.** |
 | [deployment.md](deployment.md) | Wie Produktion wirklich läuft. **Vor jeder Settings-/Deploy-Änderung lesen.** |
 | [phase-2-migrations.md](phase-2-migrations.md) | Warum die Migrations so aussehen, wie sie aussehen |
 | [phase-0-baseline.md](phase-0-baseline.md) | Baseline-Messungen; enthält eine als überholt markierte Analyse |
@@ -35,10 +35,9 @@ insbesondere für Ziel 2 relevant (§7).
 
 ## 3. Zwei Ziele
 
-1. **Auf heutige Standards bringen.** Phase 0, 1 und 2 (außer 2.7) sind fertig, Phase 3 ist bis
-   3.7 durch, CI steht (5.3), `/healthz` steht (5.5), Phase 4 ist bis auf 4.3 durch (Bootstrap 5.3.8
-   vendored, jQuery weg). **Alles Unblockierte ist abgearbeitet** – der Rest wartet auf F4, F5, F13
-   oder F15 (§8).
+1. **Auf heutige Standards bringen.** **Phase 0 bis 4 sind vollständig fertig**, Phase 6 auch,
+   von Phase 5 fehlt nur 5.4. Offen sind genau zwei Punkte: **5.4** (SQLite-Härtung, mit F13/F18
+   jetzt unblockiert) und **2.7** (TLS, braucht F15). Die Bug-Liste ist bis auf **B9** abgearbeitet.
 2. **Batch-Modus für Mails.** *Spec steht noch aus, der User erklärt sie später.* Nicht spekulativ
    bauen. Phase 3 so anlegen, dass es andockt (§7).
 
@@ -64,7 +63,7 @@ grün ist, ist dort grün.
 
 **Sollwerte, an denen du merkst, dass alles in Ordnung ist:**
 
-- `pytest` → **158 passed, 1 xfailed**
+- `pytest` → **163 passed** (kein xfailed mehr, siehe §5)
 - `manage.py check` → **no issues (0 silenced)**
 - `makemigrations --check` → **No changes detected**
 - `ruff format --check` → alle Dateien unverändert
@@ -76,7 +75,7 @@ Lokal starten (nicht mit `manage.py runserver` allein – siehe §6, Falle 3):
 python3 manage.py runserver --settings=demockrazy.dev_settings
 ```
 
-### Wo was liegt (Stand nach 4.1)
+### Wo was liegt (Stand nach 4.3)
 
 | Pfad | Inhalt |
 |---|---|
@@ -92,7 +91,7 @@ python3 manage.py runserver --settings=demockrazy.dev_settings
 | [../vote/migrations/](../vote/migrations/) | `0001`+`0002` rekonstruieren Prod von 2016, `0003` bringt Constraints und `choices` |
 | [../vote/tests/](../vote/tests/) | `test_models`, `test_forms`, `test_views`, `test_mail_service`, `test_poll_service`, `test_known_bugs`, `test_templates`, `conftest` |
 | [../demockrazy/settings.py](../demockrazy/settings.py) | Defaults; dazu `dev_settings.py` (runserver) und `test_settings.py` (pytest) |
-| [../vote/static/bootstrap-5.3.8-dist/](../vote/static/bootstrap-5.3.8-dist/) | Bootstrap 5.3.8, vendored. **`PROVENANCE.md` daneben lesen, bevor jemand die Dateien anfasst** – sie sind bewusst um eine Zeile geändert |
+| [../vote/static/](../vote/static/) | Bootstrap 5.3.8 und Chart.js 4.5.1, vendored. **In beiden Verzeichnissen liegt eine `PROVENANCE.md` – vor dem Anfassen lesen**, die Bundles sind bewusst um je eine Zeile geändert (`sourceMappingURL`), sonst bricht `collectstatic` ab |
 | [../vote/templates/base.html](../vote/templates/base.html) | Navbar, Assets; kein jQuery mehr |
 
 Zwei Dinge, die man beim ersten Blick in die Tests wissen will:
@@ -110,12 +109,15 @@ Zwei Dinge, die man beim ersten Blick in die Tests wissen will:
 weggefallen, weil die Bugs behoben wurden, deren Symptome sie waren. Keiner wurde mit `noqa`
 zugedeckt. **Das Ruff-Gate in der CI steht seit 5.3** – ein neuer Befund macht den Build rot.
 
-**Ein `xfail(strict=True)`-Test** ist noch übrig, in
-[../vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py): **B4** – `/vote/create` nimmt
-500 Empfänger anstandslos an. Er schlägt heute fehl und braucht F5. **Wenn du den Bug behebst, wird
-die Suite rot** – das ist Absicht und die Erinnerung, den Marker zu entfernen. Nicht der Marker ist
-das Problem. Die Tests für die behobenen B2, B3, B6, B10, B11, B12 und die zwei Unique-Constraints
-stehen in derselben Datei ohne Marker als Regressionstests.
+**Es gibt keinen `xfail`-Test mehr.** Der letzte war **B4** (`/vote/create` nahm 500 Empfänger
+anstandslos an) und ist mit 3.8 gefallen – F5 hat den Deckel entschieden. Alle Tests in
+[../vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py) stehen jetzt ohne Marker als
+Regressionstests: B2, B3, B4, B6, B10, B11, B12 und die zwei Unique-Constraints.
+**Wer künftig einen Bug so spezifiziert, nimmt wieder `xfail(strict=True)`** – das Muster hat sich
+bewährt: der Test beschreibt das Soll, schlägt fehl, und macht die Suite rot, sobald er behoben ist.
+Merke aus 3.8: mit dem Marker kann auch die *Erwartung* fallen. Der B4-Test verlangte einen
+ablehnenden Statuscode, solange die Maßnahme offen war; ein Formular-Deckel ergibt einen 200 mit
+Fehlermeldung. Geprüft wird jetzt die Wirkung, nicht der Code.
 
 Zwei `per-file-ignores` in `pyproject.toml` sind ebenfalls Absicht und keine Nachlässigkeit:
 `E501` für `test_mail_service.py` (schreibt den Mail-Wortlaut als Literale aus) und `RUF012` für
@@ -170,12 +172,8 @@ Die Spec kommt vom User. Was für *jede* Variante gilt und in Phase 3 entstehen 
 | # | Frage | Blockiert |
 |---|---|---|
 | **F15** | Setzt der vorgelagerte Proxy `X-Forwarded-Proto`? Gibt es ein Mayflower-Default für `SECURE_PROXY_SSL_HEADER`? Nebenrätsel: seit Django 4.0 wird der `Origin`-Header strikt geprüft – ohne Proxy-Header müssten POSTs (also **jede Stimmabgabe**) mit 403 scheitern; sie tun es offenbar nicht, also liefert irgendwas das Schema. Das will ich verstanden haben. | **2.7** |
-| **F4** | Highcharts 4.2.5 ist vendored und **proprietär lizenziert** (kein FOSS-Modell für kommerzielle Nutzung) in einem MIT-Repo. Existiert eine Lizenz, oder ersetzen (Chart.js MIT / ECharts Apache-2.0)? | **4.3** |
-| **F5** | Zugangsschutz für `/vote/create` – Login, Invite-Code, IP-Rate-Limit, Empfänger-Deckel? | 3.8, Ziel 2 |
 | **F8** | Anonymität vs. Zustellstatus pro Empfänger – wie weit darf Ziel 2 das aufweichen? | Ziel 2 |
-| **F19** | **Darf ich Bootstrap 5.3.x herunterladen und ins Repo vendoren – und woher?** 4.1 braucht die Dateien lokal (kein CDN, so ist der Bestand, CSP-freundlich). Ich lade nichts ohne Freigabe. Empfehlung: offizielles GitHub-Release-Dist, nur `bootstrap.min.css` + `bootstrap.bundle.min.js`, ohne Source-Maps – alternativ per `fetchurl` mit Hash im Flake, wenn die Herkunft reproduzierbar sein soll. Ersetzt 544 KB Bootstrap 3 **und** 49 KB jQuery. | **4.1, Rest von 4.2** |
-| **F13** | Wie groß sind Abstimmungen real (Empfänger pro Poll, parallele Polls)? Entscheidet SQLite-Tuning vs. Postgres (B13) und die Batch-Größen. | 5.4, Ziel 2 |
-| **F18** | Soll `ATOMIC_REQUESTS` tatsächlich an? War seit 2016 wirkungslos, mit 5.5 entfernt (B16) – der Zustand ist unverändert, nur nicht mehr falsch dokumentiert. **Empfehlung: aus lassen**, die zwei Stellen mit Atomaritätsbedarf haben sie explizit; Einschalten verbreitert nur das Lock-Fenster (B13). Gehört in dieselbe Entscheidung wie WAL/`timeout` (5.4). | 5.4 (nicht blockierend) |
+| **F20** | **Wie hoch ist das Rate-Limit von `smtp.mayflower.de`?** Gebraucht wird der Wert von `smtpd_client_message_rate_limit` (oder was eine Policy dort setzt), die Fensterlänge (`anvil_rate_time_unit`, Default 60 s) und die **vollständige** Fehlerzeile – der abgeschnittene Teil hinter *from* sagt, worauf gezählt wird (Client-IP oder Absenderadresse). Ohne diese Zahl wäre jede Taktung geraten. | **Ziel 2** |
 | **F17** | Überschreibt das NixOS-Modul `VOTE_MAIL_SUBJECT`/`VOTE_MAIL_TEXT`/`VOTE_ADMIN_MAIL_*`? 3.4 hat sie aus `settings.py` entfernt, der Text kommt aus Templates. Ein Override dort wird nach dem Deploy still ignoriert. Prüfen mit `grep -rn 'VOTE_MAIL\|VOTE_ADMIN_MAIL'` im Colmena-Repo. | **vor dem Deploy** |
 
 ~~Kleinigkeit: die `type`-Spalte war in der Prod-Schema-Ausgabe abgeschnitten.~~ **Erledigt** –
@@ -234,13 +232,21 @@ daran ein `script`-Element und verschluckte das Datenelement dahinter: **200 ohn
 
 ### Was als nächstes dran ist
 
-**Nichts, was nicht auf eine Antwort wartet** – deshalb ist §8 diesmal der wichtigere Abschnitt.
-Nach Antwortlage:
+**5.4 – SQLite-Härtung.** Mit F13 und F18 unblockiert und der letzte technische Punkt von Ziel 1:
+WAL-Modus und `timeout` in `DATABASES['default']['OPTIONS']`. **Kein Postgres** – reale Umfragen
+haben 60–100 Empfänger, das trägt SQLite. Über die `djangoSettings`-Option des Moduls sogar ohne
+Modul-Änderung testbar.
 
-- **F4 → 4.3** (Highcharts ersetzen). Der größte verbleibende Posten, aber eine **Lizenzfrage, keine
-  technische**: der `json_script`-Teil ist mit 4.2 erledigt, der Bibliothekswechsel erbt ihn, und
-  Highcharts ist die letzte Datei im Frontend, die nicht MIT/Apache ist.
-- **F5 → 3.8**, **F13/F18 → 5.4**, **F15 → 2.7**.
+**2.7 – TLS-Hardening.** Wartet auf **F15**: der User liefert die Proxy-Konfiguration nach. Vorher
+nichts anfassen, sonst Redirect-Schleife oder 403 auf jede Stimmabgabe.
+
+**Ziel 2 (Batch-Mails)** hat jetzt eine gemessene Problembeschreibung statt einer Vermutung – sie
+steht in [plan.md](plan.md) §11 und ist **das Wichtigste, was diese Session hinterlässt**. Kurz:
+der Mailserver drosselt nach *Nachrichten pro Zeitfenster* (`450 4.7.1 too much mail from`, real bei
+50 Mails), `deliver()` baut heute **eine SMTP-Verbindung pro Empfänger** (nachgezählt: 101 Mails =
+101 Verbindungen), und der Versand läuft **synchron im Request** – `on_commit` verschiebt ihn nicht,
+weil es ohne offenen `atomic`-Block sofort ausführt (Folge von B16).
+Fehlt noch: die Spec, **F8** (Anonymität vs. Zustellstatus) und **F20** (der konkrete Limit-Wert).
 
 Was beim Routing (3.7) zu beachten war und weiter gilt, falls jemand `urls.py` anfasst:
 die sieben öffentlichen Pfade sind **zeichengleich** zu halten (Regel 5), `test_views.py::TestUrls`
