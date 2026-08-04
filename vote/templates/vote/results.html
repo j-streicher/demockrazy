@@ -5,10 +5,12 @@
 <h1>results for poll {{ poll.title }}</h1>
 
 <table class="table">
+    <thead>
     <tr>
-        <th>Choice</td>
-        <th>Votes</td>
+        <th scope="col">Choice</th>
+        <th scope="col">Votes</th>
     </tr>
+    </thead>
     {% for choice in poll.choice_set.all %}
         <tr>
             <td>{{ choice.choice_text }}</td>
