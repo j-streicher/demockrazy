@@ -9,7 +9,7 @@
 
 | # | Ziel | Status |
 |---|------|--------|
-| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · Phase 3 bis 3.7 ✅ · CI ✅ · 5.5 ✅ · offen: 3.8, Phase 4, 5.4 |
+| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · Phase 3 bis 3.7 ✅ · CI ✅ · 5.5 ✅ · 4.4/4.5 ✅ · 4.2 halb ✅ · **alles Unblockierte ist durch** – offen: 3.8 (F5), 4.1 (F19), 4.3 (F4), 5.4 (F13), 2.7 (F15) |
 | 2 | Batch-Modus für Mails bauen | **Spec folgt vom User** – nur Vorarbeit leisten, siehe §11 |
 
 **Wichtig:** Ziel 2 wird vom User später erklärt. Ziel 1 nicht so umbauen, dass Ziel 2 blockiert wird –
@@ -109,6 +109,7 @@ Wiederherstellbar über `git revert 4e15012`.
 | B14 | TLS-Hardening unvollständig | offen → 2.7, **braucht F15** |
 | B15 | `choice`-Wert ohne Zahl → 500 | ✅ **behoben** in 3.3 (neu gefunden) |
 | B16 | `ATOMIC_REQUESTS` seit 2016 wirkungslos | ✅ **behoben** in 5.5 (neu gefunden); **F18** offen |
+| B17 | Mehrzeilige `{# … #}` sind keine Kommentare | ✅ **behoben** in 4.2 (neu gefunden) |
 
 Alle als `xfail(strict=True)` spezifiziert in
 [vote/tests/test_known_bugs.py](../vote/tests/test_known_bugs.py); B2, B3, B6, B11 und B12 stehen
@@ -213,13 +214,28 @@ Fehlermeldung (das ist eine Zahl, nur keine existierende ID).
 ✅ **Behoben in 3.3** zusammen mit B2, weil es dieselbe Klasse ist: ungeprüfter POST-Zugriff.
 
 **B10 – Templating in Inline-JS.**
-[vote/templates/vote/results.html](../vote/templates/vote/results.html) interpoliert `choice_text`
-direkt in ein JS-String-Literal. Django-Autoescaping verhindert hier zwar einen Ausbruch, mangelt
-aber die Anzeige. → `json_script` verwenden.
+[vote/templates/vote/results.html](../vote/templates/vote/results.html) interpolierte `choice_text`
+direkt in ein JS-String-Literal. Django-Autoescaping verhinderte einen Ausbruch, mangelte aber die
+Anzeige. ✅ **Behoben in 4.2** über `json_script` – Details dort.
+
+**B17 – Mehrzeilige `{# … #}` sind in Django keine Kommentare.** *(neu gefunden in 4.2)*
+Djangos `tag_re` ist **ohne `re.DOTALL`** kompiliert: ein `{#` findet sein `#}` nur in derselben
+Zeile. Alles darüber hinaus bleibt Text – **inklusive der `{{ … }}` darin, die dann ausgewertet
+werden.** Drei Vorkommen im Bestand (`create.html`, `index.html`, und eines, das ich in 4.2 selbst
+erzeugt habe).
+**Warum es nie auffiel:** die zwei alten stehen *außerhalb* jedes `{% block %}` eines
+Kind-Templates, und das verwirft Django. Wer sie nach innen verschiebt, leakt sie.
+**Wie es zuschlug:** in meiner Prosa stand das Wort „script" in spitzen Klammern – der HTML-Parser
+öffnete daran ein `script`-Element und verschluckte das Datenelement dahinter. Die Seite lieferte
+einen sauberen **200 ohne Diagramm**; `curl` sah korrekt aus, erst der DOM im Browser zeigte es.
+Genau dafür lohnt der Browser-Gegencheck bei JS-/Markup-Änderungen.
+✅ Alle drei auf `{% comment %}` umgestellt, plus ein Wächter-Test in
+[vote/tests/test_templates.py](../vote/tests/test_templates.py), der den Template-Baum abläuft.
 
 ### Kleinere Punkte
 
-Erledigt: `/healthz` (5.5) · `USE_L10N` (2.4) · `DEFAULT_AUTO_FIELD` (2.4) · `manage.py`-Boilerplate (2.5) ·
+Erledigt: `/healthz` (5.5) · Cache-Busting (4.4) · Template-Defekte (4.5) · `USE_L10N` (2.4) ·
+`DEFAULT_AUTO_FIELD` (2.4) · `manage.py`-Boilerplate (2.5) ·
 README/`pip3 install django==2.2.27` (2.2) · `LOGGING` (setzt das Prod-Modul) ·
 Static-Handling aus dem Source-Tree (mit den Docker-Images in `4e15012` weg) ·
 `len(Token.objects.filter(…))` → Zählen in der Datenbank (3.6) ·
@@ -231,8 +247,7 @@ verworfen – ein GET auf `/vote/create` rendert das Formular, weil ein 405 für
 Browser-History eine Sackgasse ist. Begründung bei 3.2.
 
 Noch offen:
-- Kein Cache-Busting für Static Files → 4.4.
-- Templates: `<th>…</td>`-Mismatch in `results.html`; Bootstrap-3-Markup durchgehend → 4.1/4.5.
+- Bootstrap-3-Markup durchgehend → 4.1.
 
 ---
 
@@ -502,20 +517,55 @@ Tests für niemanden außer mir nutzbar und in CI wertlos. **Behoben in 2.1**, a
 - [ ] **4.1 Bootstrap 3.3.6 → 5.3.x** (vendored, kein CDN – CSP-freundlich): `base.html`,
       Navbar, `form-group` → `mb-3`, `nav-pills`/`badge` in
       [token_state.html](../vote/templates/vote/token_state.html), Alerts.
-- [ ] **4.2 jQuery entfernen** – Bootstrap 5 braucht es nicht, die einzige Nutzung ist der
-      Chart-Init in `results.html`.
-- [ ] **4.3 Highcharts ersetzen (B8)** durch Chart.js (MIT) oder ECharts (Apache-2.0),
-      Daten über `{{ ...|json_script }}` statt Inline-Interpolation (B10).
-- [ ] **4.4 Cache-Busting für Static Files.** **Kein Whitenoise** – nginx serviced `/static` schon
-      direkt aus `/var/lib/demockrazy/static` (siehe §1), das soll so bleiben. Stattdessen
-      `STORAGES["staticfiles"]` auf `ManifestStaticFilesStorage` für gehashte Dateinamen.
-      `collectstatic --noinput` läuft laut Modul bei **jedem** Service-Start, die Umstellung ist
-      damit gefahrlos.
-- [ ] **4.5 Template-Kleinkram:** `<th>/</td>`-Mismatch, `lang="de"` wo die Texte deutsch sind,
-      doppelt eingebundenes `bootstrap.css` in `base.html`. Neu dazu: die handgeschriebenen
-      `<input>`/`<textarea>` in [index.html](../vote/templates/vote/index.html) tragen kein
-      `aria-describedby` auf die Fehlerliste, die Django daneben rendert (mit 3.2 entstanden, weil
-      das Markup bewusst nicht auf `{{ form.<feld> }}` umgestellt wurde).
+- [~] **4.2 jQuery entfernen** – **halb erledigt, Rest hängt an 4.1.** Der Chart-Init in
+      `results.html` benutzt kein jQuery mehr. **Im vendorten File geprüft statt angenommen:**
+      Highcharts 4.2.5 ist standalone und registriert `$.fn.highcharts` nur, *wenn* jQuery da ist –
+      `new Highcharts.Chart({chart: {renderTo: …}})` ist die 4.x-API (das kleingeschriebene
+      `Highcharts.chart` gibt es erst ab 5.x). Auch kein Ready-Handler nötig, der Block rendert am
+      Ende von `<body>`.
+      **`jquery-2.2.4.min.js` muss trotzdem bleiben, bis 4.1 durch ist:** Bootstrap 3s JS braucht es
+      für die einklappende Navbar. Das ist der einzige verbleibende Nutzer.
+- [x] **B10 mit 4.2 behoben** ✅ – Diagrammdaten kommen per `json_script` aus der View statt als in
+      ein JS-Stringliteral interpolierte Werte. **Vorher gemessen:** betroffen waren `&`, `'`, `"`
+      und `<` – im Diagramm stand sichtbar `Bier &amp; Brezn`, wo die Tabelle `Bier & Brezn` zeigte.
+      Regressionstest in [test_known_bugs.py](../vote/tests/test_known_bugs.py).
+      **Eine bewusste kosmetische Änderung:** ein Choice-Text mit Markup (`<b>x</b>`) rendert im
+      Diagramm jetzt *fett*, statt die Entities zu zeigen – Highcharts parst in Labels eine kleine
+      Tag-Whitelist. **Geprüft, ob daran mehr hängt: nein** – `javascript:`-Hrefs und `on*`-Handler
+      werden gestrichen, heraus kommen nur `<tspan>`s. Wörtlich anzeigen ginge erst mit dem
+      Bibliothekswechsel in 4.3 (braucht F4).
+      Nebeneffekt: `choice_set` wurde für Tabelle und Diagramm zweimal abgefragt, jetzt einmal.
+- [ ] **4.3 Highcharts ersetzen (B8)** durch Chart.js (MIT) oder ECharts (Apache-2.0).
+      ~~Daten über `json_script` statt Inline-Interpolation (B10)~~ – **mit 4.2 vorab erledigt**,
+      der Bibliothekswechsel erbt das.
+- [x] **4.4 Cache-Busting für Static Files** ✅ – `STORAGES["staticfiles"]` auf
+      `ManifestStaticFilesStorage`. **Kein Whitenoise** – nginx serviced `/static` schon direkt aus
+      `/var/lib/demockrazy/static` (siehe §1), gebraucht wird der Dateiname, nicht ein zweiter Server.
+      Zwei Dinge machen es gefahrlos: `collectstatic --noinput` läuft im `preStart` bei **jedem**
+      Service-Start, das Manifest ist also nie veraltet; und bei `DEBUG=True` hasht Django gar nicht
+      (`HashedFilesMixin._url`), `runserver` braucht kein collectstatic.
+      **Vorab gemessen, nicht gehofft:** `collectstatic` mit Manifest-Storage läuft gegen den
+      *aktuellen* Bestand durch – 146 Dateien post-processed, alle `url()`-Verweise von Bootstrap 3
+      (Glyphicon-Fonts) lösen auf. Damit war 4.4 **nicht** von 4.1 abhängig.
+      **`test_settings.py` stellt bewusst auf `StaticFilesStorage` zurück** – auch das gemessen: ohne
+      den Override fallen **56 Tests** mit `Missing staticfiles manifest entry` um, weil die Suite mit
+      `DEBUG=False` läuft und das Manifest erst `collectstatic` schreibt.
+      Der neue Test in [demockrazy/tests/test_staticfiles.py](../demockrazy/tests/test_staticfiles.py)
+      **fährt `collectstatic` wirklich**: der Fehlerfall ist nicht ein falscher Dateiname, sondern ein
+      **Abbruch**, wenn eine CSS-Datei per `url()` ins Leere zeigt – und das Kommando läuft in Prod im
+      `preStart`, ein Abbruch dort heißt, der Dienst startet nicht. Steht damit vor 4.1 bereit.
+- [x] **4.5 Template-Kleinkram** ✅ – drei Punkte, alle versionsunabhängig und deshalb vor 4.1 gemacht:
+      `<th>…</td>` in [results.html](../vote/templates/vote/results.html) korrekt geschlossen und die
+      Kopfzeile in ein `<thead>` mit `scope="col"` gesetzt; das **doppelt eingebundene
+      `bootstrap.css`** in [base.html](../vote/templates/base.html) entfernt (jeder Besucher lud
+      dieselben ~120 KB zweimal – im Browser gegengeprüft, jetzt ein Request pro Asset);
+      `aria-describedby` + `aria-invalid` auf die Fehlerlisten in
+      [index.html](../vote/templates/vote/index.html), **nur wenn ein Fehler vorliegt** (ein
+      `aria-invalid="false"` auf jedem Feld ist Lärm, ein `aria-describedby` auf einen leeren
+      Container eine Zusage, die niemand einlöst). Test prüft beide Richtungen.
+      ~~`lang="de"` wo die Texte deutsch sind~~ – **gegenstandslos, die Annahme war falsch:** die
+      Web-UI ist durchgehend **englisch** („create a new poll", „Total Voters", „Redeemed"), nur die
+      *Mails* sind deutsch. `lang="en"` in `base.html` ist damit korrekt und bleibt.
 
 ## 9. Phase 5 – Deployment & CI
 
@@ -651,6 +701,7 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
 | F8 | Anonymität vs. Zustellstatus pro Empfänger – wie weit darf Ziel 2 das aufweichen? (§11.4) | Ziel 2 |
 | **F17** | **Überschreibt das NixOS-Modul einen der vier Mail-Text-Settings?** 3.4 hat `VOTE_MAIL_SUBJECT`, `VOTE_MAIL_TEXT`, `VOTE_ADMIN_MAIL_SUBJECT`, `VOTE_ADMIN_MAIL_TEXT` aus `settings.py` entfernt – der Text kommt jetzt aus Templates. Setzt `demockrazy_config` (oder die `djangoSettings`-Option) einen davon, wird der Wert nach dem Deploy **stillschweigend ignoriert** und Prod verschickt den Repo-Wortlaut. Prüfung im Repo des Users: `grep -rn 'VOTE_MAIL\|VOTE_ADMIN_MAIL\|VOTE_BASE_URL\|VOTE_MAIL_FROM'`. Meine Modul-Analyse in [deployment.md](deployment.md) listet keinen dieser vier, und die alte `local_settings.py` überschrieb nur `VOTE_BASE_URL`/`VOTE_MAIL_FROM`/`VOTE_SEND_MAILS` – die drei sind bewusst geblieben. Trifft die Annahme nicht zu, gehört der Text ins Template. | **vor dem Deploy** |
 | F13 | Wie groß sind Abstimmungen real (Empfänger pro Poll, parallele Polls)? Entscheidet SQLite-Tuning vs. Postgres (B13) und die Batch-Größen für Ziel 2. | 5.4, Ziel 2 |
+| **F19** | **Darf ich Bootstrap 5.3.x herunterladen und vendoren – und aus welcher Quelle?** 4.1 braucht die Dateien im Repo (kein CDN, CSP-freundlich, so ist der Bestand). Ich lade nichts ohne ausdrückliche Freigabe. Zu klären: (a) Freigabe überhaupt, (b) Quelle – offizielles `bootstrap-5.3.x-dist.zip` von getbootstrap.com bzw. GitHub-Release, oder lieber über nixpkgs/`fetchurl` mit Hash im Flake, damit die Herkunft reproduzierbar ist, (c) ob nur CSS+JS-Bundle oder auch die Maps. **Empfehlung: GitHub-Release-Dist, nur `bootstrap.min.css` + `bootstrap.bundle.min.js`, ohne Maps** – das ersetzt 544 KB Bootstrap 3 und die 49 KB jQuery. Ohne diese Antwort bleiben 4.1 und der Rest von 4.2 liegen. | **4.1, 4.2** |
 | **F18** | **Soll `ATOMIC_REQUESTS` tatsächlich an?** Es war seit 2016 wirkungslos und ist mit 5.5 entfernt (B16) – der Zustand ist damit *unverändert*, nur nicht mehr falsch dokumentiert. Einschalten (in `DATABASES['default']`) hieße: jeder Request nimmt eine Transaktion, auch die reine Ergebnisseite, auf einer SQLite-Datei mit 4 uwsgi-Prozessen (B13). **Meine Empfehlung: aus lassen.** Die zwei Stellen, die Atomarität brauchen, haben sie explizit und getestet; die Option würde vor allem das Lock-Fenster verbreitern. Falls doch an, gehört sie in dieselbe Entscheidung wie WAL/`timeout` (5.4) und `/healthz` bleibt per `non_atomic_requests` ausgenommen. | 5.4 (nicht blockierend) |
 | ~~F16~~ | ~~Sind die drei Verschärfungen aus 3.1 gewollt?~~ → **ja**, vom User bestätigt (alle sechs Felder Pflicht, Djangos Adressvalidator, `title` auf 200 Zeichen). Seit 3.2 in der View wirksam. | – |
 
@@ -666,10 +717,14 @@ Phase 5  5.1 k8s-Cleanup ✅ · 5.2 Deployment verstanden ✅ · 5.3 CI ✅ · 5
 Phase 6  README ✅ · Handover ✅
 
 offen, in sinnvoller Reihenfolge:
-  Phase 4  Frontend – unabhängig, parallelisierbar, 4.3 braucht F4
+  Phase 4  4.4 ✅ · 4.5 ✅ · 4.2 halb ✅ (Rest hängt an 4.1)
+             └─ 4.1 braucht F19 (Bootstrap-5-Dateien vendoren)
+             └─ 4.3 braucht F4  (Highcharts-Lizenz)
   Phase 3  nur noch 3.8 (Zugangsschutz) – braucht F5
   5.4      SQLite-Härtung – braucht F13, dazu F18 entscheiden
   2.7      TLS-Hardening – braucht F15
+
+**Damit ist alles Unblockierte abgearbeitet.** Was offen ist, wartet auf F4, F5, F13, F15 oder F19.
 
 erledigt in Phase 3: 3.1 Forms · 3.2 create()/manage() · 3.3 vote() · 3.4 Mail-Service ·
 3.5 Poll-Service · 3.6 Models/Constraints · 3.7 path()
@@ -677,8 +732,9 @@ erledigt in Phase 3: 3.1 Forms · 3.2 create()/manage() · 3.3 vote() · 3.4 Mai
   └─ 3.4 ist die Schnittstelle für ZIEL 2 (Batch-Mails, nach Spec)
 ```
 
-**Nächster Schritt:** Phase 4 außer 4.3 (Bootstrap 5, jQuery raus, Cache-Busting,
-Template-Kleinkram) – unblockiert. Von Phase 3 ist nur noch 3.8 offen, und das braucht F5.
+**Nächster Schritt: keiner, der nicht auf eine Antwort wartet.** Zuerst **F19** (Bootstrap-Dateien),
+das schaltet 4.1 und den Rest von 4.2 frei – das ist der größte verbleibende Brocken.
+Danach nach Antwortlage: F4 → 4.3, F5 → 3.8, F13/F18 → 5.4, F15 → 2.7.
 **Vor dem Deploy:** F17 klären; die Migration `0003` schreibt `vote_poll` und `vote_token` neu
 (Details in [phase-2-migrations.md](phase-2-migrations.md)), Backup liegt vor (borg 03:00/04:00).
 **Die Vorarbeit für Ziel 2 (§11.1–3) ist mit 3.4 vollständig** – ein Batch-Versender ersetzt
