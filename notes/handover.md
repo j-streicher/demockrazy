@@ -1,7 +1,7 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: 2026-08-04, Branch `update/modernize-2026`, 61 Commits über `master` (Basis `3074dbb`).
+Stand: 2026-08-04, Branch `update/modernize-2026`, 62 Commits über `master` (Basis `3074dbb`).
 Arbeitsbaum ist sauber, alles committed, **nichts gepusht** -- die CI hat also noch nie gelaufen,
 sie greift erst beim ersten Push.
 
@@ -13,6 +13,7 @@ sie greift erst beim ersten Push.
 |---|---|
 | **dieses Dokument** | Orientierung, Arbeitsregeln, offene Fragen, nächster Schritt |
 | [plan.md](plan.md) | Der Plan mit allen Phasen, Bug-Nummern B1–B18, Fragen F1–F20. **Das Hauptdokument.** |
+| **[to-check.md](to-check.md)** | **Alles, was außerhalb dieses Repos zu tun oder zu beantworten ist** – Proxy, NixOS-Modul, Prod-Node, offene Fragen. Mit Befehlen und Begründung. Die Liste für den User. |
 | [deployment.md](deployment.md) | Wie Produktion wirklich läuft. **Vor jeder Settings-/Deploy-Änderung lesen.** |
 | [phase-2-migrations.md](phase-2-migrations.md) | Warum die Migrations so aussehen, wie sie aussehen |
 | [phase-0-baseline.md](phase-0-baseline.md) | Baseline-Messungen; enthält eine als überholt markierte Analyse |
@@ -263,23 +264,22 @@ prüft sie zusammen mit dem Converter-Verhalten. Der Namespace `polls` und die `
 
 ### Vor dem Deploy (nicht von mir, Regel 7)
 
-1. **F17 klären** – der `grep` im Colmena-Repo (§8).
-2. **`0003` ist kein No-Op.** Es schreibt `vote_poll` und `vote_token` neu; geprüft gegen ein
-   Prod-Abbild, Daten unversehrt ([phase-2-migrations.md](phase-2-migrations.md)). `migrate` läuft
-   im `preStart` vor dem Dienststart, es gibt also keine parallelen Schreiber; borg-Backup liegt vor.
-3. **`rev`+`sha256` im Modul bumpen** und das Colmena-Flake auf `mf-next` (§6, Falle 4).
-4. **Die SQLite-`OPTIONS` aus 5.4 erreichen Prod nicht von allein.** `demockrazy_config` setzt
-   `DATABASES` komplett neu und verliert sie dabei – **derselbe Mechanismus wie bei B16.** Deshalb
-   gibt es einen System-Check dafür; nach dem Deploy prüfbar mit
-   `DJANGO_SETTINGS_MODULE=demockrazy_config python3 manage.py check`. Ohne die Optionen sind es
-   gemessen **164 von 200** gleichzeitigen Stimmabgaben, die mit `database is locked` scheitern.
-5. **`/healthz` braucht einen passenden `Host`-Header.** `ALLOWED_HOSTS` ist in Prod
-   `["wahlcomputer.mayflower.de"]` – eine Monitoring-Probe gegen `localhost` bekommt einen 400 und
-   sieht wie ein Ausfall aus. Gehört ins Modul, nicht in die Repo-Defaults.
+**Vollständig und mit Befehlen in [to-check.md](to-check.md)** – dort steht alles, was außerhalb
+dieses Repos passieren muss, nach Ort gruppiert (Proxy / Modul / Node / Antwort an mich). Kurzfassung:
 
-Von diesen fünf Punkten braucht nur **F17** noch eine Antwort; die anderen vier sind Handgriffe
-am Modul. Der Rest der Fragen (§8) blockiert **nichts im Repo** mehr – F15 betrifft den Proxy,
-F20 gehört zu Ziel 2.
+1. **F17 klären** – der `grep` nach `VOTE_MAIL` im Deployment-Repo. **Der einzige Punkt, der noch
+   eine Antwort braucht**; die übrigen sind Handgriffe.
+2. **Die SQLite-`OPTIONS` ins Modul übernehmen** (5.4). Geht sonst still verloren, weil
+   `demockrazy_config` `DATABASES` neu setzt – derselbe Mechanismus wie B16. Danach
+   `DJANGO_SETTINGS_MODULE=demockrazy_config python3 manage.py check` fahren, das meldet es.
+3. **`rev`+`sha256` bumpen** und das Colmena-Flake auf `mf-next` (§6, Falle 4).
+4. **`0003` ist kein No-Op** – schreibt `vote_poll` und `vote_token` neu, gegen ein Prod-Abbild
+   geprüft ([phase-2-migrations.md](phase-2-migrations.md)). Läuft im `preStart`, Backup liegt vor.
+5. **`/healthz`** braucht einen `Host`-Header, den `ALLOWED_HOSTS` akzeptiert.
+
+Am Proxy, unabhängig vom Deploy: den vorhandenen **CSP-Snippet** einbinden (geht erst, seit alles
+vendored ist) und den **widersprüchlichen `X-Frame-Options`** entwirren – Proxy sagt `sameorigin`,
+Django `DENY`, beide Header gehen raus. Beides in [to-check.md](to-check.md) §B.
 
 ## 10. Arbeitsregeln (haben sich bewährt, bitte beibehalten)
 

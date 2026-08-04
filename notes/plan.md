@@ -908,8 +908,9 @@ erledigt in Phase 3: 3.1 Forms · 3.2 create()/manage() · 3.3 vote() · 3.4 Mai
 **Nächster Schritt: keiner im Repo.** Ziel 1 ist inhaltlich fertig; was von 2.7 übrig ist, gehört in
 den Proxy und braucht F15. Danach ist **Ziel 2** dran – die Problembeschreibung steht in §11, die
 Anonymitätsfrage ist mit F8 entschieden, es fehlen die Spec und **F20**.
-**Vor dem Deploy** bleibt die Liste in [handover.md](handover.md) §9 – **F17** ist der einzige Punkt,
-der noch eine Antwort braucht.
+**Alles, was außerhalb dieses Repos zu tun ist, steht in [to-check.md](to-check.md)** – Proxy,
+NixOS-Modul, Prod-Node und die offenen Fragen, mit Befehlen und Begründung. **F17** ist der einzige
+Punkt davon, der noch eine Antwort braucht.
 **Vor dem Deploy:** F17 klären; die Migration `0003` schreibt `vote_poll` und `vote_token` neu
 (Details in [phase-2-migrations.md](phase-2-migrations.md)), Backup liegt vor (borg 03:00/04:00).
 **Die Vorarbeit für Ziel 2 (§11.1–3) ist mit 3.4 vollständig** – ein Batch-Versender ersetzt
