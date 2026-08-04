@@ -1,9 +1,11 @@
 """Tests für vote/views.py gegen das in Phase 0 protokollierte Verhalten."""
 
 import pytest
+from django.test import Client
 from django.urls import Resolver404, resolve, reverse
 
 from vote.models import Choice, Poll, Token
+from vote.views import TOKEN_COOKIE_NAME
 
 from .conftest import CREATOR_MAIL, creator_message, voter_tokens
 
@@ -249,16 +251,21 @@ class TestCreateFormErrors:
 
 @pytest.mark.django_db
 class TestPollPage:
+    """`follow=True`, weil ein Token in der URL seit B9 erst umzieht und dann umleitet.
+
+    Was dabei passiert, prüft `TestTokenLeavesTheUrl`; hier interessiert nur die Seite am Ende.
+    """
+
     def test_shows_poll_and_token(self, client, create_poll):
         poll, tokens = create_poll()
-        response = client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]})
+        response = client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]}, follow=True)
         assert response.status_code == 200
         assert response.context["token"] == tokens[0]
         assert response.context["error_message"] is None
 
     def test_reports_unknown_token(self, client, create_poll):
         poll, _ = create_poll()
-        response = client.get(f"/vote/{poll.identifier}/", {"token": "gibtsnicht"})
+        response = client.get(f"/vote/{poll.identifier}/", {"token": "gibtsnicht"}, follow=True)
         assert response.status_code == 200
         assert (
             response.context["error_message"] == "This token is invalid. Maybe you voted already?"
@@ -266,10 +273,18 @@ class TestPollPage:
 
     def test_token_counters(self, client, create_poll):
         poll, tokens = create_poll(voters=("a@example.org", "b@example.org", "c@example.org"))
-        response = client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]})
+        response = client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]}, follow=True)
         assert response.context["amount_tokens_total"] == 3
         assert response.context["amount_remaining_tokens"] == 3
         assert response.context["amount_redeemed_tokens"] == 0
+
+    def test_without_a_token_the_field_is_empty(self, client, create_poll):
+        """Kein Token, kein Umzug, keine Fehlermeldung -- nur ein leeres Feld zum Abtippen."""
+        poll, _ = create_poll()
+        response = client.get(f"/vote/{poll.identifier}/")
+        assert response.status_code == 200
+        assert response.context["token"] == ""
+        assert response.context["error_message"] is None
 
     def test_unknown_poll_is_404(self, client):
         assert client.get("/vote/gibtsnicht/").status_code == 404
@@ -281,6 +296,153 @@ class TestPollPage:
         response = client.get(f"/vote/{poll.identifier}/")
         assert response.status_code == 302
         assert response.headers["Location"] == f"/vote/{poll.identifier}/results"
+
+    def test_closed_poll_redirects_to_results_even_with_a_token(self, client, create_poll):
+        """Genau *eine* Weiterleitung, nicht erst der Umzug und dann die Weiche.
+
+        Die `is_active`-Weiche steht deshalb seit B9 vor dem Umzug.
+        """
+        poll, tokens = create_poll()
+        poll.is_active = False
+        poll.save()
+        response = client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]})
+        assert response.status_code == 302
+        assert response.headers["Location"] == f"/vote/{poll.identifier}/results"
+
+
+@pytest.mark.django_db
+class TestTokenLeavesTheUrl:
+    """B9: der Token zieht beim ersten Aufruf aus dem Query-String in ein Cookie um.
+
+    Der Link in der Mail bleibt unverändert -- er *muss* es, es sind Mails unterwegs (Regel 4/5).
+    Neu ist nur, dass die Adresse, auf der der Browser stehen bleibt, keinen Token mehr trägt.
+
+    **Grenze des Testclients:** sein Cookie-Speicher ist nur nach Namen sortiert und ignoriert
+    `path`. Dass zwei Umfragen sich nicht ins Gehege kommen, ist deshalb über das Attribut geprüft
+    und nicht über zwei nacheinander abgerufene Seiten -- das würde hier gelingen, wo ein Browser
+    es gar nicht erst versuchen würde.
+    """
+
+    def test_the_token_is_moved_into_a_cookie(self, client, create_poll):
+        poll, tokens = create_poll()
+        response = client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]})
+        assert response.status_code == 302
+        assert response.headers["Location"] == f"/vote/{poll.identifier}/"
+        assert response.cookies[TOKEN_COOKIE_NAME].value == tokens[0]
+
+    def test_the_page_after_the_move_shows_the_token(self, client, create_poll):
+        poll, tokens = create_poll()
+        client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]})
+        response = client.get(f"/vote/{poll.identifier}/")
+        assert response.context["token"] == tokens[0]
+        assert response.context["error_message"] is None
+
+    def test_the_move_happens_only_once(self, client, create_poll):
+        """Kein Pendeln: die Zieladresse trägt keinen Token, also löst sie keinen Umzug aus."""
+        poll, tokens = create_poll()
+        response = client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]}, follow=True)
+        assert len(response.redirect_chain) == 1
+        assert response.status_code == 200
+
+    def test_the_cookie_is_scoped_to_this_poll(self, client, create_poll):
+        """Ohne `path` würde eine zweite Einladung die erste überschreiben.
+
+        Mit `?token=` in der URL gab es diese Kollision nicht -- die Bindung an den Pfad ist
+        Verhaltenserhaltung und keine Zugabe.
+        """
+        poll, tokens = create_poll()
+        response = client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]})
+        assert response.cookies[TOKEN_COOKIE_NAME]["path"] == f"/vote/{poll.identifier}/"
+
+    def test_the_cookie_reaches_the_vote_endpoint(self, client, create_poll):
+        """Der Cookie-Pfad darf nicht so eng sein, dass die Stimmabgabe ihn nicht mehr sieht.
+
+        Ein Cookie geht an jeden Pfad, der mit seinem `path` beginnt. Geprüft wird deshalb gegen
+        die echten Routen, nicht gegen ein zweites Mal hingeschriebene Zeichenketten.
+        """
+        poll, tokens = create_poll()
+        response = client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]})
+        cookie_path = response.cookies[TOKEN_COOKIE_NAME]["path"]
+        assert cookie_path.endswith("/"), "sonst greift die Präfixregel nicht"
+        for name in ("vote", "success", "result"):
+            assert reverse(f"vote:polls:{name}", args=(poll.identifier,)).startswith(cookie_path)
+
+    def test_the_cookie_is_hidden_from_scripts_and_lax(self, client, create_poll):
+        """`Lax`, nicht `Strict`: der Klick aus einem Webmailer ist seitenübergreifend."""
+        poll, tokens = create_poll()
+        cookie = client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]}).cookies[
+            TOKEN_COOKIE_NAME
+        ]
+        assert cookie["httponly"]
+        assert cookie["samesite"] == "Lax"
+
+    def test_the_cookie_follows_the_session_cookie_setting(self, client, create_poll, settings):
+        """Ein eigener Schalter würde still von dem abweichen, den das Prod-Modul schon setzt."""
+        poll, tokens = create_poll()
+        assert not client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]}).cookies[
+            TOKEN_COOKIE_NAME
+        ]["secure"]
+        settings.SESSION_COOKIE_SECURE = True
+        assert client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]}).cookies[
+            TOKEN_COOKIE_NAME
+        ]["secure"]
+
+    def test_an_empty_token_in_the_url_clears_the_cookie(self, client, create_poll):
+        poll, tokens = create_poll()
+        client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]})
+        response = client.get(f"/vote/{poll.identifier}/", {"token": ""}, follow=True)
+        assert response.context["token"] == ""
+
+    def test_the_page_varies_on_cookie(self, client, create_poll):
+        """Ein gemeinsamer Cache darf die Seite eines Wählers nicht an den nächsten ausliefern."""
+        poll, _ = create_poll()
+        response = client.get(f"/vote/{poll.identifier}/")
+        assert "Cookie" in response.headers["Vary"]
+
+    def test_the_vote_takes_its_token_from_the_form_not_the_cookie(self, client, create_poll):
+        """Das Cookie ist eine Bequemlichkeit für die Anzeige, kein Auth-Kanal für die Abgabe."""
+        poll, tokens = create_poll()
+        client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]})
+        client.post(
+            f"/vote/{poll.identifier}/vote",
+            {"token": tokens[1], "choice": poll.choice_set.first().id},
+        )
+        assert Token.objects.filter(token_string=tokens[0]).exists(), "der falsche wurde verbraucht"
+        assert not Token.objects.filter(token_string=tokens[1]).exists()
+
+    def test_a_spent_token_still_explains_itself(self, client, create_poll):
+        """Nach der Abgabe bleibt das Cookie stehen -- absichtlich.
+
+        Es zeigt dann dieselbe Meldung wie bisher ein erneut aufgerufener Mail-Link. Löschen wäre
+        die Alternative und würde die Erklärung durch ein leeres Feld ersetzen.
+        """
+        poll, tokens = create_poll()
+        client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]})
+        client.post(
+            f"/vote/{poll.identifier}/vote",
+            {"token": tokens[0], "choice": poll.choice_set.first().id},
+        )
+        response = client.get(f"/vote/{poll.identifier}/")
+        assert (
+            response.context["error_message"] == "This token is invalid. Maybe you voted already?"
+        )
+
+    def test_voting_already_required_a_cookie_before_all_this(self, create_poll):
+        """Warum der Umzug in ein Cookie niemandem etwas wegnimmt: gemessen, nicht gehofft.
+
+        Djangos CSRF-Prüfung verlangt schon heute ein Cookie. Wer keine annimmt, konnte auch
+        vorher nicht abstimmen -- ein zweites Cookie kostet also keinen Wähler.
+        """
+        poll, tokens = create_poll()
+        strict = Client(enforce_csrf_checks=True)
+        page = strict.get(f"/vote/{poll.identifier}/", {"token": tokens[0]}, follow=True)
+        payload = {
+            "token": tokens[0],
+            "choice": poll.choice_set.first().id,
+            "csrfmiddlewaretoken": str(page.context["csrf_token"]),
+        }
+        strict.cookies.clear()
+        assert strict.post(f"/vote/{poll.identifier}/vote", payload).status_code == 403
 
 
 @pytest.mark.django_db
@@ -509,6 +671,22 @@ class TestAnonymity:
             {"token": tokens[0], "choice": poll.choice_set.first().id},
         )
         assert Token.objects.filter(token_string=tokens[0]).count() == 0
+
+    def test_the_token_move_stores_nothing_on_the_server(self, client, create_poll):
+        """Der Umzug aus der URL ins Cookie (B9, Plan 3.9) legt **keinen** Serverzustand an.
+
+        Das ist die Zusage, die eine Session-basierte Lösung nicht hätte: die hätte für jeden
+        Besucher eine Zeile in `django_session` geschrieben -- einen Schreibzugriff auf dieselbe
+        SQLite-Datei, die vier uwsgi-Prozesse teilen (B13), und ein serverseitiges Gegenstueck zur
+        Paarung Adresse-zu-Token, das F8 gerade *nicht* will.
+
+        Dieser Test hält jemanden auf, der den Umzug später auf `request.session` umstellt.
+        """
+        from django.contrib.sessions.models import Session
+
+        poll, tokens = create_poll()
+        client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]}, follow=True)
+        assert Session.objects.count() == 0
 
     def test_token_cannot_be_reused(self, client, create_poll):
         poll, tokens = create_poll()

@@ -13,7 +13,7 @@ ablehnenden Statuscode, solange die Schutzmaßnahme offen war; ein Deckel im For
 200 mit Fehlermeldung. Geprüft wird jetzt die Wirkung, nicht der Statuscode.
 
 Behoben: B3, B6, B11, B12 (Plan 3.2) · B2 (Plan 3.3) · die zwei Unique-Constraints (Plan 3.6) ·
-B10 (Plan 4.2).
+B4 (Plan 3.8) · B10 (Plan 4.2) · B9 (Plan 3.9). Damit ist das Register vollstaendig abgearbeitet.
 B15 ist erst in 3.3 aufgefallen und sofort behoben worden, hatte also nie einen Marker -- die
 Regressionstests dazu stehen in test_views.py bei den übrigen Stimmabgabe-Tests.
 """
@@ -151,6 +151,34 @@ def test_b10_special_characters_survive_into_the_chart(client):
     assert [entry["name"] for entry in series][: len(texts)] == texts
     # Und die Gegenprobe zum eigentlichen Zweck von json_script: kein `</script>` bricht aus.
     assert "</script>" not in payload.split(">", 1)[1]
+
+
+@pytest.mark.django_db
+def test_b9_the_browser_does_not_keep_the_token_in_the_url(client, create_poll):
+    """Auf der Adresse, auf der der Browser stehen bleibt, darf kein Token stehen.
+
+    `?token=…` war das einzige Auth-Merkmal und stand damit im nginx-Access-Log, in der
+    Browser-History und -- weil die Referrer-Policy fuer gleichherkuenftige Anfragen die
+    vollstaendige URL sendet -- im `Referer` jeder Anfrage, die die Seite ausloest, also auch in
+    jeder Logzeile ueber ein Stylesheet.
+
+    Die Behebung ist **additiv** (Regel 4/5): der Link in der Mail bleibt zeichengleich, der Token
+    zieht beim ersten Aufruf in ein Cookie um. **Was offen bleibt und offen bleiben muss:** die
+    Logzeile dieses *einen* Aufrufs. Sie haengt an einem klickbaren Link und ist nur am Proxy zu
+    loesen (`log_format` ohne `$args`) -- siehe notes/to-check.md.
+
+    Die Mechanik des Umzugs steht in test_views.py::TestTokenLeavesTheUrl.
+    """
+    poll, tokens = create_poll()
+    response = client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]}, follow=True)
+
+    final_url, status = response.redirect_chain[-1]
+    assert status == 302
+    assert tokens[0] not in final_url
+    assert "token" not in final_url
+    # Und die Seite ist trotzdem die richtige: der Token steht im Formular, nur nicht in der URL.
+    assert response.status_code == 200
+    assert response.context["token"] == tokens[0]
 
 
 @pytest.mark.django_db

@@ -8,6 +8,12 @@ link between a voter and their vote. The poll closes automatically once every to
 and only then are the results visible. The creator gets a separate management token and can close
 the poll early.
 
+The invitation mail links to `/vote/<poll>/?token=<token>`. On the first request that token is moved
+into a path-scoped, `HttpOnly` cookie and the browser is redirected to the same address **without the
+query string**, so the token stops appearing in access logs, `Referer` headers and browser history.
+Old links keep working unchanged, and casting a vote still reads the token from the submitted form,
+not from the cookie.
+
 ## Development setup
 
 The dev environment is a Nix flake (`nix develop`, or automatically via `direnv` — see `.envrc`).
