@@ -35,9 +35,12 @@ def test_collectstatic_resolves_every_reference(tmp_path):
         manifest = json.loads((tmp_path / "staticfiles.json").read_text())
         paths = manifest["paths"]
 
-        # Eine eigene und eine Vendor-Datei: die zweite ist die, die per url() weiterverweist
-        # (Glyphicon-Fonts). Beide müssen einen Hash tragen und wirklich dort liegen.
-        for name in ("css/main.css", "bootstrap-3.3.6-dist/css/bootstrap.css"):
+        # Eine eigene und eine Vendor-Datei. Beide müssen einen Hash tragen und dort liegen.
+        # Bootstrap 5 bringt seine Icons als inline data:-URIs mit, hat also keine externen
+        # url()-Verweise mehr -- bei Bootstrap 3 waren es die Glyphicon-Fonts. Was der Test bei 4.1
+        # tatsächlich gefangen hat, war der `sourceMappingURL`-Verweis der Bundles auf die nicht
+        # mitgelieferten .map-Dateien (siehe PROVENANCE.md neben den Dateien).
+        for name in ("css/main.css", "bootstrap-5.3.8-dist/css/bootstrap.min.css"):
             assert paths[name] != name, name
             assert (tmp_path / paths[name]).exists(), name
 

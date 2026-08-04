@@ -1,3 +1,7 @@
+/* Die Navbar ist `fixed-top` und liegt damit über dem Inhalt -- der Body braucht Platz in ihrer
+   Höhe. Im Browser gemessen, nicht geschätzt: die Bootstrap-5-Navbar ist hier 56px hoch (Bootstrap
+   3 waren es 50px, daher der alte Wert -- mit dem verdeckte sie die Überschrift um 6px). 4.5rem
+   = 72px lässt 16px Luft. */
 body {
-  padding-top: 50px;
+  padding-top: 4.5rem;
 }
