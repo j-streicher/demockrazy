@@ -1071,10 +1071,28 @@ Broker mehr Betrieb als Nutzen.
 eine Minute nach dem Anlegen raus, die Mail an den Ersteller auch. Das ist der Gegenwert dafür, dass
 nichts mehr im Request hängt.
 
-**7. Fortschritt: eine Zahl auf der Manage-Seite.**
-Die Bestätigungsseite kann es nicht zeigen – sie ist gerendert, bevor etwas rausgeht. Die
-Manage-Seite kann „n Einladungen noch nicht verschickt" anzeigen: eine Summe, keine Adressliste,
-also F8-konform. Klein und der einzige Ort, an dem der Ersteller überhaupt etwas erfährt.
+**7. Fortschritt: ein Satz auf der Manage-Seite.** ✅ **gebaut, aber anders als hier geplant.**
+Der Plan sagte „n Einladungen noch nicht verschickt". **Das lässt F8 nicht zu, und das ist beim Bauen
+erst aufgefallen:** eine Warteschlangenzeile trägt bewusst keine Poll-Kennung, es gibt also keinen
+Weg, sie *dieser* Umfrage zuzuordnen. Einen zu bauen wäre genau der Bezug, auf den §11.4 verzichtet
+hat – auch über eine indirekte Kennung, denn wer die Warteschlange lesen kann, kann auch `vote_poll`
+lesen.
+
+Gebaut ist deshalb die eine Richtung, die **logisch sicher** ist: *ist die Warteschlange leer, sind
+die Einladungen dieser Umfrage sicher raus.* Umgekehrt gilt nur „irgendwas wartet noch", und genau so
+steht es auch da:
+
+| Warteschlange | Text auf der Manage-Seite |
+|---|---|
+| leer | „No invitations are waiting to be sent." |
+| nicht leer | „Invitations are still queued for sending." |
+
+**Und `exists()` statt `count()`**: eine Zahl wäre eine Aussage über das Versandvolumen *anderer*
+Umfragen, und die Manage-Seite ist ohne Token erreichbar. Ein Bit ist alles, was der Ersteller
+braucht – die Frage lautet „sind die Mails raus", nicht „wie viele".
+
+Damit ist der Punkt kleiner als versprochen, und das ist eine Folge von F8, kein Versäumnis. Wer den
+per-Umfrage-Fortschritt doch will, entscheidet damit F8 neu.
 
 **8. Migration `0004`** – eine **neue** Tabelle. Additiv, und anders als `0003` schreibt SQLite dafür
 keine bestehende Tabelle neu.
