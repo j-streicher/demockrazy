@@ -9,7 +9,7 @@
 
 | # | Ziel | Status |
 |---|------|--------|
-| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · Phase 3 bis 3.6 ✅ · CI ✅ · offen: 3.7, 3.8, 4, 5.4, 5.5 |
+| 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | Phase 0, 1 ✅ · Phase 2 bis auf 2.7 ✅ · k8s-Cleanup ✅ · Phase 3 bis 3.7 ✅ · CI ✅ · offen: 3.8, 4, 5.4, 5.5 |
 | 2 | Batch-Modus für Mails bauen | **Spec folgt vom User** – nur Vorarbeit leisten, siehe §11 |
 
 **Wichtig:** Ziel 2 wird vom User später erklärt. Ziel 1 nicht so umbauen, dass Ziel 2 blockiert wird –
@@ -211,16 +211,18 @@ aber die Anzeige. → `json_script` verwenden.
 
 Erledigt: `USE_L10N` (2.4) · `DEFAULT_AUTO_FIELD` (2.4) · `manage.py`-Boilerplate (2.5) ·
 README/`pip3 install django==2.2.27` (2.2) · `LOGGING` (setzt das Prod-Modul) ·
-Static-Handling aus dem Source-Tree (mit den Docker-Images in `4e15012` weg).
+Static-Handling aus dem Source-Tree (mit den Docker-Images in `4e15012` weg) ·
+`len(Token.objects.filter(…))` → Zählen in der Datenbank (3.6) ·
+`mk_token()`/`mk_identifier()`-Rekursion (3.6 – die Kollisionsprüfungen sind ganz weggefallen, es
+gibt nichts mehr zu rekursieren) · `re_path` überall (3.7).
+
+Gegenstandslos: **kein `HttpResponseNotAllowed`-Handling**. War für 3.2 vorgesehen und dort bewusst
+verworfen – ein GET auf `/vote/create` rendert das Formular, weil ein 405 für einen Menschen aus der
+Browser-History eine Sackgasse ist. Begründung bei 3.2.
 
 Noch offen:
-- `re_path` überall, wo `path()`-Converter reichen ([demockrazy/urls.py](../demockrazy/urls.py),
-  [vote/urls.py](../vote/urls.py)) → 3.7.
-- `len(Token.objects.filter(...))` statt `.count()` in `Poll.get_amount_used_unused()` → 3.6.
-- `mk_token()`/`mk_identifier()` rekursiv statt Schleife (theoretischer Stack-Overflow) → 3.6.
 - Kein Cache-Busting für Static Files → 4.4.
 - Templates: `<th>…</td>`-Mismatch in `results.html`; Bootstrap-3-Markup durchgehend → 4.1/4.5.
-- Kein `HttpResponseNotAllowed`-Handling → 3.2.
 - Kein `/healthz` → 5.5.
 
 ---
@@ -467,7 +469,20 @@ Tests für niemanden außer mir nutzbar und in CI wertlos. **Behoben in 2.1**, a
       **Die letzten zwei `xfail`-Marker sind weg**, offen ist nur noch B4 (braucht F5).
       Ein `per-file-ignore` dazugekommen: `RUF012` für `vote/models.py`, weil eine Liste Djangos
       dokumentierte Schnittstelle für `Meta.constraints` ist.
-- [ ] **3.7 `re_path` → `path`** mit `<slug:poll_identifier>`/Custom-Converter; URLs identisch halten (Regel 4).
+- [x] **3.7 `re_path` → `path`** ✅ – sieben der acht Routen brauchten nie einen Ausdruck; die
+      Anker (`^…$`) trugen dort Bedeutung, die `path()` von sich aus mitbringt. Die sieben
+      öffentlichen Pfade sind zeichengleich geblieben (Regel 4).
+      **`<slug:…>` ist wie vermutet kein Ersatz** und wurde nicht genommen: es lässt zusätzlich `-`
+      und `_` zu und würde Kennungen annehmen, die es nicht gibt – `mk_identifier()` zieht nur aus
+      `ascii_letters + digits`. Stattdessen ein eigener Converter mit genau der alten Zeichenklasse,
+      per `register_converter` in [vote/urls.py](../vote/urls.py) neben der Route, die ihn braucht.
+      **Gemessen statt angenommen:** 23 Pfade (die sieben Routen, Trailing-Slash-Varianten, `/admin/`
+      und Kennungen mit `-`, `_`, `.`, Leerzeichen und einem Nicht-ASCII-Buchstaben) lösen vorher und
+      nachher identisch auf, `reverse()` liefert dieselben Strings. Zwei der Fälle stehen jetzt in
+      `test_views.py::TestUrls` als Absicherung (**+4 Tests**).
+      *Nebenbefund, unverändert übernommen:* `/vote/create/` (mit Slash) fällt auf
+      `vote:polls:poll` mit `poll_identifier="create"` und endet im 404 von `get_object_or_404` –
+      genau wie vorher, nur über einen anderen Weg. Kein Handlungsbedarf (Regel 3).
 - [ ] **3.8 Rate-Limit / Zugangsschutz für `create` (B4).** Optionen für §12:
       (a) Django-Auth + Login-Zwang, (b) Shared Secret / Invite-Code, (c) IP-Rate-Limit,
       (d) Deckel auf Empfängerzahl pro Poll. **Entscheidung braucht den User.**
@@ -605,18 +620,21 @@ Phase 5  5.1 k8s-Cleanup ✅ · 5.2 Deployment verstanden ✅ · 5.3 CI ✅ · 5
 Phase 6  README ✅ · Handover ✅
 
 offen, in sinnvoller Reihenfolge:
-  Phase 3  Code (3.1 Forms ✅ · 3.2 create()/manage() ✅ · 3.3 vote() ✅ · offen: 3.4–3.8)
-             └─ 6 der 9 xfail-Tests sind weg, alle 3 roten Ruff-Befunde ebenfalls
-             └─ 3.4 ist die Schnittstelle für Ziel 2
-             └─ 3.8 braucht F5
-             └─ liefert die Schnittstelle für ZIEL 2 (Batch-Mails, nach Spec)
   Phase 4  Frontend – unabhängig, parallelisierbar, 4.3 braucht F4
+  5.5      /healthz – klein, unblockiert
+  Phase 3  nur noch 3.8 (Zugangsschutz) – braucht F5
   5.4      SQLite-Härtung – braucht F13
   2.7      TLS-Hardening – braucht F15
+
+erledigt in Phase 3: 3.1 Forms · 3.2 create()/manage() · 3.3 vote() · 3.4 Mail-Service ·
+3.5 Poll-Service · 3.6 Models/Constraints · 3.7 path()
+  └─ 8 der 9 xfail-Tests sind weg (offen nur B4), alle 3 roten Ruff-Befunde ebenfalls
+  └─ 3.4 ist die Schnittstelle für ZIEL 2 (Batch-Mails, nach Spec)
 ```
 
-**Nächster Schritt:** 3.7 (`re_path` → `path`, URLs identisch halten – Regel 4/5). Danach ist
-von Phase 3 nur noch 3.8 offen, und das braucht F5.
+**Nächster Schritt:** Phase 4 außer 4.3 (Bootstrap 5, jQuery raus, Cache-Busting,
+Template-Kleinkram) und 5.5 (`/healthz`) – beide unblockiert. Von Phase 3 ist nur noch 3.8 offen,
+und das braucht F5.
 **Vor dem Deploy:** F17 klären; die Migration `0003` schreibt `vote_poll` und `vote_token` neu
 (Details in [phase-2-migrations.md](phase-2-migrations.md)), Backup liegt vor (borg 03:00/04:00).
 **Die Vorarbeit für Ziel 2 (§11.1–3) ist mit 3.4 vollständig** – ein Batch-Versender ersetzt

@@ -1,7 +1,7 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: Ende 2026-08-03, Branch `update/modernize-2026`, 41 Commits über `master` (Basis `3074dbb`).
+Stand: 2026-08-04, Branch `update/modernize-2026`, 43 Commits über `master` (Basis `3074dbb`).
 Arbeitsbaum ist sauber, alles committed, **nichts gepusht** -- die CI hat also noch nie gelaufen,
 sie greift erst beim ersten Push.
 
@@ -36,7 +36,7 @@ insbesondere für Ziel 2 relevant (§7).
 ## 3. Zwei Ziele
 
 1. **Auf heutige Standards bringen.** Phase 0, 1 und 2 (außer 2.7) sind fertig, Phase 3 ist bis
-   3.6 durch, CI steht (5.3). Offen: 3.7/3.8, Phase 4, 5.4/5.5.
+   3.7 durch, CI steht (5.3). Offen: 3.8, Phase 4, 5.4/5.5.
 2. **Batch-Modus für Mails.** *Spec steht noch aus, der User erklärt sie später.* Nicht spekulativ
    bauen. Phase 3 so anlegen, dass es andockt (§7).
 
@@ -62,7 +62,7 @@ grün ist, ist dort grün.
 
 **Sollwerte, an denen du merkst, dass alles in Ordnung ist:**
 
-- `pytest` → **141 passed, 1 xfailed**
+- `pytest` → **145 passed, 1 xfailed**
 - `manage.py check` → **no issues (0 silenced)**
 - `makemigrations --check` → **No changes detected**
 - `ruff format --check` → alle Dateien unverändert
@@ -74,7 +74,7 @@ Lokal starten (nicht mit `manage.py runserver` allein – siehe §6, Falle 3):
 python3 manage.py runserver --settings=demockrazy.dev_settings
 ```
 
-### Wo was liegt (Stand nach Phase 3.6)
+### Wo was liegt (Stand nach Phase 3.7)
 
 | Pfad | Inhalt |
 |---|---|
@@ -84,6 +84,7 @@ python3 manage.py runserver --settings=demockrazy.dev_settings
 | [../vote/services/polls.py](../vote/services/polls.py) | `create_poll()` – Umfrage + Choices + Tokens per `bulk_create`, atomar |
 | [../vote/services/mail.py](../vote/services/mail.py) | `poll_created_messages()` rendert, `deliver()` verschickt |
 | [../vote/templates/vote/mail/](../vote/templates/vote/mail/) | die vier Mail-Templates; **enden absichtlich ohne Zeilenumbruch** |
+| [../vote/urls.py](../vote/urls.py) | die acht Routen als `path()`, dazu der eigene `identifier`-Converter |
 | [../vote/migrations/](../vote/migrations/) | `0001`+`0002` rekonstruieren Prod von 2016, `0003` bringt Constraints und `choices` |
 | [../vote/tests/](../vote/tests/) | `test_models`, `test_forms`, `test_views`, `test_mail_service`, `test_poll_service`, `test_known_bugs`, `conftest` |
 | [../demockrazy/settings.py](../demockrazy/settings.py) | Defaults; dazu `dev_settings.py` (runserver) und `test_settings.py` (pytest) |
@@ -197,32 +198,26 @@ nix run nixpkgs#sqlite -- -readonly /var/lib/demockrazy/db.sqlite3 \
 
 ## 9. Nächster Schritt
 
-**Phase 3 ist bis 3.6 durch, CI steht (5.3).** Behoben: **B1, B2, B3, B5, B6, B7, B11, B12, B15**
+**Phase 3 ist bis 3.7 durch, CI steht (5.3).** Behoben: **B1, B2, B3, B5, B6, B7, B11, B12, B15**
 und die zwei fehlenden Unique-Constraints. Mailversand und Poll-Erstellung sind Services, der
-Versand hängt an `on_commit`, die Umfrage-Erstellung kostet konstant 5 Statements.
+Versand hängt an `on_commit`, die Umfrage-Erstellung kostet konstant 5 Statements, das Routing
+läuft über `path()`.
 **Die Vorarbeit für Ziel 2 (§7.1–3) ist vollständig** – ein Batch-Versender ersetzt `mail.deliver()`.
 
-### 3.7 – `re_path` → `path` (nicht blockiert, klein)
+Von Phase 3 bleibt nur **3.8** (Zugangsschutz, braucht F5). Unblockiert und damit als nächstes dran:
 
-In [../demockrazy/urls.py](../demockrazy/urls.py) und [../vote/urls.py](../vote/urls.py).
-Das Wesentliche vorab, damit es nicht schiefgeht:
+- **Phase 4** außer 4.3 – Bootstrap 3.3.6 → 5.3.x (vendored, kein CDN), jQuery raus,
+  Cache-Busting über `ManifestStaticFilesStorage`, Template-Kleinkram. **4.3 braucht F4**
+  (Highcharts-Lizenz) und blockiert die anderen vier Punkte nicht: 4.1/4.2 fassen das Markup und
+  `base.html` an, 4.3 nur den Chart in `results.html`.
+- **5.5** (`/healthz`) – klein, unabhängig von der Deployment-Form.
 
-- **Die URLs müssen zeichengleich bleiben** (Regel 5): `/vote/`, `/vote/create`,
-  `/vote/<id>/`, `/vote/<id>/vote`, `/vote/<id>/success`, `/vote/<id>/manage`, `/vote/<id>/results`.
-  `test_views.py::TestUrls` prüft genau diese sieben.
-- **`slug` ist kein Ersatz** für `(?P<poll_identifier>[a-zA-Z0-9]+)`: `slug` erlaubt zusätzlich `-`
-  und `_`, würde also mehr annehmen als heute. Es braucht einen eigenen Converter
-  (`regex = "[a-zA-Z0-9]+"`), am sinnvollsten in `vote/urls.py` und per `register_converter`.
-- Das `include(pollpatterns)`-Muster mit dem Namespace `polls` bleibt, wie es ist; die
-  `reverse()`-Namen (`vote:index`, `vote:create`, `vote:polls:*`) sind in Templates **und** im
-  Mail-Service verdrahtet.
-- Nach dem Umbau lohnt eine Gegenprobe mit einem Identifier, der ein `-` enthält: der muss weiter
-  404 geben und nicht plötzlich matchen.
-
-### Danach
-
-Von Phase 3 bleibt nur **3.8** (Zugangsschutz, braucht F5). Sonst unblockiert: **5.5** (`/healthz`),
-**Phase 4** außer 4.3 (Frontend: Bootstrap 5, jQuery raus, Cache-Busting, Template-Kleinkram).
+Was beim Routing (3.7) zu beachten war und weiter gilt, falls jemand `urls.py` anfasst:
+die sieben öffentlichen Pfade sind **zeichengleich** zu halten (Regel 5), `test_views.py::TestUrls`
+prüft sie zusammen mit dem Converter-Verhalten. Der Namespace `polls` und die `reverse()`-Namen
+(`vote:index`, `vote:create`, `vote:polls:*`) sind in Templates **und** im Mail-Service verdrahtet.
+`<slug:…>` ist für die Kennung kein Ersatz – es lässt `-` und `_` zusätzlich zu; deshalb steht in
+[../vote/urls.py](../vote/urls.py) ein eigener Converter mit `regex = "[a-zA-Z0-9]+"`.
 
 ### Vor dem Deploy (nicht von mir, Regel 7)
 
