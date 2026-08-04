@@ -242,3 +242,17 @@ class TestDeliver:
     def test_an_empty_list_opens_nothing(self, counting_backend):
         mail.deliver([])
         assert counting_backend.log == []
+
+    def test_a_silent_mail_server_cannot_block_forever(self):
+        """`EMAIL_TIMEOUT` muss endlich sein. Djangos Default ist `None`, also unbegrenzt.
+
+        Nachgesehen statt vermutet: bei `None` gibt das SMTP-Backend `timeout` nicht an `smtplib`
+        weiter, das nimmt den Socket-Default, und der ist ebenfalls `None`. Ein Server, der die
+        Verbindung annimmt und dann schweigt, haelt damit einen uwsgi-Prozess -- und es gibt vier.
+        Fuer den getakteten Versender (Plan 11.7) waere es schlimmer: er sperrt sich selbst, ein
+        Lauf ohne Ende haelt die Sperre und dann geht gar keine Mail mehr raus.
+        """
+        from django.conf import settings as django_settings
+
+        assert django_settings.EMAIL_TIMEOUT is not None
+        assert 0 < django_settings.EMAIL_TIMEOUT <= 60
