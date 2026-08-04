@@ -64,6 +64,11 @@ target/
 *.swp
 
 db.sqlite3
+# Die Sperrdatei des Mailversands liegt neben der Datenbank (Plan §11.7).
+# Bewusst **ohne** führenden Slash: der Datenbankpfad ist über DEMOCKRAZY_DB_PATH frei wählbar,
+# die Sperrdatei folgt ihm. Das ist die Ausnahme zu der Lehre aus B18 -- dort war die fehlende
+# Verankerung der Fehler, hier ist sie die Absicht.
+*.mailsend.lock
 
 # Gemeint ist STATIC_ROOT, also die collectstatic-Ausgabe unter BASE_DIR/static -- deshalb mit
 # fuehrendem Slash auf das Projektwurzel-Verzeichnis begrenzt. Ohne den Slash trifft das Muster

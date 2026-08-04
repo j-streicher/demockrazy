@@ -1,10 +1,13 @@
 """Tests für vote/views.py gegen das in Phase 0 protokollierte Verhalten."""
 
+from typing import ClassVar
+
 import pytest
 from django.test import Client
 from django.urls import Resolver404, resolve, reverse
 
-from vote.models import Choice, Poll, Token
+from vote.models import Choice, OutgoingMail, Poll, Token
+from vote.services import mail
 from vote.views import TOKEN_COOKIE_NAME
 
 from .conftest import CREATOR_MAIL, creator_message, voter_tokens
@@ -131,75 +134,82 @@ class TestCreate:
         _, tokens = create_poll(voters=("a@example.org", "b@example.org", "c@example.org"))
         assert len(set(tokens)) == 3
 
-    def test_no_mails_when_sending_is_disabled(
-        self, client, mailoutbox, settings, django_capture_on_commit_callbacks
-    ):
+    def test_no_mails_when_sending_is_disabled(self, mailoutbox, settings, create_poll):
         settings.VOTE_SEND_MAILS = False
-        # Mit execute=True, sonst würde der Test auch bestehen, wenn der Versand nur nie läuft.
-        with django_capture_on_commit_callbacks(execute=True):
-            client.post(
-                "/vote/create",
-                {
-                    "title": "Ohne Mailversand",
-                    "type": "simple_choice",
-                    "description": "?",
-                    "choices": "Ja",
-                    "creator_mail": CREATOR_MAIL,
-                    "voter_mails": "a@example.org",
-                },
-            )
+        create_poll(title="Ohne Mailversand", voters=("a@example.org",))
         assert Poll.objects.filter(title="Ohne Mailversand").exists()
         assert mailoutbox == []
-
-    def test_mails_go_out_only_after_the_commit(
-        self, client, mailoutbox, django_capture_on_commit_callbacks
-    ):
-        """B7: solange die Transaktion offen ist, darf keine Mail draußen sein.
-
-        Sonst hinterlässt ein Rollback Wähler mit einem Token-Link, den es in der Datenbank nie
-        gegeben hat -- und ein hängender SMTP-Server hält eine Schreibtransaktion offen.
-        """
-        with django_capture_on_commit_callbacks(execute=False) as callbacks:
-            client.post(
-                "/vote/create",
-                {
-                    "title": "Nach dem Commit",
-                    "type": "simple_choice",
-                    "description": "?",
-                    "choices": "Ja",
-                    "creator_mail": CREATOR_MAIL,
-                    "voter_mails": "a@example.org",
-                },
-            )
-            assert mailoutbox == [], "vor dem Commit darf nichts verschickt sein"
-        assert len(callbacks) == 1, "der Versand soll an genau einem on_commit-Callback hängen"
-        callbacks[0]()
-        assert [m.to for m in mailoutbox] == [[CREATOR_MAIL], ["a@example.org"]]
-
-    @pytest.mark.django_db(transaction=True)
-    def test_a_real_commit_sends_without_help(self, client, mailoutbox):
-        """Gegenprobe zum Test oben: hier committet die Transaktion wirklich.
-
-        Die übrige Suite führt die on_commit-Callbacks von Hand aus. Dieser Test ist der Beleg,
-        dass der Versand auch ohne diese Hilfe läuft -- also im Betrieb.
-        """
-        client.post(
-            "/vote/create",
-            {
-                "title": "Echter Commit",
-                "type": "simple_choice",
-                "description": "?",
-                "choices": "Ja",
-                "creator_mail": CREATOR_MAIL,
-                "voter_mails": "a@example.org",
-            },
-        )
-        assert [m.to for m in mailoutbox] == [[CREATOR_MAIL], ["a@example.org"]]
 
     def test_multiple_choice_poll(self, create_poll):
         poll, _ = create_poll(poll_type="multiple_choice", choices="A\nB\nC")
         assert poll.type == "multiple_choice"
         assert poll.choice_set.count() == 3
+
+
+@pytest.mark.django_db
+class TestCreateQueuesMails:
+    """`create()` reiht die Mails ein und verschickt selbst nichts (Plan §11.7).
+
+    Das ist die neue Form der Zusage aus B7 („keine Mail, bevor die Tokens durabel sind"): sie hängt
+    nicht mehr an einem `on_commit`-Callback, sondern daran, dass ein **anderer Prozess** verschickt
+    und nur committete Zeilen sieht.
+    """
+
+    PAYLOAD: ClassVar[dict] = {
+        "title": "Eingereiht",
+        "type": "simple_choice",
+        "description": "?",
+        "choices": "Ja",
+        "creator_mail": CREATOR_MAIL,
+        "voter_mails": "a@example.org\nb@example.org",
+    }
+
+    def test_the_request_sends_nothing(self, client, mailoutbox):
+        client.post("/vote/create", self.PAYLOAD)
+        assert mailoutbox == [], "der Request selbst darf keine Mail verschicken"
+
+    def test_one_queue_row_per_recipient_plus_the_creator(self, client):
+        client.post("/vote/create", self.PAYLOAD)
+        assert OutgoingMail.objects.count() == 3
+
+    def test_the_creator_comes_first(self, client):
+        client.post("/vote/create", self.PAYLOAD)
+        recipients = list(OutgoingMail.objects.order_by("pk").values_list("recipient", flat=True))
+        assert recipients == [CREATOR_MAIL, "a@example.org", "b@example.org"]
+
+    def test_a_queue_row_does_not_name_its_poll(self, client):
+        """F8: eine Zeile soll für sich nicht sagen, um welche Abstimmung es geht.
+
+        Geprüft an den Feldern und nicht am Inhalt: ein Fremdschlüssel oder eine Kennungsspalte
+        wäre genau das, was hier nicht entstehen darf. Der *Text* nennt den Titel natürlich -- er
+        ist die Einladung.
+        """
+        client.post("/vote/create", self.PAYLOAD)
+        columns = {field.name for field in OutgoingMail._meta.get_fields()}
+        assert columns == {"id", "recipient", "subject", "body", "attempts"}
+        assert not any(field.is_relation for field in OutgoingMail._meta.get_fields())
+
+    def test_an_invalid_form_queues_nothing(self, client):
+        client.post("/vote/create", {**self.PAYLOAD, "voter_mails": "KAPUTT"})
+        assert OutgoingMail.objects.count() == 0
+
+    def test_the_queue_survives_into_a_real_transaction(self, client, mailoutbox):
+        """Gegenprobe mit echtem Commit: hier hilft kein Testmechanismus nach.
+
+        Vorher stand hier die Gegenprobe für `on_commit` -- dass der Versand auch ohne das
+        Ausführen der Callbacks von Hand läuft. Die Zusage ist jetzt eine andere: nach dem Commit
+        liegen die Zeilen da, und erst ein separater Lauf verschickt sie.
+        """
+        client.post("/vote/create", self.PAYLOAD)
+        assert OutgoingMail.objects.count() == 3
+        assert mailoutbox == []
+        mail.send_pending(pause=0)
+        assert [message.to for message in mailoutbox] == [
+            [CREATOR_MAIL],
+            ["a@example.org"],
+            ["b@example.org"],
+        ]
+        assert OutgoingMail.objects.count() == 0
 
 
 @pytest.mark.django_db

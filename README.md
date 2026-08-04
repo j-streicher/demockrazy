@@ -74,6 +74,32 @@ The wording of the mails is not configuration: it lives in `vote/templates/vote/
 templates disable autoescaping (they are plain text) and end without a trailing newline, both
 deliberately — `vote/tests/test_mail_service.py` pins the exact output.
 
+## Sending mail
+
+Creating a poll does **not** send anything. It writes one `OutgoingMail` row per recipient, in the
+same transaction as the tokens, and returns. A separate process drains that queue:
+
+```bash
+./manage.py send_pending_mails
+```
+
+The command sends `DEMOCKRAZY_MAIL_BATCH_SIZE` messages (30), pauses
+`DEMOCKRAZY_MAIL_BATCH_PAUSE` seconds (2), and repeats until the queue is empty. It takes an
+exclusive `flock` on a file next to the database first, so a second invocation during a run exits
+without doing anything — in production a systemd timer calls it every minute, and a run can outlive
+the interval.
+
+Why the pacing exists: the mail server throttles by *messages per time window* and answers
+`450 4.7.1 Error: too much mail from` beyond it. A `450` is transient, so the run stops and the next
+one retries; a `5xx` concerns one address only and that row is dropped. Nothing sleeps inside a
+database transaction — a long transaction on SQLite makes concurrent voting wait and, past the
+20-second `timeout`, fail.
+
+A queue row carries only recipient, subject, body and an attempt count. It names no poll and has no
+timestamp, and it is **deleted** once sent: the address-to-token pairing exists only for as long as
+delivery takes. The vote itself carries no identity either way — the token is deleted when it is
+used.
+
 ## Frontend
 
 Bootstrap 5.3.8 and Chart.js 4.5.1 are vendored under `vote/static/`, deliberately not loaded from a
