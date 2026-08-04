@@ -169,3 +169,44 @@ class TestRejectedInput:
 
     def test_title_at_the_column_limit_is_accepted(self):
         assert PollCreateForm(payload(title="x" * 200)).is_valid()
+
+
+class TestRecipientCap:
+    """Der Deckel gegen B4 (Plan 3.8). Grenze steht in settings.VOTE_MAX_RECIPIENTS."""
+
+    @staticmethod
+    def _mails(count):
+        return "\n".join(f"w{i}@example.org" for i in range(count))
+
+    def test_exactly_at_the_limit_is_accepted(self, settings):
+        settings.VOTE_MAX_RECIPIENTS = 3
+        form = PollCreateForm(data=payload(voter_mails=self._mails(3)))
+        assert form.is_valid(), form.errors
+        assert len(form.cleaned_data["voter_mails"]) == 3
+
+    def test_one_over_the_limit_is_rejected(self, settings):
+        settings.VOTE_MAX_RECIPIENTS = 3
+        form = PollCreateForm(data=payload(voter_mails=self._mails(4)))
+        assert not form.is_valid()
+        assert form.errors["voter_mails"] == ["At most 3 recipients per poll, got 4."]
+
+    def test_duplicates_are_counted_after_dedup(self, settings):
+        """Was begrenzt werden soll, ist die Zahl der Mails -- und Dubletten kosten keine.
+
+        Ohne diese Reihenfolge würde eine Liste mit vielen Wiederholungen abgelehnt, obwohl
+        daraus nur wenige Mails entstehen.
+        """
+        settings.VOTE_MAX_RECIPIENTS = 3
+        form = PollCreateForm(data=payload(voter_mails="a@example.org\n" * 10))
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["voter_mails"] == ["a@example.org"]
+
+    def test_the_default_is_above_the_real_world_maximum(self):
+        """Real kommen 60--100 Empfänger vor (F13). Ein Deckel darunter wäre ein Ausfall.
+
+        Kein Selbstzweck: die Zahl ist vom User gewählt, und dieser Test hält fest, warum sie
+        nicht kleiner sein darf.
+        """
+        from django.conf import settings as django_settings
+
+        assert django_settings.VOTE_MAX_RECIPIENTS >= 100

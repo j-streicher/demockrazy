@@ -31,6 +31,18 @@ def _env_flag(name, default=False):
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_int(name, default):
+    """Wie `_env_flag`, nur für Zahlen. Ein unbrauchbarer Wert fällt auf den Default zurück.
+
+    Bewusst ohne Raise: `demockrazy_config` importiert diese Datei per Sternchen-Import, und ein
+    Fehler hier tötet den Service beim Start (siehe Modulkommentar oben).
+    """
+    try:
+        return int(os.environ[name])
+    except (KeyError, ValueError):
+        return default
+
+
 # Kein eingebauter Key: ein Key in einem öffentlichen Repo ist kein Key.
 # Ohne gesetzte Variable wird pro Prozess ein Zufallskey erzeugt. Damit bleibt `runserver` lokal
 # benutzbar, ohne dass ein Geheimnis im Repo liegt; die einzige Folge ist, dass Sessions einen
@@ -181,6 +193,16 @@ EMAIL_USE_SSL = False
 VOTE_MAIL_FROM = "wahlleitung@demo.ckrazy"
 VOTE_BASE_URL = "http://127.0.0.1:8000"
 VOTE_SEND_MAILS = _env_flag("DEMOCKRAZY_SEND_MAILS", default=False)
+
+# Obergrenze für Empfänger pro Umfrage (B4, Plan 3.8). `/vote/create` hat keine Authentifizierung:
+# ohne Deckel kann jeder im Netz beliebig viele Mails über den SMTP-Account verschicken.
+#
+# 150 ist vom User gewählt und liegt über den real vorkommenden 60--100. Der Wert ist
+# **Missbrauchsschutz, keine Lösung für das Rate-Limit des Mailservers**: der antwortet schon ab
+# etwa 50 Nachrichten pro Zeitfenster mit `450 4.7.1 Error: too much mail from`. Eine Umfrage mit
+# 150 Empfängern ist also erlaubt, aber erst mit dem getakteten Versand (Ziel 2) zustellbar.
+# Gezählt werden die **deduplizierten** Adressen -- was zählt, ist die Zahl der Mails.
+VOTE_MAX_RECIPIENTS = _env_int("DEMOCKRAZY_MAX_RECIPIENTS", 150)
 
 
 # Optionale lokale Overrides für die Entwicklung. In Produktion nicht im Spiel -- dort läuft
