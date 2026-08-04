@@ -221,10 +221,11 @@ Rücksicht auf `timeout`.
 Monitoring-Probe gegen `localhost` bekommt einen 400 und sieht wie ein Ausfall aus.** Also entweder
 mit passendem `Host`-Header proben oder `ALLOWED_HOSTS` erweitern.
 
-### C5. Ein systemd-Timer für den getakteten Mailversand — **noch nicht jetzt**
+### C5. Ein systemd-Timer für den getakteten Mailversand — **jetzt nötig**
 
-**Wird erst gebraucht, wenn Ziel 2 gebaut ist**, steht aber schon hier, weil es das einzige ist, was
-der Batch-Versand im Deployment kostet — und weil es deine Entscheidung ist, ob dir diese Form passt.
+⚠️ **Der Versand ist gebaut, der Timer fehlt. Ohne ihn verschickt Produktion nach dem Deploy
+gar keine Mail mehr** — `create()` reiht nur noch ein. Das ist der einzige Punkt in dieser Datei,
+der aus einer Änderung von mir zwingend folgt.
 
 Gebraucht wird ein Timer plus Service, der als der demockrazy-Nutzer
 
@@ -235,6 +236,130 @@ DJANGO_SETTINGS_MODULE=demockrazy_config manage.py send_pending_mails
 aufruft, im Minutentakt, mit Schreibzugriff auf `/var/lib/demockrazy` (die Datenbank und eine
 Sperrdatei daneben). **Mehr nicht:** kein Broker, kein Daemon, kein zusätzliches Python-Paket. Der
 Command sperrt sich selbst, ein Timer-Aufruf in einen laufenden Versand hinein beendet sich sofort.
+
+#### Fertig zum Einsetzen
+
+**Gehört ins Modul, nicht in die Node-Config** — es braucht `${djangoenv}` und `${pkg}`, und die
+kennt nur das Modul. Zwei Werte kann ich nicht wissen, sie sind mit `@…@` markiert.
+
+**Ausgewertet, nicht nur hingeschrieben:** ich habe das gegen die gepinnte nixpkgs durch
+`nixos/lib/eval-config.nix` laufen lassen, mit einem Stellvertreter für den echten Dienst, und die
+erzeugten Unit-Dateien gelesen. Dabei ist ein Fehler aufgefallen, den ich sonst geliefert hätte —
+siehe der Kommentar bei `removeAttrs`.
+
+```nix
+{ config, ... }:
+
+let
+  # ⟨1⟩ Genau die Invocation, die im `preStart` des bestehenden Dienstes schon steht -- dort läuft
+  # damit `migrate` und `collectstatic`. Im Modul sieht sie aus wie
+  # "${djangoenv}/bin/python ${pkg}/share/demockrazy/manage.py". Diese Zeile von dort übernehmen.
+  manage = "@MANAGE_PY_INVOCATION@";
+in
+{
+  systemd.services.demockrazy-mail = {
+    description = "demockrazy: wartende Umfrage-Mails getaktet verschicken";
+
+    # Nach dem Webdienst einordnen **und ihn mitziehen**: dessen `preStart` ruft `migrate`, und die
+    # Warteschlangentabelle entsteht erst dort. Ohne das läuft der erste Timer-Aufruf nach einem
+    # frischen Deploy in "no such table: vote_outgoingmail".
+    # `wants` statt `requires`: ist der Webdienst kaputt, soll das hier nicht zusätzlich als Fehler
+    # im Journal stehen.
+    wants = [ "demockrazy.service" "network-online.target" ];
+    after = [ "demockrazy.service" "network-online.target" ];
+
+    # Die Umgebung vom bestehenden Dienst **übernehmen statt abschreiben**. Darin steckt
+    # DJANGO_SETTINGS_MODULE=demockrazy_config und der PYTHONPATH, über den das generierte
+    # Settings-Modul überhaupt gefunden wird -- das liegt nicht im Store der App. Abschreiben würde
+    # beim nächsten Modul-Umbau still auseinanderlaufen.
+    #
+    # `PATH` muss dabei heraus, und das ist nicht Kosmetik: **NixOS setzt `environment.PATH` für
+    # jeden Dienst selbst** (aus `path`), und ein mitgeerbter Wert kollidiert damit. Ohne das
+    # `removeAttrs` bricht die Auswertung ab mit „The option
+    # `systemd.services.demockrazy-mail.environment.PATH` has conflicting definition values".
+    # Ausprobiert, nicht überlegt.
+    environment = builtins.removeAttrs config.systemd.services.demockrazy.environment [ "PATH" ];
+    inherit (config.systemd.services.demockrazy) path;
+
+    serviceConfig = {
+      Type = "oneshot";
+      ExecStart = "${manage} send_pending_mails";
+
+      # ⚠️ Der wichtigste Wert in diesem Block. systemd bricht einen `oneshot` nach
+      # `DefaultTimeoutStartSec` ab -- üblicherweise 90 s. Ein getakteter Lauf ist absichtlich
+      # langsam: 100 Empfänger brauchen mit 2 s Pause ~7 s, mit 60 s Pause aber ~3,5 Minuten. Der
+      # Default würde ihn also genau dann töten, wenn man die Pause hochsetzt, weil der Mailserver
+      # drosselt -- im ungünstigsten Moment. 20 Minuten sind großzügig und trotzdem endlich;
+      # endlich muss es sein, weil der Command eine Sperre hält, solange er läuft.
+      TimeoutStartSec = "20min";
+
+      # Wie beim Webdienst: Code aus dem read-only Store, beschreibbar nur der State. Gebraucht
+      # wird das für die Datenbank, ihre WAL-Dateien und die Sperrdatei daneben
+      # (/var/lib/demockrazy/db.mailsend.lock).
+      ProtectSystem = "full";
+      ReadWritePaths = [ "/var/lib/demockrazy" ];
+
+      # ⟨2⟩ Dieselbe Identität wie der Webdienst -- sonst gehören die WAL-Dateien nach einem Lauf
+      # jemand anderem und die uwsgi-Prozesse können nicht mehr schreiben. Werte aus der
+      # bestehenden `systemd.services.demockrazy` übernehmen.
+      User = "@SAME_USER_AS_THE_WEB_SERVICE@";
+      Group = "@SAME_GROUP_AS_THE_WEB_SERVICE@";
+    };
+  };
+
+  systemd.timers.demockrazy-mail = {
+    description = "demockrazy: Mailversand regelmäßig anstoßen";
+    wantedBy = [ "timers.target" ];
+    timerConfig = {
+      # Eine Minute **nachdem der letzte Lauf fertig war**, nicht "jede Minute": ein Lauf kann
+      # länger dauern als das Intervall, und dann sollen sich keine Aufrufe stapeln. Die `flock` im
+      # Command fängt eine Überlappung ohnehin ab -- das hier vermeidet, dass es dazu kommt.
+      OnActiveSec = "1min";
+      OnUnitInactiveSec = "1min";
+      AccuracySec = "1s";
+    };
+  };
+}
+```
+
+Die erzeugte Unit sieht damit so aus (aus der Auswertung, gekürzt):
+
+```ini
+[Unit]
+After=demockrazy.service network-online.target
+Wants=demockrazy.service network-online.target
+
+[Service]
+Environment="DJANGO_SETTINGS_MODULE=demockrazy_config"
+Environment="PYTHONPATH=…"
+ExecStart=…/bin/python …/share/demockrazy/manage.py send_pending_mails
+User=demockrazy
+Group=demockrazy
+ProtectSystem=full
+ReadWritePaths=/var/lib/demockrazy
+TimeoutStartSec=20min
+Type=oneshot
+```
+
+#### Drei Dinge, die du prüfen solltest
+
+1. **Benutzt der Dienst `DynamicUser`?** Dann geht das `User`/`Group`-Kopieren nicht, und schlimmer:
+   zwei Units mit `DynamicUser` bekommen **verschiedene** UIDs, der Versender könnte die Datenbank
+   also nicht beschreiben. In dem Fall braucht es einen statischen Benutzer für beide.
+2. **Steht `DJANGO_SETTINGS_MODULE` wirklich in `environment`** des bestehenden Dienstes und nicht in
+   einem Wrapper-Skript? Nur dann trägt das Übernehmen es mit. Im Zweifel `systemctl cat
+   demockrazy.service` ansehen.
+3. **`TimeoutStartSec` nicht weglassen.** systemd bricht einen `oneshot` sonst nach
+   `DefaultTimeoutStartSec` ab (üblich 90 s) — und ein getakteter Lauf ist absichtlich langsam.
+   Mit `PAUSE=2` sind 100 Empfänger ~7 s, mit `PAUSE=60` aber ~3,5 Minuten: der Default würde genau
+   dann töten, wenn man die Pause hochsetzt, weil der Mailserver drosselt.
+
+Von Hand sofort anstoßen geht jederzeit — die Sperre macht das gefahrlos, auch während der Timer
+arbeitet:
+
+```bash
+systemctl start demockrazy-mail.service
+```
 
 Der Entwurf dahinter samt Begründung steht in [plan.md](plan.md) §11.7. Kurz, warum nichts Fertiges:
 **es gibt keinen Baustein, der die Arbeit abnimmt.** Nachgesehen (§11.7, 6a): Django 5.2 hat keine
@@ -248,7 +373,20 @@ der gepinnten nixpkgs. Das hatte ich vorher falsch behauptet.)*
 
 Zwei Einstellungen steuern die Taktung, beide mit deinen Zahlen als Default:
 `DEMOCKRAZY_MAIL_BATCH_SIZE=30` und `DEMOCKRAZY_MAIL_BATCH_PAUSE=2`. **Falls die `450` im Log wieder
-auftauchen, ist die Pause die Schraube** – siehe die Rechnung in §11.7 und **F20**.
+auftauchen, ist die Pause die Schraube** – siehe die Rechnung in [plan.md](plan.md) §11.7 und **F20**.
+
+Gemessen mit deinen Zahlen: 101 Mails, 4 Batches, **7,2 s**. Mit `PAUSE=60` wären es ~3,5 Minuten.
+
+Zum Prüfen nach dem Deploy, ohne etwas zu verschicken:
+
+```bash
+DJANGO_SETTINGS_MODULE=demockrazy_config manage.py send_pending_mails --pause 0
+```
+
+Bei leerer Warteschlange sagt er `0 verschickt, 0 aufgegeben, 0 warten noch (0 Batches).` — dann
+sind Pfade, Rechte und die Sperrdatei in Ordnung. Die Sperrdatei entsteht neben der Datenbank, also
+als `/var/lib/demockrazy/db.mailsend.lock`; das Verzeichnis muss beschreibbar sein (ist es, dort
+liegt die Datenbank).
 
 ---
 

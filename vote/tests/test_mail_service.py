@@ -7,13 +7,13 @@ hier absichtlich als Literale ausgeschrieben: damit hängt der Test weder an den
 den Templates und schlägt an, wenn sich eine der beiden Seiten bewegt.
 """
 
-from smtplib import SMTPException
+from smtplib import SMTPException, SMTPRecipientsRefused, SMTPServerDisconnected
 from typing import ClassVar
 
 import pytest
 from django.core.mail.backends.base import BaseEmailBackend
 
-from vote.models import Poll, Token
+from vote.models import OutgoingMail, Poll, Token
 from vote.services import mail
 
 # Wortlaut vor 3.4, aus settings.VOTE_ADMIN_MAIL_SUBJECT / VOTE_ADMIN_MAIL_TEXT.
@@ -130,28 +130,38 @@ class TestPollCreatedMessages:
 
 
 class CountingBackend(BaseEmailBackend):
-    """Ein Mail-Backend, das protokolliert, *wann* eine Verbindung entsteht.
+    """Ein Mail-Backend, das protokolliert, *wann* eine Verbindung entsteht, und Fehler nachstellt.
 
     Es gibt kein Django-Backend, das das zeigt: `locmem` überspringt Verbindungen ganz, `smtp`
-    bräuchte einen Server. Die Semantik von `open()`/`close()` ist deshalb der des
-    SMTP-Backends nachgebildet -- offen bleibt offen, ein zweites `open()` ist ein No-op.
+    bräuchte einen Server. Die Semantik von `open()`/`close()` ist deshalb der des SMTP-Backends
+    nachgebildet -- offen bleibt offen, ein zweites `open()` ist ein No-op.
 
-    Gesteuert über Klassenattribute, weil Django das Backend selbst instanziiert und man ihm
-    keine Argumente mitgeben kann.
+    Gesteuert über Klassenattribute, weil Django das Backend selbst instanziiert und man ihm keine
+    Argumente mitgeben kann.
     """
 
     #: Protokoll in Reihenfolge: "open", "close" und die Empfängeradressen.
     log: ClassVar[list] = []
-    #: Empfänger, bei denen der Versand mit einer SMTPException scheitert.
-    fail_for: ClassVar[tuple] = ()
+    #: Empfänger, die der Server mit 450 vorläufig ablehnt -- die Form der Drosselung.
+    refuse_temporarily: ClassVar[tuple] = ()
+    #: Empfänger, die der Server mit 550 dauerhaft ablehnt.
+    refuse_permanently: ClassVar[tuple] = ()
+    #: Server gar nicht erreichbar: `open()` bricht weg.
+    unreachable: ClassVar[bool] = False
     #: Ob `close()` beim Aufräumen wirft -- was das echte SMTP-Backend beim QUIT kann.
-    fail_on_close = False
+    fail_on_close: ClassVar[bool] = False
 
     @classmethod
     def reset(cls):
         cls.log = []
-        cls.fail_for = ()
+        cls.refuse_temporarily = ()
+        cls.refuse_permanently = ()
+        cls.unreachable = False
         cls.fail_on_close = False
+
+    @classmethod
+    def recipients(cls):
+        return [entry for entry in cls.log if "@" in entry]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -160,6 +170,8 @@ class CountingBackend(BaseEmailBackend):
     def open(self):
         if self.connection is not None:
             return False
+        if CountingBackend.unreachable:
+            raise SMTPServerDisconnected("Verbindung weg")
         self.connection = object()
         CountingBackend.log.append("open")
         return True
@@ -176,8 +188,12 @@ class CountingBackend(BaseEmailBackend):
         self.open()
         for message in email_messages:
             recipient = message.to[0]
-            if recipient in CountingBackend.fail_for:
-                raise SMTPException(f"450 4.7.1 Error: too much mail from <{recipient}>")
+            if recipient in CountingBackend.refuse_temporarily:
+                raise SMTPRecipientsRefused(
+                    {recipient: (450, b"4.7.1 Error: too much mail from <sender>")}
+                )
+            if recipient in CountingBackend.refuse_permanently:
+                raise SMTPRecipientsRefused({recipient: (550, b"5.1.1 User unknown")})
             CountingBackend.log.append(recipient)
         return len(email_messages)
 
@@ -191,57 +207,151 @@ def counting_backend(settings):
     CountingBackend.reset()
 
 
-def _messages(count, first="a"):
-    return [(f"Betreff {i}", f"Text {i}", f"{first}{i}@example.org") for i in range(count)]
+@pytest.fixture
+def recorded_sleep():
+    """Nimmt die Pausen auf statt zu warten. Ohne das dauerte die Suite Minuten."""
+    calls = []
+    return calls.append, calls
 
 
-class TestDeliver:
-    """Was `deliver()` zusagt: eine Verbindung, und ein Fehler hält die übrigen nicht auf."""
+def enqueue(count, first="a"):
+    mail.enqueue([(f"Betreff {i}", f"Text {i}", f"{first}{i}@example.org") for i in range(count)])
+    return list(OutgoingMail.objects.order_by("pk"))
 
-    def test_one_connection_for_many_messages(self, counting_backend):
-        """Vorher baute jeder send_mail()-Aufruf seine eigene: 101 Mails = 101 Verbindungen."""
-        mail.deliver(_messages(20))
-        assert counting_backend.log.count("open") == 1
-        assert counting_backend.log.count("close") == 1
-        assert len([entry for entry in counting_backend.log if "@" in entry]) == 20
 
-    def test_the_connection_is_closed_even_when_everything_fails(self, counting_backend):
-        counting_backend.fail_for = tuple(recipient for _, _, recipient in _messages(3))
-        mail.deliver(_messages(3))
-        assert counting_backend.log.count("close") == 1
-
-    def test_one_unreachable_recipient_does_not_stop_the_others(self, counting_backend):
-        """Die Zusage aus 3.4, jetzt direkt geprüft statt nur über die View."""
-        counting_backend.fail_for = ("a1@example.org",)
-        mail.deliver(_messages(3))
-        assert [entry for entry in counting_backend.log if "@" in entry] == [
-            "a0@example.org",
-            "a2@example.org",
-        ]
-
-    def test_a_failure_while_closing_does_not_escape(self, counting_backend):
-        """`deliver()` läuft als on_commit-Callback im Request -- ein Fehler daraus wäre ein 500.
-
-        Die Umfrage ist zu diesem Zeitpunkt schon angelegt und die Mails sind raus; ein QUIT, das
-        schiefgeht, darf daraus keine Fehlerseite machen.
-        """
-        counting_backend.fail_on_close = True
-        mail.deliver(_messages(2))
-        assert [entry for entry in counting_backend.log if "@" in entry] == [
+@pytest.mark.django_db
+class TestEnqueue:
+    def test_one_row_per_message_in_order(self):
+        rows = enqueue(3)
+        assert [row.recipient for row in rows] == [
             "a0@example.org",
             "a1@example.org",
+            "a2@example.org",
         ]
+        assert [row.subject for row in rows] == ["Betreff 0", "Betreff 1", "Betreff 2"]
+        assert {row.attempts for row in rows} == {0}
+
+    def test_nothing_is_sent_by_enqueueing(self, counting_backend):
+        enqueue(3)
+        assert counting_backend.log == []
+
+
+@pytest.mark.django_db
+class TestSendPending:
+    """Der getaktete Versender (Plan §11.7). Vorher hieß das `deliver()` und verschickte sofort."""
+
+    def test_the_queue_is_emptied_and_the_mails_go_out(self, counting_backend):
+        enqueue(3)
+        summary = mail.send_pending(pause=0)
+        assert counting_backend.recipients() == [
+            "a0@example.org",
+            "a1@example.org",
+            "a2@example.org",
+        ]
+        assert OutgoingMail.objects.count() == 0
+        assert summary == {"sent": 3, "given_up": 0, "batches": 1, "remaining": 0}
+
+    def test_one_connection_per_batch(self, counting_backend):
+        """Vorher baute jeder send_mail()-Aufruf seine eigene: 101 Mails = 101 Verbindungen.
+
+        Die Verbindung endet an der Batchgrenze, damit die Pause nicht in einer offenen Verbindung
+        verbracht wird -- innerhalb eines Batches bleibt es bei einer für alle Nachrichten.
+        """
+        enqueue(20)
+        mail.send_pending(batch_size=5, pause=0)
+        assert counting_backend.log.count("open") == 4
+        assert counting_backend.log.count("close") == 4
+        assert len(counting_backend.recipients()) == 20
+
+    def test_the_pause_lies_between_the_batches(self, counting_backend, recorded_sleep):
+        """Nicht vor dem ersten Batch (sonst wartet jeder Lauf umsonst) und nicht nach dem letzten
+        (sonst hält der Command seine Sperre länger, als er arbeitet)."""
+        sleep, calls = recorded_sleep
+        enqueue(9)
+        summary = mail.send_pending(batch_size=3, pause=2, sleep=sleep)
+        assert summary["batches"] == 3
+        assert calls == [2, 2], "zwei Pausen bei drei Batches"
+
+    def test_a_single_batch_never_pauses(self, counting_backend, recorded_sleep):
+        sleep, calls = recorded_sleep
+        enqueue(2)
+        mail.send_pending(batch_size=30, pause=2, sleep=sleep)
+        assert calls == []
+
+    def test_an_empty_queue_opens_nothing(self, counting_backend, recorded_sleep):
+        sleep, calls = recorded_sleep
+        summary = mail.send_pending(pause=2, sleep=sleep)
+        assert counting_backend.log == []
+        assert calls == []
+        assert summary == {"sent": 0, "given_up": 0, "batches": 0, "remaining": 0}
+
+    def test_a_permanent_rejection_drops_the_row_and_the_batch_continues(self, counting_backend):
+        """Ein 5xx betrifft genau diese Adresse -- die übrigen des Batches gehen raus."""
+        counting_backend.refuse_permanently = ("a1@example.org",)
+        enqueue(3)
+        summary = mail.send_pending(pause=0)
+        assert counting_backend.recipients() == ["a0@example.org", "a2@example.org"]
+        assert OutgoingMail.objects.count() == 0, "auch die abgelehnte Zeile ist weg"
+        assert summary["sent"] == 2
+        assert summary["given_up"] == 1
+
+    def test_a_transient_rejection_stops_the_run(self, counting_backend):
+        """Der `450` der Drosselung. Weitermachen hieße, die restlichen 29 gegen dieselbe Wand
+        zu fahren -- der nächste Timer-Aufruf trifft ein zurückgesetztes Zeitfenster an."""
+        counting_backend.refuse_temporarily = ("a1@example.org",)
+        enqueue(4)
+        summary = mail.send_pending(pause=0)
+        assert counting_backend.recipients() == ["a0@example.org"]
+        assert summary["sent"] == 1
+        assert summary["remaining"] == 3, "die abgelehnte Zeile und die zwei dahinter liegen noch"
+        assert OutgoingMail.objects.get(recipient="a1@example.org").attempts == 1
+
+    def test_a_transient_rejection_is_given_up_eventually(self, counting_backend):
+        counting_backend.refuse_temporarily = ("a0@example.org",)
+        enqueue(1)
+        for _ in range(mail.MAX_ATTEMPTS):
+            mail.send_pending(pause=0)
+        assert OutgoingMail.objects.count() == 0, "irgendwann wird aufgegeben"
+
+    def test_an_unreachable_server_costs_no_attempt(self, counting_backend):
+        """Sonst würde ein einstündiger Ausfall die Einladungen der Reihe nach wegwerfen.
+
+        Der Server hat über *diese* Nachricht nichts gesagt -- also kein Urteil über sie.
+        """
+        counting_backend.unreachable = True
+        enqueue(3)
+        summary = mail.send_pending(pause=0)
+        assert counting_backend.recipients() == []
+        assert summary == {"sent": 0, "given_up": 0, "batches": 1, "remaining": 3}
+        assert {row.attempts for row in OutgoingMail.objects.all()} == {0}
+
+    def test_a_failure_while_closing_does_not_escape(self, counting_backend):
+        """Die Mails dieses Batches sind raus und ihre Zeilen gelöscht -- ein QUIT, das schiefgeht,
+        darf daraus keinen Abbruch machen."""
+        counting_backend.fail_on_close = True
+        enqueue(2)
+        summary = mail.send_pending(pause=0)
+        assert summary["sent"] == 2
+        assert OutgoingMail.objects.count() == 0
 
     def test_nothing_is_sent_when_sending_is_disabled(self, counting_backend, settings, capsys):
-        """Ohne Versand entsteht auch keine Verbindung -- es gibt nichts zu verbinden."""
+        """Ohne Versand entsteht keine Verbindung. Die Zeilen verschwinden trotzdem -- sonst liefe
+        der Lauf endlos über dieselbe Warteschlange."""
         settings.VOTE_SEND_MAILS = False
-        mail.deliver(_messages(2))
+        enqueue(2)
+        mail.send_pending(pause=0)
         assert counting_backend.log == []
+        assert OutgoingMail.objects.count() == 0
         assert "Betreff 0" in capsys.readouterr().out
 
-    def test_an_empty_list_opens_nothing(self, counting_backend):
-        mail.deliver([])
-        assert counting_backend.log == []
+    def test_the_defaults_come_from_the_settings(self, counting_backend, recorded_sleep, settings):
+        """Die zwei Zahlen sind vom User vorgegeben und müssen konfigurierbar bleiben."""
+        sleep, calls = recorded_sleep
+        settings.VOTE_MAIL_BATCH_SIZE = 2
+        settings.VOTE_MAIL_BATCH_PAUSE = 7
+        enqueue(4)
+        assert mail.send_pending(sleep=sleep)["batches"] == 2
+        assert calls == [7]
 
     def test_a_silent_mail_server_cannot_block_forever(self):
         """`EMAIL_TIMEOUT` muss endlich sein. Djangos Default ist `None`, also unbegrenzt.
@@ -249,8 +359,8 @@ class TestDeliver:
         Nachgesehen statt vermutet: bei `None` gibt das SMTP-Backend `timeout` nicht an `smtplib`
         weiter, das nimmt den Socket-Default, und der ist ebenfalls `None`. Ein Server, der die
         Verbindung annimmt und dann schweigt, haelt damit einen uwsgi-Prozess -- und es gibt vier.
-        Fuer den getakteten Versender (Plan 11.7) waere es schlimmer: er sperrt sich selbst, ein
-        Lauf ohne Ende haelt die Sperre und dann geht gar keine Mail mehr raus.
+        Fuer den getakteten Versender ist es schlimmer: er sperrt sich selbst, ein Lauf ohne Ende
+        haelt die Sperre und dann geht gar keine Mail mehr raus.
         """
         from django.conf import settings as django_settings
 

@@ -250,6 +250,20 @@ VOTE_SEND_MAILS = _env_flag("DEMOCKRAZY_SEND_MAILS", default=False)
 # Gezählt werden die **deduplizierten** Adressen -- was zählt, ist die Zahl der Mails.
 VOTE_MAX_RECIPIENTS = _env_int("DEMOCKRAZY_MAX_RECIPIENTS", 150)
 
+# Taktung des Versands (Plan §11.7). Beide Werte sind vom User vorgegeben: 30er Batches, 2 Sekunden
+# dazwischen. Sie stehen hier und nicht als Konstanten im Code, weil sie **die Schraube** sind, an
+# der man dreht, wenn der Mailserver wieder mit `450 4.7.1 Error: too much mail from` antwortet.
+#
+# ⚠️ Die Rechnung dazu gehört daneben: 100 Empfänger sind vier Batches, mit 2 s Pause also nach
+# ~7 s durch -- **alle 101 Nachrichten liegen damit im selben Zeitfenster.** Immer erfolgreich
+# gemessen wurden 30 pro Fenster, den `450` gab es bei 50. Ist das Zählfenster die Postfix-Vorgabe
+# von 60 s (das ist F20), kommt der Fehler also wieder. Verloren geht dadurch nichts -- ein `450`
+# ist ein 4xx, der Versender bricht ab und der nächste Timer-Aufruf trifft ein zurückgesetztes
+# Fenster --, es kostet nur Zeit und Logzeilen. **Wenn das passiert: `DEMOCKRAZY_MAIL_BATCH_PAUSE`
+# auf 60.** Das ist eine Zahl und kein Deploy.
+VOTE_MAIL_BATCH_SIZE = _env_int("DEMOCKRAZY_MAIL_BATCH_SIZE", 30)
+VOTE_MAIL_BATCH_PAUSE = _env_int("DEMOCKRAZY_MAIL_BATCH_PAUSE", 2)
+
 
 # Optionale lokale Overrides für die Entwicklung. In Produktion nicht im Spiel -- dort läuft
 # demockrazy_config, das diese Datei ersetzt (notes/deployment.md).

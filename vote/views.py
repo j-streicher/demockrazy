@@ -7,7 +7,7 @@ from django.urls import reverse
 from django.views.decorators.vary import vary_on_cookie
 
 from .forms import PollCreateForm
-from .models import Choice, Poll, PollType, Token
+from .models import Choice, OutgoingMail, Poll, PollType, Token
 from .services import mail, polls
 
 #: Cookie, in dem der Wähler-Token nach dem ersten Aufruf liegt (B9).
@@ -132,24 +132,29 @@ def create(request):
         return render(request, "vote/index.html", {"form": form})
 
     voter_mails = form.cleaned_data["voter_mails"]
-    poll, tokens = polls.create_poll(
-        title=form.cleaned_data["title"],
-        poll_type=form.cleaned_data["type"],
-        question_text=form.cleaned_data["description"],
-        choices=form.cleaned_data["choices"],
-        num_tokens=len(voter_mails),
-    )
-    # Vollständig rendern, solange die Objekte da sind, aber erst nach dem Commit verschicken (B7).
-    # Was das garantiert: Mails mit Tokens gehen nie raus, bevor die Tokens durabel sind -- sonst
-    # hätte ein Wähler einen Link, der nie funktioniert. An *dieser* Stelle wäre auch ein direkter
-    # Aufruf schon nach dem Commit, weil create_poll() seine Transaktion beim Return schließt und es
-    # keine um den Request gibt (siehe die ATOMIC_REQUESTS-Notiz in demockrazy/settings.py).
-    # `on_commit` hält die Zusage aber auch für Aufrufer, die das Ganze in eine Transaktion packen
-    # -- etwa ein Management-Command für Ziel 2. Genau deshalb steht sie hier und nicht im Service.
-    messages = mail.poll_created_messages(
-        poll, form.cleaned_data["creator_mail"], voter_mails, tokens
-    )
-    transaction.on_commit(lambda: mail.deliver(messages))
+    # Umfrage, Tokens **und** die Mail-Warteschlange in einer Transaktion. Das ist der Kern der
+    # Zusage aus B7, und seit dem getakteten Versand (Plan §11.7) erfüllt sie sich anders als
+    # vorher: verschickt wird in einem anderen Prozess, der nur committete Zeilen sieht -- eine Mail
+    # *kann* also nicht rausgehen, bevor ihr Token durabel ist. Vorher hing dieselbe Zusage an einem
+    # `on_commit`-Callback, der die Mails direkt verschickte.
+    #
+    # Warum das Einreihen mit hineingehört und **nicht** in ein `on_commit`: liefe es danach, könnte
+    # ein Absturz dazwischen Tokens ohne Einladung hinterlassen. Wähler, die ihren Token nie
+    # erfahren, sind nicht nur eine fehlende Mail -- die Umfrage schließt dann nie von selbst, weil
+    # ihre Tokens nie verbraucht werden.
+    with transaction.atomic():
+        poll, tokens = polls.create_poll(
+            title=form.cleaned_data["title"],
+            poll_type=form.cleaned_data["type"],
+            question_text=form.cleaned_data["description"],
+            choices=form.cleaned_data["choices"],
+            num_tokens=len(voter_mails),
+        )
+        # Rendern, solange die Objekte da sind. Das ist reine Template-Arbeit ohne I/O; der Versand
+        # liest die Zeilen später und braucht dann keinen Datenbankzugriff mehr.
+        mail.enqueue(
+            mail.poll_created_messages(poll, form.cleaned_data["creator_mail"], voter_mails, tokens)
+        )
     return render(request, "vote/create.html")
 
 
@@ -254,6 +259,9 @@ def manage(request, poll_identifier):
         "amount_remaining_tokens": amount_remaining_tokens,
         "amount_tokens_total": amount_tokens_total,
         "error_message": error_message,
+        # Ein Bit, keine Zahl: eine Zeile trägt keine Poll-Kennung (F8), "für diese Umfrage" ist
+        # also nicht sagbar. Sicher ist nur die Leer-Richtung. Plan §11.7 Punkt 7.
+        "mails_pending": OutgoingMail.objects.exists(),
     }
     return render(request, "vote/manage.html", context)
 

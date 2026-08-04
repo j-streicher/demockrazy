@@ -1,4 +1,4 @@
-"""Mailversand für die Umfrage-Erstellung.
+"""Mailversand für die Umfrage-Erstellung -- Rendern, Einreihen, getaktet Verschicken.
 
 Bis 3.4 steckte das als Satz geschachtelter Funktionen in `create()`. Herausgezogen, weil es keine
 Request-Abhängigkeit hat, weil der Batch-Modus (Ziel 2) genau hier andockt, und weil keine Mail
@@ -9,21 +9,40 @@ es nie: das modulweite `ATOMIC_REQUESTS` hat Django nicht gelesen, B16. Der Befu
 Begründung war falsch -- vorher verschickte `create()` die Mails **in der Save-Schleife**, während
 die Tokens erst entstanden.)*
 
+**Seit dem getakteten Versand (Plan §11.7) gibt es hier zwei getrennte Hälften**, und die Trennung
+ist Absicht -- sie ist die Form, die Djangos künftiges `django.tasks` auch hat (§11.7, 6a):
+
+* **Einreihen** (`enqueue`) passiert im Request, in derselben Transaktion wie die Tokens.
+* **Verschicken** (`send_pending`) passiert in einem anderen Prozess, aufgerufen vom
+  Management-Command `send_pending_mails`. `deliver()` -- das alles sofort verschickte -- gibt es
+  nicht mehr; es war die Stelle, die laut Plan §11.1 ein Batch-Versender ersetzt.
+
 Die Texte stehen in `vote/templates/vote/mail/` und reproduzieren die früheren
 `VOTE_*_MAIL_TEXT`-Settings **wortgleich**; `vote/tests/test_mail_service.py` nagelt das fest.
 Autoescaping ist in den Templates abgeschaltet: es sind Plain-Text-Mails, ein `&` im
 Umfragetitel soll nicht als `&amp;` beim Empfänger landen.
 """
 
+import enum
 import logging
-from smtplib import SMTPException
+import time
+from smtplib import SMTPException, SMTPRecipientsRefused, SMTPResponseException
 
 from django.conf import settings
 from django.core.mail import get_connection, send_mail
 from django.template.loader import render_to_string
 from django.urls import reverse
 
+from ..models import OutgoingMail
+
 logger = logging.getLogger(__name__)
+
+#: Wie oft eine Nachricht abgelehnt werden darf, bevor sie aufgegeben wird. Gezählt werden **nur**
+#: Absagen des Servers für genau diese Nachricht -- ein nicht erreichbarer Server kostet keinen
+#: Versuch, sonst würde ein einstündiger Ausfall die Einladungen der Reihe nach wegwerfen.
+#: Bei Minutentakt sind zehn Absagen derselben Nachricht zehn Minuten lang; wer so lange nur diese
+#: eine Adresse ablehnt, lehnt sie ab und drosselt nicht.
+MAX_ATTEMPTS = 10
 
 
 def _absolute(path):
@@ -64,70 +83,188 @@ def voter_message(poll, voter_mail, token_string):
     return (subject, body, voter_mail)
 
 
-def deliver(messages):
-    """Verschickt fertig gerenderte Nachrichten über **eine** SMTP-Verbindung und schluckt Fehler.
+class _Outcome(enum.Enum):
+    """Was aus einem Versandversuch geworden ist. Danach entscheidet sich, was die Zeile erlebt."""
 
-    Ein einzelner unerreichbarer Empfänger darf die übrigen nicht aufhalten. Die Fehler landen
-    im Log und **nicht** mehr in der Antwort an den Ersteller: der Versand läuft nach dem Commit,
-    die Seite ist da schon gerendert (B7).
+    SENT = "sent"
+    #: Der Server hat *diese* Nachricht dauerhaft abgelehnt (5xx) oder sie ist nicht kodierbar.
+    PERMANENT = "permanent"
+    #: Der Server hat *diese* Nachricht vorläufig abgelehnt (4xx) -- der `450` der Drosselung.
+    TRANSIENT = "transient"
+    #: Der Server war nicht erreichbar oder ist weggebrochen. Kein Urteil über die Nachricht.
+    UNREACHABLE = "unreachable"
 
-    Absichtlich ohne Empfängeradresse und ohne Umfragekennung im Logaufruf -- die Zuordnung
-    „Adresse gehört zu Umfrage X" wird bewusst nirgends persistiert (F8). Der Text einer
-    SMTP-Exception kann die Adresse allerdings selbst enthalten; das ist mit F8 zu bewerten,
-    wenn Ziel 2 einen echten Zustellbericht bekommt.
 
-    **Die gemeinsame Verbindung ist der erste Schritt zu Ziel 2 und ausdrücklich nicht die Kur.**
-    Vorher baute jeder `send_mail()`-Aufruf seine eigene Verbindung auf: gemessen 101 Nachrichten
-    in **101** Verbindungen, jede mit TCP, STARTTLS und AUTH. Was das *nicht* behebt, ist die
-    Drosselung des Mailservers: der zählt **Nachrichten** pro Zeitfenster
-    (`450 4.7.1 too much mail from`, siehe notes/plan.md §11), und deren Zahl bleibt gleich.
-    Schneller wird es trotzdem deutlich, und weil der Versand heute synchron im Request läuft,
-    wartet genau so lange der Ersteller vor seinem Browser. **Die Kur ist Taktung plus
-    Wiederholung der 450er, und die braucht den Weg aus dem Request heraus.**
+def _smtp_code(error):
+    """Der Antwortcode aus einer smtplib-Ausnahme, oder `None`, wenn es keinen gibt.
 
-    Zwei Feinheiten, die man beim Lesen nicht sieht:
-
-    * Die Verbindung wird **nicht** vorab geöffnet. Djangos Backend öffnet sie beim ersten
-      Versand selbst und hält sie danach -- ein fehlgeschlagener Aufbau bleibt damit ein Fehler
-      *dieser* Nachricht, und die nächste versucht es erneut. Mit einem eigenen `open()` samt
-      vorzeitigem Abbruch wäre ein kurzer Ausfall beim ersten Empfänger das Ende des ganzen
-      Versands.
-    * `close()` steht in einem eigenen `try`, weil es beim `QUIT` selbst eine `SMTPException`
-      werfen kann. Sie darf hier nicht heraus: `deliver()` läuft als `on_commit`-Callback im
-      Request, die Umfrage ist zu diesem Zeitpunkt schon angelegt, und ein Fehler daraus wäre ein
-      500 auf einer Seite, die inhaltlich in Ordnung ist.
+    Zwei Formen kommen vor: `SMTPResponseException` trägt `smtp_code` direkt,
+    `SMTPRecipientsRefused` trägt pro Empfänger ein `(code, text)`-Paar. Hier steht genau ein
+    Empfänger pro Nachricht, also ist es genau ein Code.
     """
+    code = getattr(error, "smtp_code", None)
+    if code is not None:
+        return code
+    refused = getattr(error, "recipients", None) or {}
+    codes = [value[0] for value in refused.values() if value]
+    return min(codes) if codes else None
+
+
+def _send_one(connection, row):
+    """Verschickt eine Zeile und sagt, was daraus geworden ist. Wirft nicht."""
+    try:
+        # `fail_silently=False` bleibt: die Ausnahme *ist* die Information. Sie greift, weil
+        # `send_mail` mit übergebener `connection` deren `fail_silently` benutzt -- und
+        # `get_connection()` steht auf False.
+        send_mail(
+            row.subject,
+            row.body,
+            settings.VOTE_MAIL_FROM,
+            [row.recipient],
+            fail_silently=False,
+            connection=connection,
+        )
+    except UnicodeEncodeError:
+        logger.exception("Umfrage-Mail nicht kodierbar")
+        return _Outcome.PERMANENT
+    except (SMTPResponseException, SMTPRecipientsRefused) as error:
+        code = _smtp_code(error)
+        if code is not None and 400 <= code < 500:
+            return _Outcome.TRANSIENT
+        return _Outcome.PERMANENT
+    except (SMTPException, OSError):
+        # Verbindung weg, DNS kaputt, Timeout. **Kein Urteil über die Nachricht** -- deshalb hier
+        # auch kein `attempts`-Hochzählen, siehe MAX_ATTEMPTS.
+        logger.exception("Mailserver nicht erreichbar, Versand abgebrochen")
+        return _Outcome.UNREACHABLE
+    return _Outcome.SENT
+
+
+def enqueue(messages):
+    """Reiht gerenderte Nachrichten in die Warteschlange ein.
+
+    **Gehört in dieselbe Transaktion wie die Tokens** und ist deshalb absichtlich *kein*
+    `on_commit`-Callback: liefe es danach, könnte ein Absturz dazwischen Tokens ohne Einladung
+    hinterlassen -- Wähler, die ihren Token nie erfahren, und eine Umfrage, die nur der Ersteller
+    noch schließen kann. Die Zusage von B7 („keine Mail, bevor die Tokens durabel sind") hält
+    trotzdem, und zwar strukturell: verschickt wird in einem anderen Prozess, und der sieht nur
+    committete Zeilen.
+    """
+    return OutgoingMail.objects.bulk_create(
+        [
+            OutgoingMail(subject=subject, body=body, recipient=recipient)
+            for subject, body, recipient in messages
+        ]
+    )
+
+
+def send_pending(*, batch_size=None, pause=None, sleep=time.sleep):
+    """Verschickt die Warteschlange getaktet: `batch_size` Nachrichten, dann `pause` Sekunden.
+
+    Vom Management-Command `send_pending_mails` aufgerufen, nie aus einem Request -- ein Lauf
+    dauert Minuten. Gibt eine Zusammenfassung als dict zurück (`sent`, `given_up`, `deferred`,
+    `batches`); der Command schreibt sie nach stdout.
+
+    **Die eine Regel, an der alles hängt: kein `sleep` innerhalb einer Transaktion.** Gemessen
+    (notes/plan.md §11.7, 4a): kurze Transaktion je Mail und `sleep` außerhalb kostet eine
+    gleichzeitige Stimmabgabe 7--9 ms, **unabhängig davon, wie lange der Lauf dauert**. Eine
+    Transaktion, die über die Pause reicht, lässt Stimmen erst Sekunden warten und dann verloren
+    gehen, sobald der Lauf länger dauert als der `timeout` von 20 s -- gemessen 8 von 200. Deshalb
+    steht hier nirgends ein `atomic()` um die Schleife, und `save()`/`delete()` je Zeile sind
+    jeweils ihre eigene kurze Transaktion.
+
+    **Verschicken, dann löschen** -- nicht umgekehrt. Stirbt der Prozess dazwischen, geht die Mail
+    doppelt raus; sie trägt denselben einmaligen Token, eine doppelte Einladung ist also harmlos.
+    Der umgekehrte Fehler *verliert* eine Einladung, und dann fehlt ein Token für immer: die
+    Umfrage schließt nicht mehr von selbst.
+
+    **Beim ersten vorläufigen Fehler bricht der Lauf ab**, statt die restlichen 29 gegen dieselbe
+    Wand zu fahren. Ein `450` heißt „du bist über dem Limit"; der nächste Timer-Aufruf trifft ein
+    zurückgesetztes Zeitfenster an. Ein *dauerhafter* Fehler (5xx) betrifft nur diese Adresse, dort
+    läuft der Batch weiter.
+
+    Eine **eigene Verbindung pro Batch**: die Pause soll nicht in einer offenen Verbindung
+    verbracht werden, und die Batchgrenze ist der natürliche Ort dafür. Innerhalb eines Batches
+    bleibt es bei einer Verbindung für 30 Nachrichten statt 30 Verbindungen.
+    """
+    batch_size = settings.VOTE_MAIL_BATCH_SIZE if batch_size is None else batch_size
+    pause = settings.VOTE_MAIL_BATCH_PAUSE if pause is None else pause
+    summary = {"sent": 0, "given_up": 0, "batches": 0}
+
+    while True:
+        rows = list(OutgoingMail.objects.order_by("pk")[:batch_size])
+        if not rows:
+            return _finish(summary)
+        if summary["batches"]:
+            # Die Pause liegt **zwischen** den Batches: nicht vor dem ersten (sonst wartet jeder
+            # Lauf umsonst) und nicht nach dem letzten (sonst hält der Command die Sperre länger,
+            # als er arbeitet).
+            sleep(pause)
+        summary["batches"] += 1
+        if _send_batch(rows, summary):
+            return _finish(summary)
+
+
+def _finish(summary):
+    """Was noch liegt, wird am Ende *gezaehlt* und nicht pro Zeile mitgebucht.
+
+    Der erste Versuch buchte es pro Zeile und rechnete dabei kumulative Summen gegen die Groesse
+    eines Batches -- das ergab falsche Zahlen, sobald es mehr als einen Batch gab.
+    """
+    summary["remaining"] = OutgoingMail.objects.count()
+    return summary
+
+
+def _send_batch(rows, summary):
+    """Verschickt einen Batch. Liefert True, wenn der ganze Lauf abbrechen soll."""
     if not settings.VOTE_SEND_MAILS:
-        # Wie bisher: bei abgeschaltetem Versand nur ausgeben, damit lokal sichtbar ist, was
-        # rausgegangen wäre. Ohne Verbindung -- es gibt nichts zu verbinden.
-        for subject, body, recipient in messages:
-            print(subject, body, settings.VOTE_MAIL_FROM, [recipient])
-        return
+        # Wie `deliver()` früher: bei abgeschaltetem Versand nur ausgeben, damit lokal sichtbar
+        # ist, was rausgegangen wäre. Die Zeilen verschwinden trotzdem, sonst liefe der Lauf
+        # endlos über dieselbe Warteschlange.
+        for row in rows:
+            print(row.subject, row.body, settings.VOTE_MAIL_FROM, [row.recipient])
+            row.delete()
+            summary["sent"] += 1
+        return False
 
     connection = get_connection()
     try:
-        for subject, body, recipient in messages:
-            try:
-                # `fail_silently=False` bleibt: die Ausnahme ist das, was hier protokolliert
-                # wird. Sie greift, weil `send_mail` mit übergebener `connection` deren
-                # `fail_silently` benutzt -- und `get_connection()` steht auf False.
-                send_mail(
-                    subject,
-                    body,
-                    settings.VOTE_MAIL_FROM,
-                    [recipient],
-                    fail_silently=False,
-                    connection=connection,
-                )
-            except SMTPException:
-                logger.exception("Zustellung einer Umfrage-Mail fehlgeschlagen")
-            except UnicodeEncodeError:
-                logger.exception("Umfrage-Mail nicht kodierbar")
+        for row in rows:
+            outcome = _send_one(connection, row)
+            if outcome is _Outcome.SENT:
+                row.delete()
+                summary["sent"] += 1
+            elif outcome is _Outcome.PERMANENT:
+                # Absichtlich ohne Adresse und ohne Umfragekennung (F8). Der Text der Ausnahme
+                # kann die Adresse selbst enthalten -- der landet über `logger.exception` im Log,
+                # das ist mit F8 bewertet und in Kauf genommen.
+                logger.warning("Eine Umfrage-Mail wurde dauerhaft abgelehnt und verworfen")
+                row.delete()
+                summary["given_up"] += 1
+            elif outcome is _Outcome.TRANSIENT:
+                row.attempts += 1
+                if row.attempts >= MAX_ATTEMPTS:
+                    logger.warning(
+                        "Eine Umfrage-Mail wurde %s mal vorläufig abgelehnt und aufgegeben",
+                        row.attempts,
+                    )
+                    row.delete()
+                    summary["given_up"] += 1
+                else:
+                    row.save(update_fields=["attempts"])
+                return True
+            else:
+                # Unerreichbar: die Zeile bleibt unverändert liegen, **ohne** Versuch. Ein
+                # einstündiger Ausfall soll die Einladungen nicht der Reihe nach wegwerfen.
+                return True
     finally:
         try:
             connection.close()
-        except SMTPException:
+        except (SMTPException, OSError):
+            # `close()` kann beim QUIT werfen. Das darf den Lauf nicht beenden -- die Mails dieses
+            # Batches sind raus und ihre Zeilen gelöscht.
             logger.exception("SMTP-Verbindung ließ sich nicht ordentlich schließen")
+    return False
 
 
 def poll_created_messages(poll, creator_mail, voter_mails, tokens):

@@ -10,7 +10,7 @@
 | # | Ziel | Status |
 |---|------|--------|
 | 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | **Phase 0–6 vollständig ✅ außer 2.7. Das Bug-Register ist vollständig abgearbeitet** – B9 ist mit 3.9 gefallen. Offen ist nur noch 2.7, und das ist zum größten Teil **gegenstandslos** geworden, nachdem der Proxy vorliegt – es bleibt eine Frage (F15) und ein Vorschlag für den Proxy, nichts im Repo. |
-| 2 | Batch-Modus für Mails bauen | **Spec folgt vom User** – nur Vorarbeit leisten, siehe §11 |
+| 2 | Batch-Modus für Mails bauen | **Gebaut** (§11.7): Warteschlange, getakteter Versender, Management-Command. 30er Batches / 2 s vom User vorgegeben. ⚠️ Der **systemd-Timer** fehlt noch und liegt außerhalb dieses Repos ([to-check.md](to-check.md) §C5). Offen: Bounce-Handling, Fortschrittsanzeige, **F20** |
 
 **Wichtig:** Ziel 2 wird vom User später erklärt. Ziel 1 nicht so umbauen, dass Ziel 2 blockiert wird –
 im Gegenteil: die Mail-Logik so herausziehen, dass ein Batch-Versand sauber andocken kann (§11).
@@ -468,8 +468,9 @@ Tests für niemanden außer mir nutzbar und in CI wertlos. **Behoben in 2.1**, a
       – reine Funktionen ohne Request-Abhängigkeit, Versand über `transaction.on_commit()`.
       Die Nachrichten werden **vor** dem Commit fertig gerendert, damit der Callback ohne
       Datenbankzugriff auskommt. **Das ist die Schnittstelle, an der Ziel 2 andockt** (§11):
-      `poll_created_messages()` baut die Liste, `deliver()` verschickt sie – ein Batch-Versender
-      ersetzt genau das zweite.
+      `poll_created_messages()` baut die Liste, `deliver()` verschickte sie – ein Batch-Versender
+      sollte genau das zweite ersetzen. *(Nachtrag §11.7: genau so gekommen. `deliver()` ist weg,
+      an seiner Stelle stehen `enqueue()` und `send_pending()`.)*
       **Mail-Texte sind jetzt Templates** unter `vote/templates/vote/mail/` (der aus 2.4
       verschobene Punkt); damit fällt das `E501`-per-file-ignore für `settings.py` weg.
       In `settings.py` bleiben nur `VOTE_MAIL_FROM`, `VOTE_BASE_URL`, `VOTE_SEND_MAILS`.
@@ -827,11 +828,16 @@ Risikoeinschätzung von **B13** und die Notiz zu **3.5** („im Request redundan
 Spec kommt vom User. Bis dahin **nicht spekulativ implementieren**, aber Phase 3 so bauen, dass
 folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nötig:
 
-1. ~~**Mail-Versand ist eine aufrufbare Service-Funktion**~~ ✅ mit 3.4 erledigt:
-   `mail.poll_created_messages()` rendert, `mail.deliver()` verschickt. Ein Batch-Versender
-   ersetzt `deliver()` und lässt das Rendern unberührt.
-2. ~~**Kein SMTP im Request-Zyklus / nicht in der Transaktion**~~ ✅ mit 3.4 erledigt via
-   `transaction.on_commit()` (B7). Der Callback rührt die Datenbank nicht an.
+1. ~~**Mail-Versand ist eine aufrufbare Service-Funktion**~~ ✅ mit 3.4 erledigt, mit §11.7
+   eingelöst: `mail.poll_created_messages()` rendert, `mail.enqueue()` reiht ein,
+   `mail.send_pending()` verschickt getaktet. **`deliver()` gibt es nicht mehr** -- es war genau die
+   Stelle, die der Batch-Versender laut diesem Punkt ersetzen sollte, und das Rendern ist unberührt
+   geblieben.
+2. ~~**Kein SMTP im Request-Zyklus / nicht in der Transaktion**~~ ✅ -- **anders eingelöst als
+   3.4 vorsah, und stärker.** Das `on_commit` ist entfallen: eingereiht wird **in** derselben
+   Transaktion wie die Tokens, verschickt in einem **anderen Prozess**, der nur committete Zeilen
+   sieht. Damit *kann* keine Mail vor ihrem Token rausgehen -- B7 hält strukturell statt über einen
+   Callback. Im Request findet überhaupt kein SMTP mehr statt.
 3. ~~**Mail-Inhalte als Django-Templates**~~ ✅ mit 3.4 erledigt – liegen unter
    `vote/templates/vote/mail/`, Autoescaping aus, Wortlaut per Test festgenagelt.
 4. **Zustand pro Empfänger – F8 ist entschieden: "lieber anonymer".** Damit gilt: **kein dauerhafter
@@ -868,7 +874,7 @@ folgende Punkte gegeben sind – sie sind für jede Variante von „Batch“ nö
 8. Noch offen, sobald die restliche Spec da ist: **Bounce-Handling** und die
    **Fortschrittsanzeige** – letztere ist durch F8 schon eingeschränkt auf Summen ohne Adressliste.
 
-### 11.7 Entwurf des getakteten Versands – **noch nicht gebaut, zur Bestätigung**
+### 11.7 Der getaktete Versand – ✅ **gebaut** (2026-08-04)
 
 **Die Vorgabe des Users (2026-08-04, dreimal bestätigt): 30er Nachrichten-Batches mit 2 Sekunden
 Intervall.** Das ist die Taktung, die gebaut wird. Die Rechnung dazu gehört aber daneben:
@@ -1065,13 +1071,67 @@ Broker mehr Betrieb als Nutzen.
 eine Minute nach dem Anlegen raus, die Mail an den Ersteller auch. Das ist der Gegenwert dafür, dass
 nichts mehr im Request hängt.
 
-**7. Fortschritt: eine Zahl auf der Manage-Seite.**
-Die Bestätigungsseite kann es nicht zeigen – sie ist gerendert, bevor etwas rausgeht. Die
-Manage-Seite kann „n Einladungen noch nicht verschickt" anzeigen: eine Summe, keine Adressliste,
-also F8-konform. Klein und der einzige Ort, an dem der Ersteller überhaupt etwas erfährt.
+**7. Fortschritt: ein Satz auf der Manage-Seite.** ✅ **gebaut, aber anders als hier geplant.**
+Der Plan sagte „n Einladungen noch nicht verschickt". **Das lässt F8 nicht zu, und das ist beim Bauen
+erst aufgefallen:** eine Warteschlangenzeile trägt bewusst keine Poll-Kennung, es gibt also keinen
+Weg, sie *dieser* Umfrage zuzuordnen. Einen zu bauen wäre genau der Bezug, auf den §11.4 verzichtet
+hat – auch über eine indirekte Kennung, denn wer die Warteschlange lesen kann, kann auch `vote_poll`
+lesen.
+
+Gebaut ist deshalb die eine Richtung, die **logisch sicher** ist: *ist die Warteschlange leer, sind
+die Einladungen dieser Umfrage sicher raus.* Umgekehrt gilt nur „irgendwas wartet noch", und genau so
+steht es auch da:
+
+| Warteschlange | Text auf der Manage-Seite |
+|---|---|
+| leer | „No invitations are waiting to be sent." |
+| nicht leer | „Invitations are still queued for sending." |
+
+**Und `exists()` statt `count()`**: eine Zahl wäre eine Aussage über das Versandvolumen *anderer*
+Umfragen, und die Manage-Seite ist ohne Token erreichbar. Ein Bit ist alles, was der Ersteller
+braucht – die Frage lautet „sind die Mails raus", nicht „wie viele".
+
+Damit ist der Punkt kleiner als versprochen, und das ist eine Folge von F8, kein Versäumnis. Wer den
+per-Umfrage-Fortschritt doch will, entscheidet damit F8 neu.
 
 **8. Migration `0004`** – eine **neue** Tabelle. Additiv, und anders als `0003` schreibt SQLite dafür
 keine bestehende Tabelle neu.
+
+### 11.7a Was beim Bauen anders kam als im Entwurf
+
+Der Entwurf hat gehalten. Vier Dinge sind beim Umsetzen präziser oder anders geworden, und sie lohnen
+je zwei Zeilen:
+
+1. **Der Umgang mit Fehlern ist feiner als „4xx anhalten, 5xx verwerfen".** Dazwischen liegt ein
+   dritter Fall, und er ist der wichtigste: **der Server war gar nicht erreichbar.** Dann hat er über
+   *diese* Nachricht nichts gesagt, also darf sie auch keinen Versuch verbrauchen -- sonst würde ein
+   einstündiger Ausfall die Einladungen der Reihe nach wegwerfen, eine pro Timer-Aufruf. Verbindungs-
+   und Timeout-Fehler brechen den Lauf deshalb ab, **ohne** `attempts` zu erhöhen. Nur eine aktive
+   Absage des Servers für genau diese Nachricht zählt.
+2. **Eine Verbindung pro Batch, nicht eine pro Lauf.** Die Pause soll nicht in einer offenen
+   Verbindung verbracht werden, und die Batchgrenze ist der natürliche Ort dafür. 101 Mails kosten
+   damit 4 Verbindungen statt 1 -- gegenüber den 101 von vorher ist das kein Thema, und es ist
+   robuster, sobald die Pause auf Fensterlänge steigt.
+3. **`5xx` wird sofort verworfen statt nach N Versuchen.** Ein 5xx ist per RFC dauerhaft; „User
+   unknown" fünfmal zu wiederholen hilft niemandem. `MAX_ATTEMPTS` gilt damit nur noch für den
+   4xx-Fall.
+4. **Ein Zählfehler im ersten Entwurf, gefunden beim Schreiben:** die Restmenge wurde pro Zeile
+   mitgebucht, wobei kumulative Summen gegen die Größe *eines* Batches gerechnet wurden -- falsch,
+   sobald es mehr als einen Batch gab. Jetzt wird am Ende einmal gezählt.
+
+**Gemessen, mit den Zahlen des Users, gegen eine echte Datenbank:**
+
+| | Ergebnis |
+|---|---|
+| 100 Empfänger anlegen | **101 Zeilen** in der Warteschlange, 100 Tokens, **0 Mails im Request** |
+| Felder einer Zeile | `id, recipient, subject, body, attempts` -- **keine Poll-Kennung, kein Zeitstempel** |
+| ein Lauf `send_pending_mails` | 101 verschickt, 0 aufgegeben, 0 warten noch, **4 Batches in 7,2 s** |
+| zweiter Aufruf während eines laufenden | *„Es läuft schon ein Versand, dieser Aufruf tut nichts."* -- der erste liefert danach vollständig ab |
+
+Die 7,2 s sind die Rechnung aus §11.7 in echt: vier Batches, drei Pausen à 2 s, der Rest Arbeit.
+**Und sie sind zugleich die Bestätigung der Warnung dort:** alle 101 Nachrichten liegen damit im
+selben Zeitfenster. Wenn `smtp.mayflower.de` mit 60 s zählt, kommt der `450` -- dann ist
+`DEMOCKRAZY_MAIL_BATCH_PAUSE=60` die Antwort, und der Lauf dauert ~3,5 Minuten statt 7 Sekunden.
 
 ---
 

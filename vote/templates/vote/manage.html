@@ -14,4 +14,11 @@
     <input type="submit" class="btn btn-primary" value="Deactivate">
 </form>
 {% include 'vote/token_state.html' %}
+
+{% comment %}Ein Satz, keine Zahl -- Begruendung in views.py bei `mails_pending`.{% endcomment %}
+{% if mails_pending %}
+<p class="text-body-secondary">Invitations are still queued for sending.</p>
+{% else %}
+<p class="text-body-secondary">No invitations are waiting to be sent.</p>
+{% endif %}
 {% endblock %}

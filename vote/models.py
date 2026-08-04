@@ -110,3 +110,40 @@ class Token(models.Model):
 
     def __str__(self):
         return f"{self.poll} Token"
+
+
+class OutgoingMail(models.Model):
+    """Eine noch nicht verschickte Mail. Die Warteschlange des getakteten Versands (Plan §11.7).
+
+    **Warum es diese Tabelle gibt:** der Mailserver drosselt nach Nachrichten pro Zeitfenster, der
+    Versand muss also über Minuten getaktet werden, und das kann nicht im Request passieren. Damit
+    braucht die Paarung „welcher Text geht an welche Adresse" einen Ort, der einen Neustart
+    übersteht -- sonst verliert ein Restart mitten im Versand die restlichen Einladungen, ohne dass
+    jemand sagen kann, welche.
+
+    **Was hier absichtlich *nicht* steht, und das ist der wichtigste Teil (F8, Plan §11.4):**
+
+    * **Keine Poll-Kennung.** Eine Zeile sagt für sich nicht, um welche Abstimmung es geht.
+    * **Kein Zeitstempel.** Er wäre ein Fingerabdruck: gleiche Sekunde = gleiche Umfrage. Gebraucht
+      wird er nicht, die Reihenfolge steckt in der ID und das Aufgeben in `attempts`.
+    * **Kein `sent`-Flag und keine Historie.** Eine zugestellte Zeile wird **gelöscht**. Nach dem
+      Versand ist der Zustand wieder genau der von vorher.
+
+    Preisgegeben ist damit, solange der Versand läuft, *wer eingeladen wurde* -- **nicht, wie jemand
+    gestimmt hat.** Der Token wird bei der Abgabe gelöscht und die Stimme trägt keine Kennung; das
+    Kernversprechen bleibt unberührt.
+    """
+
+    recipient = models.EmailField()
+    # TextField und nicht CharField: die Betrefflänge folgt aus dem Umfragetitel (bis 200 Zeichen)
+    # plus Präfix, eine Obergrenze wäre also eine Falle, die SQLite nicht einmal durchsetzt --
+    # `bulk_create` validiert nicht. Sortiert oder indiziert wird hier nichts.
+    subject = models.TextField()
+    body = models.TextField()
+    # Zählt **nur** Absagen des Servers für genau diese Nachricht, nicht Verbindungsprobleme.
+    # Warum der Unterschied zählt, steht in vote/services/mail.py bei `send_pending()`.
+    attempts = models.PositiveSmallIntegerField(default=0)
+
+    def __str__(self):
+        # Ohne Adresse: dieselbe Zurückhaltung wie im Logaufruf von `send_pending()` (F8).
+        return f"Ausgehende Mail #{self.pk}"
