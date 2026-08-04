@@ -7,8 +7,8 @@
 {% endif %}
 <form action="{% url 'vote:polls:manage' poll_identifier=poll.identifier %}" method="post">
     {% csrf_token %}
-    <div class="form-group">
-        <label for="token">Management Token</label>
+    <div class="mb-3">
+        <label class="form-label" for="token">Management Token</label>
         <input type="text" name="token" id="token" class="form-control">
     </div>
     <input type="submit" class="btn btn-primary" value="Deactivate">

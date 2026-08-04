@@ -1,7 +1,14 @@
-<label></label>
-<ul class="nav nav-pills" role="tablist">
-    <li role="presentation"><b>Token State: </b></li>
-    <li role="presentation">Total <span class="badge">{{ amount_tokens_total }}</span></li>
-    <li role="presentation">Redeemed <span class="badge">{{ amount_redeemed_tokens }}</span></li>
-    <li role="presentation">Remaining <span class="badge">{{ amount_remaining_tokens }}</span></li>
+{% comment %}
+War ein `ul.nav.nav-pills` -- also Navigations-Markup mit `role="tablist"` und `role="presentation"`
+für etwas, das keine Navigation und kein Tab ist. Ein Screenreader kündigte hier Reiter an, die
+niemand anklicken kann. Jetzt eine schlichte Liste; das führende leere `<label></label>`
+(beschriftete nichts) ist weg.
+
+Die `badge` braucht in Bootstrap 5 eine Farbklasse, sonst ist sie transparent auf transparent.
+{% endcomment %}
+<p class="mb-1"><b>Token State:</b></p>
+<ul class="list-inline">
+    <li class="list-inline-item">Total <span class="badge text-bg-secondary">{{ amount_tokens_total }}</span></li>
+    <li class="list-inline-item">Redeemed <span class="badge text-bg-secondary">{{ amount_redeemed_tokens }}</span></li>
+    <li class="list-inline-item">Remaining <span class="badge text-bg-secondary">{{ amount_remaining_tokens }}</span></li>
 </ul>
