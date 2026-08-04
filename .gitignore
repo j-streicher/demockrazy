@@ -67,3 +67,6 @@ db.sqlite3
 static/
 
 .direnv
+
+# Lokale Claude-Code-Konfiguration (Berechtigungen, Startbefehle) -- gehoert nicht ins Repo.
+.claude/
