@@ -185,6 +185,47 @@ class TestRejectedInput:
         assert "title" in form.errors
 
 
+class TestSizeCaps:
+    """R7-1: außer der Empfängerzahl war nichts gedeckelt.
+
+    Gemessen gingen über einen unauthentifizierten POST 200 000 Zeichen Beschreibung und 5 000
+    Choices durch; letztere ergaben eine Abstimmungsseite von 1,3 MB. Die einzige wirksame Grenze
+    war Djangos `DATA_UPLOAD_MAX_MEMORY_SIZE` von 2,5 MB pro Request, und die stand nirgends als
+    Entscheidung.
+    """
+
+    def test_a_very_long_description_is_rejected(self):
+        form = PollCreateForm(payload(description="x" * 10_001))
+        assert not form.is_valid()
+        assert "description" in form.errors
+
+    def test_a_description_at_the_limit_is_accepted(self):
+        assert PollCreateForm(payload(description="x" * 10_000)).is_valid()
+
+    def test_a_very_long_choices_field_is_rejected(self):
+        form = PollCreateForm(payload(choices="a\n" * 10_001))
+        assert not form.is_valid()
+        assert "choices" in form.errors
+
+    def test_too_many_choices_are_rejected(self, settings):
+        """Die Zahl zusätzlich zur Länge: 20 000 Zeichen sind auch 10 000 einzeichige Zeilen."""
+        settings.VOTE_MAX_CHOICES = 3
+        form = PollCreateForm(payload(choices="a\nb\nc\nd"))
+        assert not form.is_valid()
+        assert form.errors["choices"] == ["At most 3 choices per poll, got 4."]
+
+    def test_exactly_at_the_choice_limit_is_accepted(self, settings):
+        settings.VOTE_MAX_CHOICES = 3
+        form = PollCreateForm(payload(choices="a\nb\nc"))
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["choices"] == ["a", "b", "c"]
+
+    def test_blank_lines_do_not_count_towards_the_limit(self, settings):
+        """Gezählt wird, was eine Choice wird -- `parse_lines` wirft Leerzeilen vorher weg."""
+        settings.VOTE_MAX_CHOICES = 3
+        assert PollCreateForm(payload(choices="a\n\n\nb\n\nc\n")).is_valid()
+
+
 class TestRecipientCap:
     """Der Deckel gegen B4 (Plan 3.8). Grenze steht in settings.VOTE_MAX_RECIPIENTS."""
 
