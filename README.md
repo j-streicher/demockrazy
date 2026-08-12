@@ -49,9 +49,11 @@ ruff format --check .
 The suite runs against `demockrazy/test_settings.py` (in-memory SQLite, mails captured in
 `django.core.mail.outbox`), so it is independent of any local configuration.
 
-`vote/tests/test_known_bugs.py` holds known defects written as the behaviour that *should* hold,
-each marked `xfail(strict=True)`. Fixing one of them turns the suite red — that is the reminder to
-remove the marker.
+`vote/tests/test_known_bugs.py` holds the defects confirmed in phase 0, written as the behaviour
+that should hold. They are all fixed, so they stand there as plain regression tests — there is no
+`xfail` left in the suite. The pattern for the *next* one is still `xfail(strict=True)`: the test
+describes the target, fails today, and turns the suite red the moment somebody fixes it, which is
+the reminder to remove the marker.
 
 `.github/workflows/checks.yml` runs the same commands on every push, plus `manage.py check`,
 `manage.py makemigrations --check --dry-run` and `nix flake check`.
@@ -61,7 +63,9 @@ remove the marker.
 `demockrazy/settings.py` holds the defaults. Three ways to override them, in the order they apply:
 
 - `DEMOCKRAZY_*` environment variables — `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`, `DB_PATH`,
-  `STATIC_ROOT`, `SEND_MAILS`.
+  `STATIC_ROOT`, `SEND_MAILS`, `MAIL_TIMEOUT`, `MAX_RECIPIENTS`, `MAX_CHOICES`,
+  `MAIL_BATCH_SIZE`, `MAIL_BATCH_PAUSE`. The last two are the screws to turn when the mail server
+  starts answering `450` again.
 - An optional `demockrazy/local_settings.py`, imported at the end of `settings.py` if present.
   Not in the repository.
 - A settings module that imports `demockrazy.settings` and overrides it, selected via
@@ -95,10 +99,13 @@ one retries; a `5xx` concerns one address only and that row is dropped. Nothing 
 database transaction — a long transaction on SQLite makes concurrent voting wait and, past the
 20-second `timeout`, fail.
 
-A queue row carries only recipient, subject, body and an attempt count. It names no poll and has no
-timestamp, and it is **deleted** once sent: the address-to-token pairing exists only for as long as
-delivery takes. The vote itself carries no identity either way — the token is deleted when it is
-used.
+A queue row carries only recipient, subject, body and an attempt count. No column names a poll and
+there is no timestamp — but the rendered body contains the voting link and therefore the poll
+identifier, so while the row exists it does say that this address was invited to this poll with this
+token. That is the cost weighed in `notes/plan.md` §11.4, and the reason a delivered row is
+**deleted**: the pairing exists only for as long as delivery takes. Which token a voter gets is
+shuffled, so the token ids do not follow the order the addresses were entered in. The vote itself
+carries no identity either way — the token is deleted when it is used.
 
 ## Frontend
 
@@ -141,10 +148,10 @@ x 25 rounds: 36 of 200 succeed on the defaults, 200 of 200 with these options.
 
 Those options do not reach production on their own. A settings module that replaces `DATABASES`
 wholesale drops them, which is what production's generated module does. `manage.py check` reports
-their absence, so run it against the real settings after deploying:
+their absence — with `--fail-level WARNING`, because a warning alone leaves the exit code at 0:
 
 ```
-DJANGO_SETTINGS_MODULE=demockrazy_config python3 manage.py check
+DJANGO_SETTINGS_MODULE=demockrazy_config python3 manage.py check --fail-level WARNING
 ```
 
 `GET /healthz` returns `200 ok` when the process can serve requests and read the database, and

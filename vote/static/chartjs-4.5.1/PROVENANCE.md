@@ -54,5 +54,6 @@ sed -i '$ d' chart.umd.min.js
 1. Tarball holen, `sha1` gegen `registry.npmjs.org/chart.js` prüfen, beide Summen hier eintragen.
 2. Nur `dist/chart.umd.min.js` und `LICENSE.md` übernehmen, dann `sed -i '$ d'`.
 3. Der Verzeichnisname trägt die Version (`chartjs-4.5.1`) und steht in
-   `vote/templates/vote/base.html` bzw. `results.html`.
+   `vote/templates/vote/results.html` -- und **nur** dort, Chart.js hängt nicht in `base.html`
+   (dort stand dieser Verweis vorher, mit einem Pfad, den es nicht gibt -- Review R14-2).
 4. `pytest` fährt `collectstatic` mit und merkt, wenn ein Verweis nicht auflöst.

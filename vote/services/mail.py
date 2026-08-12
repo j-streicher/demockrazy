@@ -171,8 +171,10 @@ def send_pending(*, batch_size=None, pause=None, sleep=time.sleep):
     """Verschickt die Warteschlange getaktet: `batch_size` Nachrichten, dann `pause` Sekunden.
 
     Vom Management-Command `send_pending_mails` aufgerufen, nie aus einem Request -- ein Lauf
-    dauert Minuten. Gibt eine Zusammenfassung als dict zurück (`sent`, `given_up`, `deferred`,
-    `batches`); der Command schreibt sie nach stdout.
+    dauert Minuten. Gibt eine Zusammenfassung als dict zurück (`sent`, `given_up`, `batches`,
+    `remaining`); der Command schreibt sie nach stdout. *(Hier stand `deferred` -- den Schlüssel gab
+    es im ersten Entwurf, er ist mit dem Buchhaltungsfehler weggefallen, den `_finish()` beschreibt,
+    und blieb im Docstring stehen. Review R14-2.)*
 
     **Die eine Regel, an der alles hängt: kein `sleep` innerhalb einer Transaktion.** Gemessen
     (notes/plan.md §11.7, 4a): kurze Transaktion je Mail und `sleep` außerhalb kostet eine
