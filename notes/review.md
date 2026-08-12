@@ -1,10 +1,11 @@
 # Umfassendes Review
 
-> **Status: 7.1 gelaufen, 7.2 abgearbeitet.** 24 Befunde, davon **21 behoben** in 12 Commits --
-> ein Commit je Befund bzw. je Befundpaar, die Nummer steht im Betreff. Offen sind nur die drei, die
-> nicht in diesem Repo liegen: **R2-1** und **R8-1** warten auf eine Antwort des Users
-> ([to-check.md](to-check.md) A4/A5), **R9-3** ist ein Verfahrenshinweis (D5). Was **noch nicht
-> geprüft** ist, steht unverändert in §7. Angelegt 2026-08-04.
+> **Status: 7.1 gelaufen, 7.2 abgearbeitet.** 24 Befunde, davon **22 behoben** in 13 Commits --
+> ein Commit je Befund bzw. je Befundpaar, die Nummer steht im Betreff. **R2-1 ist nachgezogen**,
+> nachdem der User die Kontenfrage mit „ja" beantwortet hat: die Django-Hälfte ist behoben, das
+> Login-Rate-Limit bleibt Sache des Proxys. Offen sind damit **R8-1** (der User prüft das Kennwort
+> vor dem Deploy) und **R9-3** (Verfahrenshinweis, D5). Was **noch nicht geprüft** ist, steht
+> unverändert in §7. Angelegt 2026-08-04.
 >
 > Geplant in [plan.md](plan.md) §14. Befunde kommen hierher, Handlungspunkte außerhalb des Repos
 > nach [to-check.md](to-check.md).
@@ -12,6 +13,7 @@
 > **Baseline zu Beginn des Laufs gemessen:** `pytest` → 215 passed, Arbeitsbaum sauber,
 > 80 Commits über `master`. **Nach 7.2:** `pytest` → **253 passed**,
 > `check --fail-level WARNING` → no issues, `makemigrations --check` → No changes, ruff sauber.
+> **Nach dem Nachzug von R2-1:** `pytest` → **261 passed**.
 
 ---
 
@@ -116,7 +118,7 @@ benannten Ausnahme: bei R2-1 ist die Oberfläche gemessen, die Existenz von Kont
 |---|---|---|---|---|
 | **R4-1** | **kritisch** | Zwei gleichzeitige POSTs mit demselben Token = **zwei Stimmen** (4 von 100 Runden, beide 302) | [views.py:208](../vote/views.py:208) | `a1b5117` -- Löschung ist die Bedingung, Abfrage in der Transaktion. **0 von 100** statt 4 von 100 |
 | **R5-1** | **hoch** · K5, K7 | Ein `\n` im Titel macht die vorderste Warteschlangenzeile unversendbar → `BadHeaderError` ungefangen → Versand **aller** Umfragen steht dauerhaft | [forms.py:46](../vote/forms.py:46), [mail.py:113](../vote/services/mail.py:113) | `af30fa5` -- Umbruch abgelehnt **und** unversendbare Zeile als `PERMANENT`; das Test-Double baut die Nachricht jetzt wirklich |
-| **R2-1** | **hoch?** | `/admin/` geroutet, `creator_token` lesbar, `Choice.votes` editierbar, kein Login-Rate-Limit -- **hängt an to-check A4** | [urls.py:10](../demockrazy/urls.py:10), [admin.py:6](../vote/admin.py:6) | **offen** -- braucht die Antwort auf [to-check.md](to-check.md) A4 |
+| **R2-1** | **hoch** | `/admin/` geroutet, `creator_token` lesbar, `Choice.votes` editierbar, kein Login-Rate-Limit -- **es gibt ein Staff-Konto** (User, 2026-08-04) | [admin.py](../vote/admin.py) | `5adb612` -- `votes` nicht editierbar, Tokens nicht lesbar; das **Login-Rate-Limit bleibt Sache des Proxys** (to-check A4) |
 | R3-1 | mittel · K7 | `?token=` geht ungeprüft in `set_cookie()`: Steuerzeichen → `CookieError`/**500**, Nicht-Latin-1 → Header, der nicht WSGI-konform ist | [views.py:56](../vote/views.py:56) | `4d6e003` -- `_looks_like_a_token()` vor `set_cookie()` |
 | R7-1 | mittel | Nur die Empfängerzahl ist gedeckelt: 200 000 Zeichen Beschreibung und 5 000 Choices gehen durch (1,3 MB Antwort) | [forms.py:46](../vote/forms.py:46) | `3e89f0c` -- `max_length` 10 000/20 000 und `VOTE_MAX_CHOICES` = 100 (**Wert von mir**, siehe Commit) |
 | R9-1 | mittel · K1 | Der Härtungs-Check prüft `transaction_mode` nur auf Anwesenheit -- `DEFERRED` und `"quatsch"` kommen durch, `timeout: 0` auch | [checks.py:57](../demockrazy/checks.py:57) | `a2b50d4` -- Wert statt Anwesenheit, bei allen drei Optionen |
@@ -476,7 +478,8 @@ Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `3e89f0c`**.
 
 ### R2-1 · Das Django-Admin ist erreichbar und legt Tokens und Stimmzahlen in fremde Hand
 
-**Schwere:** hoch **wenn** es in Produktion einen Staff-Account gibt, sonst Notiz -- **ungeklärt**
+**Schwere:** **hoch** -- der User hat am 2026-08-04 bestätigt, dass es ein Staff-Konto gibt.
+*(Stand 7.1: „hoch **wenn** …, sonst Notiz -- ungeklärt".)*
 **Ort:** [../demockrazy/urls.py:10](../demockrazy/urls.py:10) ·
 [../vote/admin.py:6](../vote/admin.py:6)
 **Nachweis:** die Oberfläche ist **gemessen**, die Frage nach Konten ist **nicht messbar von hier**
@@ -506,12 +509,27 @@ Zwei Fragen an den User, sie gehören nach [to-check.md](to-check.md):
 `SELECT username, is_staff, is_superuser, last_login FROM auth_user;` auf der Prod-Datenbank -- und
 ob `/admin/` am Proxy überhaupt durchgelassen wird oder dort schon endet.
 
-**Vorschlag:** wenn niemand das Admin benutzt: `django.contrib.admin` und die Route entfernen, dann
-ist die Frage weg (das nimmt auch `django.contrib.auth`/`sessions` aus der Angriffsfläche, aber
-nicht aus den Migrations). Wenn es benutzt wird: am Proxy einschränken und `Choice.votes` und die
-Token-Felder auf `readonly` setzen -- ein Admin, der Stimmen ändern kann, widerspricht dem
-Kernversprechen mehr als jede fehlende Fehlermeldung. Nicht getan -- Regel 3, und es braucht die
-Antwort auf die Kontenfrage.
+**Umgesetzt in 7.2 nach der Antwort des Users (`5adb612`)**, und zwar der beschneidende Weg statt
+des entfernenden -- ein Konto existiert, also wird die Oberfläche gebraucht:
+
+* `Choice.votes` ist `readonly`. Gemessen: ein POST mit `votes=9999` auf das Änderungsformular
+  lässt die Zahl stehen, und ein neu angelegter Choice startet bei 0.
+* `token_string` steht weder in der Liste noch im Formular -- ein Staff-Konto kann keinen
+  Wähler-Token mehr lesen und damit nicht in fremdem Namen abstimmen.
+* `creator_token` ist aus dem Poll-Formular entfernt (`exclude`, nicht `readonly` -- letzteres würde
+  ihn weiterhin anzeigen), `identifier` ist `readonly`, weil Links darauf unterwegs sind.
+* **Bewusst geblieben:** Löschen und `is_active` schalten. Das ist legitime Aufräumarbeit, und
+  Djangos `LogEntry` hält fest, wer es getan hat.
+
+Acht Tests in [../vote/tests/test_admin.py](../vote/tests/test_admin.py) fahren gegen die echte
+Oberfläche mit `admin_client` (Superuser, also der stärkste Fall); mit der alten `admin.py`
+zurückgespielt fallen sieben davon. Einer fiel dabei zuerst **nicht** -- der Test auf die
+unveränderliche Kennung bestand auch vorher, weil der POST an einem anderen Pflichtfeld scheiterte.
+Er prüft jetzt zusätzlich den Statuscode, sonst wäre er selbst ein K4-Fall.
+
+**Was in Django nicht lösbar ist und offen bleibt:** `/admin/login/` hat keine Drosselung von
+Fehlversuchen. Ein Deckel dafür bräuchte eine zusätzliche Abhängigkeit; am Proxy ist es ein
+Zweizeiler -- [to-check.md](to-check.md) A4.
 
 ### R1-1 · Der Docstring von `OutgoingMail` verspricht mehr Unverknüpfbarkeit, als die Zeile hat
 

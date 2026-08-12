@@ -1221,10 +1221,11 @@ Zustellbericht – und der braucht die Entscheidung aus **F8** (Anonymität).
 > [review_probes.py](review_probes.py), Punkte außerhalb des Repos in [to-check.md](to-check.md)
 > (neu aus dem Review: A4, A5, D5, D6).
 >
-> **24 Befunde** -- 1 kritisch, 2 hoch (einer davon hängt an einer Frage), 6 mittel, 8 niedrig,
-> 7 Notiz. **21 sind behoben**, in 12 Commits mit der Nummer im Betreff. Die drei offenen liegen
-> außerhalb dieses Repos: **R2-1** (Staff-Konto in Prod? A4), **R8-1** (SMTP-Kennwort von 2023 noch
-> gültig? A5) und **R9-3** (Verfahrenshinweis beim Rollback, D5).
+> **24 Befunde** -- 1 kritisch, 2 hoch, 6 mittel, 8 niedrig, 7 Notiz. **22 sind behoben**, in 13
+> Commits mit der Nummer im Betreff. **R2-1 ist nachgezogen**, nachdem der User bestätigt hat, dass
+> es in Produktion ein Staff-Konto gibt: `Choice.votes` ist nicht mehr editierbar und Tokens sind
+> nicht mehr lesbar (das Login-Rate-Limit bleibt Sache des Proxys). Offen bleiben **R8-1** (der User
+> prüft das SMTP-Kennwort vor dem Deploy) und **R9-3** (Verfahrenshinweis beim Rollback, D5).
 >
 > Die drei, die zählten:
 > **R4-1** (kritisch) zwei gleichzeitige POSTs mit demselben Token ergaben **zwei Stimmen** -- 4 von
@@ -1232,8 +1233,8 @@ Zustellbericht – und der braucht die Entscheidung aus **F8** (Anonymität).
 > wurde; danach **0 von 100**.
 > **R5-1** (hoch) ein Zeilenumbruch im Titel machte die erste Warteschlangenzeile unversendbar und
 > legte damit den Versand **aller** Umfragen still. Behoben in `af30fa5`, an beiden Enden.
-> **R2-1** (hoch?) `/admin/` ist geroutet und legt Tokens offen und Stimmzahlen editierbar hin --
-> **offen**, weil von hier nicht messbar ist, ob ein Staff-Konto existiert.
+> **R2-1** (hoch) `/admin/` legte Tokens offen und Stimmzahlen editierbar hin, und ein Staff-Konto
+> existiert. Behoben in `5adb612`: `votes` `readonly`, Token-Werte aus Liste und Formular heraus.
 > **Was noch nicht geprüft ist, steht in review.md §7** -- vor allem die Suite als Text und der
 > Branch als Verlauf (Commit für Commit).
 
@@ -1255,13 +1256,13 @@ Zustellbericht – und der braucht die Entscheidung aus **F8** (Anonymität).
       „nicht hingesehen" zu unterscheiden.
       **Die Testsuite ist Prüfgegenstand, nicht Prüfinstanz** – nach K4 (die erste Phase-0-Sonde
       meldete Erfolg auf zwei identischen Tracebacks) ist „die Tests sind grün" kein Argument.
-- [x] **7.2 Befunde abarbeiten.** ✅ **21 von 24 behoben**, ein Commit je Befund bzw. Befundpaar mit
+- [x] **7.2 Befunde abarbeiten.** ✅ **22 von 24 behoben**, ein Commit je Befund bzw. Befundpaar mit
       der Nummer im Betreff (`a1b5117` … `9bf0fc7`). Jede Behebung ist gegengeprüft: alter Zustand
       wiederhergestellt, neuer Test gefahren -- ein Test, der auch ohne die Behebung besteht, wäre
       K4. Die Suite ist dabei von 215 auf **253** Tests gewachsen, und alle fünf blinden Flecken der
-      Mutationssonde sind zu.
-      **Offen und nicht hier lösbar:** R2-1, R8-1 (beide brauchen eine Antwort, to-check A4/A5) und
-      R9-3 (Verfahrenshinweis, D5).
+      Mutationssonde sind zu; nach dem Nachzug von R2-1 sind es **261**.
+      **Offen und nicht hier lösbar:** R8-1 (der User prüft das Kennwort vor dem Deploy, A5) und
+      R9-3 (Verfahrenshinweis, D5). Vom Proxy braucht R2-1 noch ein Rate-Limit auf `/admin/login/`.
       **Eine Zahl braucht deinen Blick:** `VOTE_MAX_CHOICES` = 100 aus R7-1 ist von mir gesetzt, nicht
       von dir -- anders als die 150 für Empfänger.
 
@@ -1276,12 +1277,13 @@ Phase 4  Frontend                                                     ✅ vollst
 Phase 5  Deployment & CI                                              ✅ vollständig (5.1–5.5)
 Phase 6  Dokumentation                                                ✅ vollständig
 Phase 7  Umfassendes Review (§14)                                     ✅ 7.1 gelaufen, 7.2 mit
-                                                                        21 von 24 Befunden behoben
+                                                                        22 von 24 Befunden behoben
 
 offen:
-  7.2  Drei Befunde, die alle **außerhalb dieses Repos** liegen: R2-1 (Staff-Konto? A4), R8-1
-       (SMTP-Kennwort von 2023? A5), R9-3 (Rollback-Verfahren, D5). Dazu die noch nicht geprüften
-       Teile aus review.md §7 -- die Suite als Text und der Branch Commit für Commit.
+  7.2  Zwei Befunde, die **außerhalb dieses Repos** liegen: R8-1 (SMTP-Kennwort, prüft der User vor
+       dem Deploy, A5) und R9-3 (Rollback-Verfahren, D5). Dazu am Proxy das Rate-Limit auf
+       `/admin/login/` (Rest von R2-1) und die noch nicht geprüften Teile aus review.md §7 --
+       die Suite als Text und der Branch Commit für Commit.
   2.7  TLS-Hardening – **zum größten Teil gegenstandslos**, seit der Proxy vorliegt: `forceSSL`
        und HSTS stehen dort schon, in Django wären sie doppelt. Es bleibt (a) die Restfrage aus
        **F15** (`X-Forwarded-Proto`, und damit das CSRF-Rätsel), (b) der widersprüchliche
@@ -1303,7 +1305,7 @@ erledigt in Phase 3: 3.1 Forms · 3.2 create()/manage() · 3.3 vote() · 3.4 Mai
   └─ 3.4 ist die Schnittstelle für ZIEL 2 (Batch-Mails, nach Spec)
 ```
 
-**Nächster Schritt: die drei Fragen aus [to-check.md](to-check.md) A1, A4, A5** -- alles andere im
+**Nächster Schritt: die zwei offenen Fragen aus [to-check.md](to-check.md), A1 und A5** -- alles andere im
 Repo ist abgearbeitet. Wer weiterprüfen will, findet in review.md §7, was der Review-Lauf **nicht**
 abgedeckt hat.
 
