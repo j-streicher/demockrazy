@@ -65,28 +65,54 @@ postconf | grep -i 'rate_limit\|anvil'      # auf dem Mailserver
 
 Ohne diese Zahlen wäre jede Batch-Größe und jede Pause geraten.
 
-### A4. Gibt es in Produktion ein Django-Staff-Konto? — aus dem Review, Befund R2-1
+### ~~A4. Gibt es in Produktion ein Django-Staff-Konto?~~ → **ja** (2026-08-04) — Befund R2-1
 
-`django.contrib.admin` ist installiert, `/admin/` ist geroutet, und `vote/admin.py` registriert
-`Poll`, `Choice` und `Token` ohne `readonly_fields`. Gemessen (in der Testumgebung): ein
-angemeldeter Staff-Account sieht `creator_token` und `identifier` im Poll-Formular, kann jeden
-`token_string` lesen und **`Choice.votes` direkt setzen**. Es gibt keine Drosselung von
-Anmeldeversuchen.
+`django.contrib.admin` ist installiert, `/admin/` ist geroutet, und `vote/admin.py` registrierte
+`Poll`, `Choice` und `Token` ohne jede Einschränkung. Gemessen: ein angemeldeter Staff-Account sah
+`creator_token` und `identifier` im Poll-Formular, konnte jeden `token_string` lesen und
+**`Choice.votes` direkt setzen** -- der einzige Weg im ganzen System, der Stimmzahlen unmittelbar
+verändert.
 
-Das ist der einzige Weg im ganzen Code, der Stimmzahlen unmittelbar verändert. Ob er offensteht,
-entscheidet zwischen „hoch" und „Notiz":
+**Antwort des Users (2026-08-04): ja, es gibt ein Konto.** Damit ist R2-1 von „hoch?" zu **hoch**
+geworden, und die Django-Hälfte ist erledigt (`vote/admin.py`, Commit mit R2-1 im Betreff):
 
-```bash
-nix run nixpkgs#sqlite -- -readonly /var/lib/demockrazy/db.sqlite3 \
-  "SELECT username, is_staff, is_superuser, last_login FROM auth_user;"
+- `Choice.votes` ist **nicht mehr editierbar** -- gemessen: ein POST mit `votes=9999` ändert nichts,
+  und ein neu angelegter Choice startet bei 0.
+- `token_string` steht **weder in der Liste noch im Formular**, ein Staff-Konto kann also keinen
+  Wähler-Token mehr lesen und damit nicht abstimmen.
+- `creator_token` ist aus dem Poll-Formular entfernt, `identifier` ist `readonly` (Links bleiben
+  gültig).
+- **Was bewusst bleibt:** Löschen und `is_active` schalten. Beides ist legitime Aufräumarbeit, und
+  `LogEntry` hält fest, wer es getan hat.
+
+**Der Rest liegt am Proxy -- entschieden am 2026-08-04: `/admin/` wird auf das Intranet beschränkt.**
+
+Damit ist die fehlende Drosselung von Anmeldeversuchen (gemessen: `/admin/login/` antwortet mit 200,
+kein Rate-Limit) **gegenstandslos** -- ein Deckel gegen Rateversuche braucht es nicht, wenn der Pfad
+von außen nicht erreichbar ist. Das ist die stärkere Maßnahme von beiden, und sie erspart eine
+zusätzliche Abhängigkeit in diesem Repo.
+
+```nginx
+location /admin/ { allow 10.0.0.0/8; deny all; ... }   # Netz anpassen
 ```
 
-Und zweitens: **lässt der Proxy `/admin/` überhaupt durch**, oder endet der Pfad schon dort?
+Drei Dinge, die dabei zählen, in der Reihenfolge ihrer Wichtigkeit:
 
-- **Keine Konten und/oder am Proxy gesperrt** → Notiz, nichts zu tun.
-- **Es gibt Konten** → dann gehört `/admin/` hinter eine Einschränkung, und `Choice.votes` sowie die
-  Token-Felder gehören auf `readonly` (das wäre dann Arbeit in diesem Repo).
-- **Niemand benutzt das Admin** → sauberste Lösung: App und Route entfernen.
+1. **Auf `/admin/` legen, nicht auf `/admin/login/`.** Der Prefix deckt Login *und* alle
+   Änderungsformulare ab; nur den Login zu sperren würde eine gestohlene Session weiterlaufen lassen.
+2. **Einmal von außen gegenprüfen**, dass ein 403 kommt und nicht die Loginmaske -- eine
+   `location`-Regel, die im falschen `server`-Block steht, greift still nicht. Das ist derselbe
+   Mechanismus wie B16/B18: sieht richtig aus, tut nichts.
+3. **Die Regel überlebt eine vhost-Umschreibung nicht von allein.** Sie steht an keiner Stelle, die
+   ein Test oder ein `check` sehen kann -- deshalb steht sie hier.
+
+**Die Django-Hälfte bleibt trotzdem sinnvoll und wird nicht zurückgenommen:** wer im Intranet ist
+(oder über VPN, eine interne Maschine oder eine SSRF dorthin kommt), hätte sonst weiter editierbare
+Stimmzahlen und lesbare Tokens vor sich. Die Beschränkung nimmt die Angriffsfläche von außen, die
+`readonly`/`exclude`-Regeln nehmen den Schaden von innen. Erst zusammen ist R2-1 zu.
+
+Falls das Konto am Ende **niemand** benutzt, bleibt die sauberste Lösung, `django.contrib.admin`
+samt Route zu entfernen -- ein kleiner Commit, sag Bescheid.
 
 ### A5. Ist das SMTP-Kennwort von 2023 noch gültig? — aus dem Review, Befund R8-1
 
@@ -97,9 +123,15 @@ einen age- und drei PGP-Empfänger. Verschlüsselt ist das keine Preisgabe -- di
 Kennwort noch ein gültiger Zugang auf `smtp.mayflower.de` ist, denselben Mailserver, über den
 Produktion heute verschickt.
 
+**Stand 2026-08-04: du prüfst das vor dem Deploy.** Damit bleibt es hier als Punkt stehen, mit
+derselben Empfehlung:
+
 - **Account existiert nicht mehr / Kennwort rotiert** → erledigt.
 - **Noch gültig** → rotieren. History umschreiben wäre unverhältnismäßig; die Rotation ist die
   Antwort.
+
+Gehört sinnvoll neben C1--C3 in denselben Vorbereitungsschritt: du bist dann ohnehin am
+Deployment-Repo.
 
 ---
 

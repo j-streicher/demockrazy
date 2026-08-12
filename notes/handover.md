@@ -1,13 +1,13 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: 2026-08-04, Branch `update/modernize-2026`, 93 Commits über `master` (Basis `3074dbb`).
+Stand: 2026-08-04, Branch `update/modernize-2026`, 96 Commits über `master` (Basis `3074dbb`).
 Arbeitsbaum ist sauber, alles committed, **nichts gepusht** -- die CI hat also noch nie gelaufen,
 sie greift erst beim ersten Push.
 
 > **Das umfassende Review ist gelaufen und abgearbeitet** ([review.md](review.md), Plan §14).
-> **24 Befunde, 21 behoben** in 12 Commits (`a1b5117` … `9bf0fc7`), jeder mit der Befundnummer im
-> Betreff. Die Suite ist von 215 auf **253** Tests gewachsen.
+> **24 Befunde, 22 behoben** in 13 Commits (`a1b5117` … `5adb612`), jeder mit der Befundnummer im
+> Betreff. Die Suite ist von 215 auf **261** Tests gewachsen.
 > Was noch **nicht geprüft** ist, steht in review.md §7 -- der Lauf hat alle 15 Kriterien einmal
 > abgedeckt, nicht erschöpfend.
 >
@@ -16,9 +16,13 @@ sie greift erst beim ersten Push.
 > Behoben in `a1b5117`: die Löschung des Tokens ist jetzt die **Bedingung** für die Buchung, danach
 > 0 von 100.
 >
-> **Offen sind drei, und alle drei liegen außerhalb dieses Repos:** R2-1 (gibt es in Prod ein
-> Staff-Konto? `/admin/` kann Stimmzahlen editieren), R8-1 (ist das SMTP-Kennwort von 2023 noch
-> gültig?) und R9-3 (ein Satz im Rollback-Verfahren) -- [to-check.md](to-check.md) A4, A5, D5.
+> **R2-1 ist nachgezogen:** der User hat bestätigt, dass es in Produktion ein Staff-Konto gibt --
+> `/admin/` konnte damit Stimmzahlen editieren und jeden Token lesen. Beides ist zu (`5adb612`), und
+> der User beschränkt `/admin/` am Proxy **aufs Intranet** -- damit ist das fehlende Rate-Limit auf
+> `/admin/login/` gegenstandslos. Die zwei Hälften ersetzen sich nicht: die eine nimmt die
+> Angriffsfläche von außen, die andere den Schaden von innen.
+> **Offen sind zwei, beide außerhalb dieses Repos:** R8-1 (SMTP-Kennwort von 2023 -- der User prüft
+> es vor dem Deploy) und R9-3 (ein Satz im Rollback-Verfahren) -- [to-check.md](to-check.md) A5, D5.
 >
 > **Beide Projektziele sind inhaltlich fertig** und das Bug-Register ist leer. Was noch offen ist,
 > wartet auf eine Antwort des Users (§8) oder liegt außerhalb dieses Repos
@@ -66,7 +70,7 @@ beim Mailversand konkret aussieht -- und wo es die Fortschrittsanzeige beschnitt
    ⚠️ **Der systemd-Timer fehlt und liegt außerhalb dieses Repos** ([to-check.md](to-check.md) §C5)
    -- ohne ihn reiht Produktion nach dem Deploy ein und verschickt nie.
 3. ✅ **Umfassendes Review** des ganzen Branches, [review.md](review.md) / Plan §14.
-   24 Befunde, 21 behoben; die drei offenen liegen außerhalb dieses Repos (A4, A5, D5).
+   24 Befunde, 22 behoben; die zwei offenen liegen außerhalb dieses Repos (A5, D5).
 
 ## 4. Umgebung und Verifikationsschleife
 
@@ -90,7 +94,7 @@ grün ist, ist dort grün.
 
 **Sollwerte, an denen du merkst, dass alles in Ordnung ist:**
 
-- `pytest` → **253 passed** (kein xfailed mehr, siehe §5; 215 waren es vor Phase 7)
+- `pytest` → **261 passed** (kein xfailed mehr, siehe §5; 215 waren es vor Phase 7)
 - `manage.py check` → **no issues (0 silenced)**; die CI fährt es mit `--fail-level WARNING`,
   weil ein `Warning` den Rückgabecode sonst auf 0 lässt (Review R9-2)
 - `makemigrations --check` → **No changes detected**
@@ -310,10 +314,11 @@ daran ein `script`-Element und verschluckte das Datenelement dahinter: **200 ohn
 
 ### Was als nächstes dran ist
 
-**Im Repo ist nichts offen.** Phase 7 ist durch: 7.1 hat 24 Befunde ergeben, 7.2 hat 21 davon
-behoben. Was übrig ist, braucht eine Antwort von dir -- **[to-check.md](to-check.md) A1 (F17), A4
-(Staff-Konto), A5 (SMTP-Kennwort)** -- oder ist ein Handgriff außerhalb dieses Repos, allen voran
-weiter der **systemd-Timer** (§C5), ohne den nach dem Deploy keine Mail rausgeht.
+**Im Repo ist nichts offen.** Phase 7 ist durch: 7.1 hat 24 Befunde ergeben, 7.2 hat 22 davon
+behoben. Was übrig ist, braucht eine Antwort von dir -- **[to-check.md](to-check.md) A1 (F17) und A5
+(SMTP-Kennwort, prüfst du vor dem Deploy)** -- oder ist ein Handgriff außerhalb dieses Repos, allen
+voran weiter der **systemd-Timer** (§C5), ohne den nach dem Deploy keine Mail rausgeht, und die
+Intranet-Beschränkung für `/admin/` (letzter Handgriff zu R2-1, entschieden -- §A4).
 
 **Eine Zahl aus 7.2 gehört dir vorgelegt:** `VOTE_MAX_CHOICES` = 100 (Befund R7-1, Commit `3e89f0c`)
 ist von mir gewählt, nicht von dir -- anders als die 150 für Empfänger. Real vorkommende Umfragen
