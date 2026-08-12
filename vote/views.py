@@ -158,6 +158,10 @@ def create(request):
     return render(request, "vote/create.html")
 
 
+class _TokenNotConsumed(Exception):
+    """Diese Anfrage hat den Token nicht verbraucht -- rollt die Stimme zurück (R4-1)."""
+
+
 def vote(request, poll_identifier):
     poll = get_object_or_404(Poll, identifier=poll_identifier)
     if not poll.is_active:
@@ -205,23 +209,31 @@ def vote(request, poll_identifier):
             poll.save()
 
     try:
-        token = Token.objects.get(token_string=token_string, poll=poll)
-    except Token.DoesNotExist:
-        # Drei Fälle, eine Antwort: kein Token-Feld im POST, ein unbekannter Token, oder ein Token,
-        # der zu einer anderen Umfrage gehört. Alle drei hießen auch bisher "invalid token."
-        return render_error("invalid token.")
-
-    try:
         with transaction.atomic():
+            # R4-1: **erst löschen, dann buchen** -- und an der Löschung entscheiden. Vorher stand
+            # hier ein `Token.objects.get()` *vor* dem atomic()-Block und ein `token.delete()`
+            # dahinter; zwei gleichzeitige Anfragen lasen damit dieselbe Zeile, buchten beide eine
+            # Stimme, und das zweite `delete()` traf ins Leere -- was Django stillschweigend
+            # hinnimmt. Gemessen: 4 von 100 Doppelklicks ergaben zwei Stimmen aus einem Token.
+            # Die gelöschte Zeilenzahl ist die einzige Auskunft, die verlässlich sagt, dass *diese*
+            # Anfrage den Token verbraucht hat.
+            deleted, _ = Token.objects.filter(token_string=token_string, poll=poll).delete()
+            if deleted != 1:
+                # Vier Fälle, eine Antwort: kein Token-Feld im POST, ein unbekannter Token, ein
+                # Token einer anderen Umfrage, oder eine gleichzeitige Abgabe war schneller. Die
+                # ersten drei hießen auch bisher "invalid token."
+                raise _TokenNotConsumed
             if poll.type == PollType.MULTIPLE_CHOICE:
                 record_multiple_choice()
             else:
                 record_simple_choice()
-            token.delete()
             close_poll_if_all_tokens_redeemed()
+    except _TokenNotConsumed:
+        return render_error("invalid token.")
     except KeyError:
         # Ein Antwortfeld fehlt. Bei multiple_choice sind die vorherigen Choices dieser Runde schon
-        # hochgezählt -- der atomic()-Block nimmt sie zurück, der Token bleibt erhalten.
+        # hochgezählt, und seit R4-1 ist der Token schon gelöscht -- der atomic()-Block nimmt beides
+        # zurück, der Token bleibt also erhalten.
         return render_error("Please fill out all fields.")
     except (Choice.DoesNotExist, ValueError):
         # Kein brauchbarer choice-Wert. Der ValueError kommt aus dem pk-Lookup, wenn der Wert keine
