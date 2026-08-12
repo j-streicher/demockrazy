@@ -6,6 +6,7 @@ from django.db.models import F
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
+from django.views.decorators.cache import never_cache
 from django.views.decorators.vary import vary_on_cookie
 
 from .forms import PollCreateForm
@@ -95,6 +96,9 @@ def _move_token_out_of_the_url(request, poll_identifier):
 # heute schon da -- die CSRF-Middleware setzt ihn, weil das Formular ein Token braucht. Er soll
 # aber aus dem Grund dastehen, aus dem er gebraucht wird, und nicht als Nebenwirkung von etwas
 # anderem, das sich ändern kann.
+# `Cache-Control: no-store` dazu (R6-2): `Vary: Cookie` sagt einem Cache, *wonach* er unterscheiden
+# muss, aber nicht, dass er nicht speichern soll -- und diese Seite zeigt den Token im Formular.
+@never_cache
 @vary_on_cookie
 def poll(request, poll_identifier):
     poll = get_object_or_404(Poll, identifier=poll_identifier)
@@ -215,11 +219,18 @@ def vote(request, poll_identifier):
         selected_choice.save()
 
     def record_multiple_choice():
-        """Jede Choice muss beantwortet sein; ein fehlendes Feld ist ein KeyError."""
-        for choice in poll.choice_set.all():
-            if request.POST[f"choice{choice.id}"] == "yes":
-                choice.votes = F("votes") + 1
-                choice.save()
+        """Jede Choice muss beantwortet sein; ein fehlendes Feld ist ein KeyError.
+
+        R11-1: ein `UPDATE` für alle Ja-Stimmen statt eines pro Choice. Die Schleife lief unter der
+        Schreibsperre, die auf SQLite alle vier uwsgi-Prozesse betrifft.
+        """
+        angenommen = [
+            choice.pk
+            for choice in poll.choice_set.all()
+            if request.POST[f"choice{choice.id}"] == "yes"
+        ]
+        if angenommen:
+            Choice.objects.filter(pk__in=angenommen).update(votes=F("votes") + 1)
 
     def close_poll_if_all_tokens_redeemed():
         _, amount_remaining_tokens, _ = poll.get_amount_used_unused()
@@ -267,6 +278,7 @@ def success(request, poll_identifier):
     return render(request, "vote/success.html", {"poll": poll})
 
 
+@never_cache
 def manage(request, poll_identifier):
     poll = get_object_or_404(Poll, identifier=poll_identifier)
     error_message = None

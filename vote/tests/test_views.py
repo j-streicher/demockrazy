@@ -3,7 +3,9 @@
 from typing import ClassVar
 
 import pytest
+from django.db import connection
 from django.test import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import Resolver404, resolve, reverse
 
 from vote.models import Choice, OutgoingMail, Poll, Token
@@ -463,6 +465,19 @@ class TestTokenLeavesTheUrl:
         poll.save()
         assert "Cookie" in client.get(f"/vote/{poll.identifier}/").headers["Vary"]
 
+    def test_the_page_with_the_token_is_not_cacheable(self, client, create_poll):
+        """R6-2: `Vary: Cookie` sagt nur, *wonach* ein Cache unterscheidet -- nicht, dass er es
+        lassen soll.
+
+        Die Seite zeigt den Token im Formular; sie darf weder in einem gemeinsamen Zwischenspeicher
+        noch auf der Platte des Browsers liegen. Dasselbe gilt für die Manage-Seite, die den
+        Management-Token annimmt.
+        """
+        poll, _ = create_poll()
+        for pfad in (f"/vote/{poll.identifier}/", f"/vote/{poll.identifier}/manage"):
+            cache_control = client.get(pfad).headers["Cache-Control"]
+            assert "no-store" in cache_control, pfad
+
     def test_the_vote_takes_its_token_from_the_form_not_the_cookie(self, client, create_poll):
         """Das Cookie ist eine Bequemlichkeit für die Anzeige, kein Auth-Kanal für die Abgabe."""
         poll, tokens = create_poll()
@@ -740,6 +755,30 @@ class TestResults:
         assert response.context["amount_redeemed_tokens"] == 2
         assert response.context["amount_remaining_tokens"] == 0
         assert str(choice.choice_text).encode() in response.content
+
+    def test_a_multiple_choice_vote_is_one_update(self, client, create_poll):
+        """R11-1: vorher ein `UPDATE` pro angekreuzter Choice, alle unter der Schreibsperre.
+
+        Auf SQLite hält der `atomic()`-Block der Stimmabgabe die Schreibsperre für alle vier
+        uwsgi-Prozesse; die Zahl der Statements darin soll deshalb nicht mit der Zahl der
+        Antwortmöglichkeiten wachsen.
+        """
+        poll, tokens = create_poll(poll_type="multiple_choice", choices="\n".join("abcdefghij"))
+        payload = {"token": tokens[0]}
+        for choice in poll.choice_set.all():
+            payload[f"choice{choice.id}"] = "yes"
+
+        with CaptureQueriesContext(connection) as queries:
+            response = client.post(f"/vote/{poll.identifier}/vote", payload)
+
+        assert response.status_code == 302
+        updates = [
+            entry["sql"]
+            for entry in queries.captured_queries
+            if 'UPDATE "vote_choice"' in entry["sql"]
+        ]
+        assert len(updates) == 1, updates
+        assert [choice.votes for choice in poll.choice_set.all()] == [1] * 10
 
     def test_abstentions_are_a_chart_segment_only_for_simple_choice(self, client, create_poll):
         """R10-3: die Diagrammdaten für `multiple_choice` waren von keinem Test gedeckt.
