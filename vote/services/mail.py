@@ -29,7 +29,7 @@ import time
 from smtplib import SMTPException, SMTPRecipientsRefused, SMTPResponseException
 
 from django.conf import settings
-from django.core.mail import get_connection, send_mail
+from django.core.mail import BadHeaderError, get_connection, send_mail
 from django.template.loader import render_to_string
 from django.urls import reverse
 
@@ -124,8 +124,12 @@ def _send_one(connection, row):
             fail_silently=False,
             connection=connection,
         )
-    except UnicodeEncodeError:
-        logger.exception("Umfrage-Mail nicht kodierbar")
+    except (UnicodeEncodeError, BadHeaderError):
+        # R5-1: eine Zeile, die sich **gar nicht** zu einer Nachricht bauen lässt, ist ein Fall für
+        # sich -- sie wird von keinem Wiederholungsversuch besser. `BadHeaderError` erbt von
+        # `ValueError`, nicht von `SMTPException`, und flog deshalb bis in den Command; weil die
+        # Zeile vorn in der Warteschlange liegen bleibt, stand danach der Versand *aller* Umfragen.
+        logger.exception("Umfrage-Mail lässt sich nicht als Nachricht aufbauen und wird verworfen")
         return _Outcome.PERMANENT
     except (SMTPResponseException, SMTPRecipientsRefused) as error:
         code = _smtp_code(error)

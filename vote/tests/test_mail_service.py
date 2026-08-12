@@ -187,6 +187,11 @@ class CountingBackend(BaseEmailBackend):
     def send_messages(self, email_messages):
         self.open()
         for message in email_messages:
+            # `message()` baut die Nachricht wirklich -- damit prüft dieses Double dieselben Header
+            # wie ein echtes Backend (Djangos locmem-Backend tut es aus demselben Grund). Ohne den
+            # Aufruf nahm es Nachrichten an, die kein Mailserver je gesehen hätte: der
+            # `BadHeaderError` aus R5-1 entsteht genau hier.
+            message.message()
             recipient = message.to[0]
             if recipient in CountingBackend.refuse_temporarily:
                 raise SMTPRecipientsRefused(
@@ -366,3 +371,44 @@ class TestSendPending:
 
         assert django_settings.EMAIL_TIMEOUT is not None
         assert 0 < django_settings.EMAIL_TIMEOUT <= 60
+
+
+@pytest.mark.django_db
+class TestUnsendableRowDoesNotStopTheRun:
+    """R5-1: eine Zeile, die sich nicht zu einer Nachricht bauen lässt, kostet nur sich selbst.
+
+    Der Befund: ein Zeilenumbruch im Umfragetitel landete im Betreff, Djangos
+    `forbid_multi_line_headers` warf einen `BadHeaderError` -- eine `ValueError`-Unterklasse, die
+    weder von `SMTPException` noch von `OSError` gedeckt ist. Sie flog bis in den
+    Management-Command, und weil die Zeile vorn in der Warteschlange liegen blieb, starb jeder
+    weitere Timer-Aufruf an derselben Stelle: kein Versand mehr, für keine Umfrage.
+    """
+
+    def test_the_run_survives_it_and_the_others_go_out(self, counting_backend):
+        OutgoingMail.objects.create(
+            recipient="erste@example.org", subject="Poll 'a\nBcc: x@y.z' created", body="hi"
+        )
+        OutgoingMail.objects.create(recipient="zweite@example.org", subject="harmlos", body="hi")
+
+        summary = mail.send_pending(pause=0)
+
+        assert counting_backend.recipients() == ["zweite@example.org"]
+        assert summary == {"sent": 1, "given_up": 1, "batches": 1, "remaining": 0}
+        assert OutgoingMail.objects.count() == 0, "die kaputte Zeile muss verschwinden"
+
+    def test_a_poll_created_through_the_form_cannot_produce_such_a_row(self, client):
+        """Die andere Hälfte der Behebung: das Formular lässt den Umbruch nicht mehr durch."""
+        response = client.post(
+            "/vote/create",
+            {
+                "title": "Kaffee\nBcc: leak@example.org",
+                "type": "simple_choice",
+                "description": "d",
+                "choices": "ja\nnein",
+                "creator_mail": "chef@example.org",
+                "voter_mails": "v@example.org",
+            },
+        )
+        assert response.status_code == 200
+        assert response.context["form"].errors["title"]
+        assert OutgoingMail.objects.count() == 0
