@@ -250,6 +250,15 @@ VOTE_SEND_MAILS = _env_flag("DEMOCKRAZY_SEND_MAILS", default=False)
 # Gezählt werden die **deduplizierten** Adressen -- was zählt, ist die Zahl der Mails.
 VOTE_MAX_RECIPIENTS = _env_int("DEMOCKRAZY_MAX_RECIPIENTS", 150)
 
+# Obergrenze für Antwortmöglichkeiten pro Umfrage (Review R7-1). Dasselbe Motiv wie beim
+# Empfänger-Deckel: `/vote/create` ist unauthentifiziert, und ohne Grenze wurden 5 000 Choices
+# angenommen -- eine Seite von 1,3 MB pro Aufruf und bei multiple_choice 5 000 UPDATEs unter der
+# SQLite-Schreibsperre. **Der Wert ist von mir gesetzt, nicht vom User**, anders als die 150; real
+# vorkommende Umfragen haben eine Handvoll. Über 1 000 wäre eine multiple_choice-Umfrage ohnehin
+# nicht mehr abstimmbar, weil das Formular dann mehr Felder schickt als
+# `DATA_UPLOAD_MAX_NUMBER_FIELDS` erlaubt.
+VOTE_MAX_CHOICES = _env_int("DEMOCKRAZY_MAX_CHOICES", 100)
+
 # Taktung des Versands (Plan §11.7). Beide Werte sind vom User vorgegeben: 30er Batches, 2 Sekunden
 # dazwischen. Sie stehen hier und nicht als Konstanten im Code, weil sie **die Schraube** sind, an
 # der man dreht, wenn der Mailserver wieder mit `450 4.7.1 Error: too much mail from` antwortet.

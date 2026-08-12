@@ -45,8 +45,13 @@ class PollCreateForm(forms.Form):
 
     title = forms.CharField(max_length=200)
     type = forms.ChoiceField(choices=PollType.choices)
-    description = forms.CharField(widget=forms.Textarea)
-    choices = forms.CharField(widget=forms.Textarea)
+    # R7-1: Längen gedeckelt. `/vote/create` hat keine Authentifizierung, und bis hierhin war die
+    # einzige wirksame Grenze Djangos `DATA_UPLOAD_MAX_MEMORY_SIZE` von 2,5 MB pro Request --
+    # gemessen gingen 200 000 Zeichen Beschreibung und 5 000 Choices durch, letztere ergaben eine
+    # Seite von 1,3 MB. Die Werte sind großzügig gegen jede reale Umfrage und endlich gegen
+    # Missbrauch.
+    description = forms.CharField(widget=forms.Textarea, max_length=10_000)
+    choices = forms.CharField(widget=forms.Textarea, max_length=20_000)
     creator_mail = forms.EmailField()
     voter_mails = forms.CharField(widget=forms.Textarea)
 
@@ -65,7 +70,17 @@ class PollCreateForm(forms.Form):
         return title
 
     def clean_choices(self):
-        return parse_lines(self.cleaned_data["choices"])
+        choices = parse_lines(self.cleaned_data["choices"])
+        # Der Deckel auf die *Zahl* zusätzlich zur Textlänge: 20 000 Zeichen sind auch 10 000
+        # einzeichige Zeilen, und jede Choice kostet eine Zeile auf der Abstimmungsseite, ein
+        # Segment im Diagramm und bei multiple_choice ein UPDATE pro Stimme.
+        if len(choices) > settings.VOTE_MAX_CHOICES:
+            raise ValidationError(
+                "At most %(limit)s choices per poll, got %(count)s.",
+                code="too_many_choices",
+                params={"limit": settings.VOTE_MAX_CHOICES, "count": len(choices)},
+            )
+        return choices
 
     def clean_voter_mails(self):
         # dict statt set: die Reihenfolge der Eingabe bleibt erhalten, und der Schlüssel darf
