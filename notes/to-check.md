@@ -85,18 +85,34 @@ geworden, und die Django-Hälfte ist erledigt (`vote/admin.py`, Commit mit R2-1 
 - **Was bewusst bleibt:** Löschen und `is_active` schalten. Beides ist legitime Aufräumarbeit, und
   `LogEntry` hält fest, wer es getan hat.
 
-**Offen und deine Seite -- der Rest lässt sich in Django nicht lösen:**
+**Der Rest liegt am Proxy -- entschieden am 2026-08-04: `/admin/` wird auf das Intranet beschränkt.**
 
-`/admin/login/` antwortet ohne jede Drosselung von Fehlversuchen (gemessen: 200, kein Rate-Limit).
-Ein Deckel dagegen bräuchte eine zusätzliche Abhängigkeit; am Proxy ist es ein Zweizeiler. Sinnvoll
-wäre, `/admin/` dort ganz auf ein Netz oder eine Basic-Auth zu beschränken:
+Damit ist die fehlende Drosselung von Anmeldeversuchen (gemessen: `/admin/login/` antwortet mit 200,
+kein Rate-Limit) **gegenstandslos** -- ein Deckel gegen Rateversuche braucht es nicht, wenn der Pfad
+von außen nicht erreichbar ist. Das ist die stärkere Maßnahme von beiden, und sie erspart eine
+zusätzliche Abhängigkeit in diesem Repo.
 
 ```nginx
-location /admin/ { allow 10.0.0.0/8; deny all; ... }
+location /admin/ { allow 10.0.0.0/8; deny all; ... }   # Netz anpassen
 ```
 
-Und falls das Konto **niemand** benutzt: dann ist die sauberste Lösung weiter, `django.contrib.admin`
-samt Route zu entfernen. Sag Bescheid, das ist ein kleiner Commit.
+Drei Dinge, die dabei zählen, in der Reihenfolge ihrer Wichtigkeit:
+
+1. **Auf `/admin/` legen, nicht auf `/admin/login/`.** Der Prefix deckt Login *und* alle
+   Änderungsformulare ab; nur den Login zu sperren würde eine gestohlene Session weiterlaufen lassen.
+2. **Einmal von außen gegenprüfen**, dass ein 403 kommt und nicht die Loginmaske -- eine
+   `location`-Regel, die im falschen `server`-Block steht, greift still nicht. Das ist derselbe
+   Mechanismus wie B16/B18: sieht richtig aus, tut nichts.
+3. **Die Regel überlebt eine vhost-Umschreibung nicht von allein.** Sie steht an keiner Stelle, die
+   ein Test oder ein `check` sehen kann -- deshalb steht sie hier.
+
+**Die Django-Hälfte bleibt trotzdem sinnvoll und wird nicht zurückgenommen:** wer im Intranet ist
+(oder über VPN, eine interne Maschine oder eine SSRF dorthin kommt), hätte sonst weiter editierbare
+Stimmzahlen und lesbare Tokens vor sich. Die Beschränkung nimmt die Angriffsfläche von außen, die
+`readonly`/`exclude`-Regeln nehmen den Schaden von innen. Erst zusammen ist R2-1 zu.
+
+Falls das Konto am Ende **niemand** benutzt, bleibt die sauberste Lösung, `django.contrib.admin`
+samt Route zu entfernen -- ein kleiner Commit, sag Bescheid.
 
 ### A5. Ist das SMTP-Kennwort von 2023 noch gültig? — aus dem Review, Befund R8-1
 

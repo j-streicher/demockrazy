@@ -17,8 +17,10 @@ sie greift erst beim ersten Push.
 > 0 von 100.
 >
 > **R2-1 ist nachgezogen:** der User hat bestätigt, dass es in Produktion ein Staff-Konto gibt --
-> `/admin/` konnte damit Stimmzahlen editieren und jeden Token lesen. Beides ist zu (`5adb612`); das
-> fehlende Rate-Limit auf `/admin/login/` bleibt Sache des Proxys.
+> `/admin/` konnte damit Stimmzahlen editieren und jeden Token lesen. Beides ist zu (`5adb612`), und
+> der User beschränkt `/admin/` am Proxy **aufs Intranet** -- damit ist das fehlende Rate-Limit auf
+> `/admin/login/` gegenstandslos. Die zwei Hälften ersetzen sich nicht: die eine nimmt die
+> Angriffsfläche von außen, die andere den Schaden von innen.
 > **Offen sind zwei, beide außerhalb dieses Repos:** R8-1 (SMTP-Kennwort von 2023 -- der User prüft
 > es vor dem Deploy) und R9-3 (ein Satz im Rollback-Verfahren) -- [to-check.md](to-check.md) A5, D5.
 >
@@ -315,8 +317,8 @@ daran ein `script`-Element und verschluckte das Datenelement dahinter: **200 ohn
 **Im Repo ist nichts offen.** Phase 7 ist durch: 7.1 hat 24 Befunde ergeben, 7.2 hat 22 davon
 behoben. Was übrig ist, braucht eine Antwort von dir -- **[to-check.md](to-check.md) A1 (F17) und A5
 (SMTP-Kennwort, prüfst du vor dem Deploy)** -- oder ist ein Handgriff außerhalb dieses Repos, allen
-voran weiter der **systemd-Timer** (§C5), ohne den nach dem Deploy keine Mail rausgeht, und das
-Rate-Limit auf `/admin/login/` (Rest von R2-1).
+voran weiter der **systemd-Timer** (§C5), ohne den nach dem Deploy keine Mail rausgeht, und die
+Intranet-Beschränkung für `/admin/` (letzter Handgriff zu R2-1, entschieden -- §A4).
 
 **Eine Zahl aus 7.2 gehört dir vorgelegt:** `VOTE_MAX_CHOICES` = 100 (Befund R7-1, Commit `3e89f0c`)
 ist von mir gewählt, nicht von dir -- anders als die 150 für Empfänger. Real vorkommende Umfragen

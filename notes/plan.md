@@ -1224,8 +1224,9 @@ Zustellbericht – und der braucht die Entscheidung aus **F8** (Anonymität).
 > **24 Befunde** -- 1 kritisch, 2 hoch, 6 mittel, 8 niedrig, 7 Notiz. **22 sind behoben**, in 13
 > Commits mit der Nummer im Betreff. **R2-1 ist nachgezogen**, nachdem der User bestätigt hat, dass
 > es in Produktion ein Staff-Konto gibt: `Choice.votes` ist nicht mehr editierbar und Tokens sind
-> nicht mehr lesbar (das Login-Rate-Limit bleibt Sache des Proxys). Offen bleiben **R8-1** (der User
-> prüft das SMTP-Kennwort vor dem Deploy) und **R9-3** (Verfahrenshinweis beim Rollback, D5).
+> nicht mehr lesbar; dazu beschränkt der User `/admin/` am Proxy aufs Intranet, womit das fehlende
+> Login-Rate-Limit gegenstandslos ist. Offen bleiben **R8-1** (der User prüft das SMTP-Kennwort vor
+> dem Deploy) und **R9-3** (Verfahrenshinweis beim Rollback, D5).
 >
 > Die drei, die zählten:
 > **R4-1** (kritisch) zwei gleichzeitige POSTs mit demselben Token ergaben **zwei Stimmen** -- 4 von
@@ -1262,7 +1263,8 @@ Zustellbericht – und der braucht die Entscheidung aus **F8** (Anonymität).
       K4. Die Suite ist dabei von 215 auf **253** Tests gewachsen, und alle fünf blinden Flecken der
       Mutationssonde sind zu; nach dem Nachzug von R2-1 sind es **261**.
       **Offen und nicht hier lösbar:** R8-1 (der User prüft das Kennwort vor dem Deploy, A5) und
-      R9-3 (Verfahrenshinweis, D5). Vom Proxy braucht R2-1 noch ein Rate-Limit auf `/admin/login/`.
+      R9-3 (Verfahrenshinweis, D5). R2-1 ist zu, sobald die Intranet-Beschränkung für `/admin/`
+      am Proxy steht (A4).
       **Eine Zahl braucht deinen Blick:** `VOTE_MAX_CHOICES` = 100 aus R7-1 ist von mir gesetzt, nicht
       von dir -- anders als die 150 für Empfänger.
 
@@ -1281,9 +1283,9 @@ Phase 7  Umfassendes Review (§14)                                     ✅ 7.1 g
 
 offen:
   7.2  Zwei Befunde, die **außerhalb dieses Repos** liegen: R8-1 (SMTP-Kennwort, prüft der User vor
-       dem Deploy, A5) und R9-3 (Rollback-Verfahren, D5). Dazu am Proxy das Rate-Limit auf
-       `/admin/login/` (Rest von R2-1) und die noch nicht geprüften Teile aus review.md §7 --
-       die Suite als Text und der Branch Commit für Commit.
+       dem Deploy, A5) und R9-3 (Rollback-Verfahren, D5). Dazu am Proxy die Intranet-Beschränkung
+       für `/admin/` (letzter Handgriff zu R2-1, entschieden) und die noch nicht geprüften Teile
+       aus review.md §7 -- die Suite als Text und der Branch Commit für Commit.
   2.7  TLS-Hardening – **zum größten Teil gegenstandslos**, seit der Proxy vorliegt: `forceSSL`
        und HSTS stehen dort schon, in Django wären sie doppelt. Es bleibt (a) die Restfrage aus
        **F15** (`X-Forwarded-Proto`, und damit das CSRF-Rätsel), (b) der widersprüchliche

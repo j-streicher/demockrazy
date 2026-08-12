@@ -1,10 +1,10 @@
 # Umfassendes Review
 
 > **Status: 7.1 gelaufen, 7.2 abgearbeitet.** 24 Befunde, davon **22 behoben** in 13 Commits --
-> ein Commit je Befund bzw. je Befundpaar, die Nummer steht im Betreff. **R2-1 ist nachgezogen**,
-> nachdem der User die Kontenfrage mit „ja" beantwortet hat: die Django-Hälfte ist behoben, das
-> Login-Rate-Limit bleibt Sache des Proxys. Offen sind damit **R8-1** (der User prüft das Kennwort
-> vor dem Deploy) und **R9-3** (Verfahrenshinweis, D5). Was **noch nicht geprüft** ist, steht
+> ein Commit je Befund bzw. je Befundpaar, die Nummer steht im Betreff. **R2-1 ist zu**: die
+> Django-Hälfte behoben (`5adb612`), und der User beschränkt `/admin/` am Proxy aufs Intranet, was
+> das fehlende Login-Rate-Limit gegenstandslos macht. Offen sind damit **R8-1** (der User prüft das
+> Kennwort vor dem Deploy) und **R9-3** (Verfahrenshinweis, D5). Was **noch nicht geprüft** ist, steht
 > unverändert in §7. Angelegt 2026-08-04.
 >
 > Geplant in [plan.md](plan.md) §14. Befunde kommen hierher, Handlungspunkte außerhalb des Repos
@@ -118,7 +118,7 @@ benannten Ausnahme: bei R2-1 ist die Oberfläche gemessen, die Existenz von Kont
 |---|---|---|---|---|
 | **R4-1** | **kritisch** | Zwei gleichzeitige POSTs mit demselben Token = **zwei Stimmen** (4 von 100 Runden, beide 302) | [views.py:208](../vote/views.py:208) | `a1b5117` -- Löschung ist die Bedingung, Abfrage in der Transaktion. **0 von 100** statt 4 von 100 |
 | **R5-1** | **hoch** · K5, K7 | Ein `\n` im Titel macht die vorderste Warteschlangenzeile unversendbar → `BadHeaderError` ungefangen → Versand **aller** Umfragen steht dauerhaft | [forms.py:46](../vote/forms.py:46), [mail.py:113](../vote/services/mail.py:113) | `af30fa5` -- Umbruch abgelehnt **und** unversendbare Zeile als `PERMANENT`; das Test-Double baut die Nachricht jetzt wirklich |
-| **R2-1** | **hoch** | `/admin/` geroutet, `creator_token` lesbar, `Choice.votes` editierbar, kein Login-Rate-Limit -- **es gibt ein Staff-Konto** (User, 2026-08-04) | [admin.py](../vote/admin.py) | `5adb612` -- `votes` nicht editierbar, Tokens nicht lesbar; das **Login-Rate-Limit bleibt Sache des Proxys** (to-check A4) |
+| **R2-1** | **hoch** | `/admin/` geroutet, `creator_token` lesbar, `Choice.votes` editierbar, kein Login-Rate-Limit -- **es gibt ein Staff-Konto** (User, 2026-08-04) | [admin.py](../vote/admin.py) | `5adb612` im Repo (`votes` nicht editierbar, Tokens nicht lesbar) **+ Proxy beschränkt `/admin/` aufs Intranet** (User, 2026-08-04) -- damit zu |
 | R3-1 | mittel · K7 | `?token=` geht ungeprüft in `set_cookie()`: Steuerzeichen → `CookieError`/**500**, Nicht-Latin-1 → Header, der nicht WSGI-konform ist | [views.py:56](../vote/views.py:56) | `4d6e003` -- `_looks_like_a_token()` vor `set_cookie()` |
 | R7-1 | mittel | Nur die Empfängerzahl ist gedeckelt: 200 000 Zeichen Beschreibung und 5 000 Choices gehen durch (1,3 MB Antwort) | [forms.py:46](../vote/forms.py:46) | `3e89f0c` -- `max_length` 10 000/20 000 und `VOTE_MAX_CHOICES` = 100 (**Wert von mir**, siehe Commit) |
 | R9-1 | mittel · K1 | Der Härtungs-Check prüft `transaction_mode` nur auf Anwesenheit -- `DEFERRED` und `"quatsch"` kommen durch, `timeout: 0` auch | [checks.py:57](../demockrazy/checks.py:57) | `a2b50d4` -- Wert statt Anwesenheit, bei allen drei Optionen |
@@ -527,9 +527,14 @@ zurückgespielt fallen sieben davon. Einer fiel dabei zuerst **nicht** -- der Te
 unveränderliche Kennung bestand auch vorher, weil der POST an einem anderen Pflichtfeld scheiterte.
 Er prüft jetzt zusätzlich den Statuscode, sonst wäre er selbst ein K4-Fall.
 
-**Was in Django nicht lösbar ist und offen bleibt:** `/admin/login/` hat keine Drosselung von
-Fehlversuchen. Ein Deckel dafür bräuchte eine zusätzliche Abhängigkeit; am Proxy ist es ein
-Zweizeiler -- [to-check.md](to-check.md) A4.
+**Der Teil, der in Django nicht lösbar war, ist entschieden:** `/admin/login/` hat keine Drosselung
+von Fehlversuchen (gemessen: 200, kein Rate-Limit). Der User beschränkt `/admin/` am Proxy **auf das
+Intranet** (2026-08-04) -- das macht ein Rate-Limit gegenstandslos, statt es nachzubauen, und erspart
+eine zusätzliche Abhängigkeit. Die zwei Hälften greifen an verschiedenen Stellen und ersetzen sich
+nicht: die Beschränkung nimmt die Angriffsfläche **von außen**, die `readonly`/`exclude`-Regeln
+nehmen den Schaden **von innen** (Intranet, VPN, interne Maschine). Worauf beim Einbau zu achten ist,
+steht in [to-check.md](to-check.md) A4 -- vor allem, dass die Regel an keiner Stelle steht, die ein
+Test oder ein `check` sehen kann.
 
 ### R1-1 · Der Docstring von `OutgoingMail` verspricht mehr Unverknüpfbarkeit, als die Zeile hat
 
