@@ -113,14 +113,50 @@ class TestPollCreatedMessages:
             "b@example.org",
         ]
 
-    def test_each_voter_gets_their_own_token_link(self, poll):
-        tokens = [Token.objects.create(poll=poll, token_string=f"t{i}") for i in range(2)]
-        messages = mail.poll_created_messages(
-            poll, "admin@example.org", ["a@example.org", "b@example.org"], tokens
-        )
-        links = [body for _, body, _ in messages[1:]]
-        assert "?token=t0" in links[0]
-        assert "?token=t1" in links[1]
+    def test_each_voter_gets_exactly_one_of_the_tokens(self, poll):
+        """Jeder genau einen, keiner zweimal, keiner übrig -- aber **nicht** in fester Reihenfolge.
+
+        Vorher stand hier `"?token=t0" in links[0]`, also genau die Paarung, die R1-2 aufgelöst hat.
+        Geprüft ist jetzt die Eigenschaft, auf die es ankommt: eine Bijektion.
+        """
+        tokens = [Token.objects.create(poll=poll, token_string=f"t{i}") for i in range(5)]
+        voters = [f"w{i}@example.org" for i in range(5)]
+        messages = mail.poll_created_messages(poll, "admin@example.org", voters, tokens)
+
+        vergeben = []
+        for _, body, recipient in messages[1:]:
+            treffer = [
+                token.token_string for token in tokens if f"?token={token.token_string}" in body
+            ]
+            assert len(treffer) == 1, (recipient, treffer)
+            vergeben.append(treffer[0])
+        assert sorted(vergeben) == sorted(token.token_string for token in tokens)
+
+    def test_the_pairing_does_not_follow_the_recipient_order(self, poll):
+        """R1-2: die Token-`id`s liefen parallel zur Empfängerliste, und die `id`s bleiben.
+
+        Gemessen war es so: Adresse 1 bekam Token 1 ... Adresse 5 bekam Token 5. Nach dem Versand
+        steht keine Adresse mehr in der Datenbank, die `id`-Reihenfolge aber schon -- wer die Liste
+        kennt und die Datenbank lesen kann, las an den verbliebenen `id`s ab, *wer* schon abgestimmt
+        hat. Die Stimme selbst war nie betroffen.
+
+        Zehn Umfragen mit je sechs Empfängern: dass **alle** zehn zufällig die Identität treffen,
+        hat die Wahrscheinlichkeit (1/720)^10.
+        """
+        voters = [f"w{i}@example.org" for i in range(6)]
+        unveraendert = 0
+        for runde in range(10):
+            tokens = [
+                Token.objects.create(poll=poll, token_string=f"r{runde}t{i}") for i in range(6)
+            ]
+            messages = mail.poll_created_messages(poll, "admin@example.org", voters, tokens)
+            reihenfolge = [
+                next(token.pk for token in tokens if f"?token={token.token_string}" in body)
+                for _, body, _ in messages[1:]
+            ]
+            if reihenfolge == sorted(reihenfolge):
+                unveraendert += 1
+        assert unveraendert < 10, "die Paarung folgt weiterhin der Eingabereihenfolge"
 
     def test_mismatched_token_count_is_an_error(self, poll):
         """Ein Wähler ohne Token (oder umgekehrt) ist ein Programmierfehler, kein stiller Sonderfall."""

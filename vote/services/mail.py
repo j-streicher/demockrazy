@@ -25,6 +25,7 @@ Umfragetitel soll nicht als `&amp;` beim Empfänger landen.
 
 import enum
 import logging
+import random
 import time
 from smtplib import SMTPException, SMTPRecipientsRefused, SMTPResponseException
 
@@ -274,9 +275,17 @@ def _send_batch(rows, summary):
 def poll_created_messages(poll, creator_mail, voter_mails, tokens):
     """Alle Mails einer neu erstellten Umfrage, in Versandreihenfolge: Ersteller, dann Wähler.
 
-    Rendert vollständig vor, damit `deliver()` ohne Datenbankzugriff auskommt und als
-    `on_commit`-Callback laufen kann.
+    Rendert vollständig vor: der Versand läuft später in einem anderen Prozess und liest dann nur
+    noch die Warteschlange, ohne Poll und Tokens zu brauchen (Plan §11.7).
+
+    **Die Paarung wird gemischt** (Review R1-2). `bulk_create` legt die Tokens in der Reihenfolge
+    der eingegebenen Adressen an, die `id`s liefen also parallel zur Empfängerliste -- und die
+    Liste überlebt den Versand nicht, die `id`s schon. Wer die Liste kennt und die Datenbank lesen
+    kann, sah an den verbliebenen `id`s, *wer* noch nicht abgestimmt hat. Gemischt sagt die
+    Reihenfolge nichts mehr. Die Stimme selbst war davon nie berührt, sie trägt keine Kennung.
     """
+    tokens = list(tokens)
+    random.SystemRandom().shuffle(tokens)
     messages = [creator_message(poll, creator_mail, poll.creator_token)]
     for voter_mail, token in zip(voter_mails, tokens, strict=True):
         messages.append(voter_message(poll, voter_mail, token.token_string))
