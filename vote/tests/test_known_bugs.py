@@ -21,7 +21,9 @@ Regressionstests dazu stehen in test_views.py bei den übrigen Stimmabgabe-Tests
 import json
 
 import pytest
+from django.db import connection
 from django.test import Client
+from django.test.utils import CaptureQueriesContext
 
 from vote.models import Poll, Token
 
@@ -199,3 +201,91 @@ def test_poll_identifier_is_unique():
     Poll.objects.create(title="A", question_text="?", identifier="dieselbe")
     with pytest.raises(IntegrityError):
         Poll.objects.create(title="B", question_text="?", identifier="dieselbe")
+
+
+@pytest.mark.django_db
+class TestR41TokenConsumptionGatesTheVote:
+    """R4-1: eine Stimme wird nur gebucht, wenn *diese* Anfrage den Token entfernt hat.
+
+    Der Befund kam aus einer Messung mit echten Threads (notes/review_probes.py): zwei
+    gleichzeitige POSTs mit demselben Token ergaben in 4 von 100 Runden zwei Stimmen, beide mit
+    einem 302 auf die Erfolgsseite. Die Ursache war die Reihenfolge -- Token lesen, Stimme buchen,
+    Token löschen -- und dass `delete()` auf eine verschwundene Zeile stillschweigend nichts tut.
+
+    Ein Test mit Threads stünde hier schlecht: er wäre bei ~4 % Trefferquote pro Runde selbst bei
+    einem kaputten Code oft grün, und ein Test, der nicht zuverlässig fehlschlägt, ist die
+    Fehlerklasse K4. Geprüft wird deshalb die *Struktur*, die den Fall unmöglich macht -- an den
+    Statements, die die Anfrage wirklich abgesetzt hat.
+    """
+
+    def test_the_token_is_deleted_before_the_vote_is_counted(self, client, create_poll):
+        poll, tokens = create_poll()
+        with CaptureQueriesContext(connection) as queries:
+            response = client.post(
+                f"/vote/{poll.identifier}/vote",
+                {"token": tokens[0], "choice": poll.choice_set.first().pk},
+            )
+        assert response.status_code == 302
+
+        statements = [entry["sql"] for entry in queries.captured_queries]
+        deletes = [i for i, sql in enumerate(statements) if 'DELETE FROM "vote_token"' in sql]
+        updates = [i for i, sql in enumerate(statements) if 'UPDATE "vote_choice"' in sql]
+        assert len(deletes) == 1, statements
+        assert updates, statements
+        assert deletes[0] < updates[0], (
+            "Die Stimme wurde gebucht, bevor der Token verbraucht war -- genau die Reihenfolge, "
+            "aus der zwei Stimmen aus einem Token entstehen."
+        )
+
+    def test_the_token_is_never_looked_up_by_its_string(self, client, create_poll):
+        """Die Löschung *ist* die Prüfung -- es gibt keine Abfrage nach dem Token davor.
+
+        Ein vorgezogenes `Token.objects.get(token_string=...)` wäre wieder die Lücke: zwischen ihm
+        und dem Schreiben liegt der Zeitraum, in dem eine zweite Anfrage denselben Token liest.
+        Die `COUNT(*)`-Abfrage beim Schließen der Umfrage zählt nur Zeilen und ist damit nicht
+        gemeint.
+        """
+        poll, tokens = create_poll()
+        with CaptureQueriesContext(connection) as queries:
+            client.post(
+                f"/vote/{poll.identifier}/vote",
+                {"token": tokens[0], "choice": poll.choice_set.first().pk},
+            )
+        lookups = [
+            entry["sql"]
+            for entry in queries.captured_queries
+            if entry["sql"].lstrip().startswith("SELECT") and "token_string" in entry["sql"]
+        ]
+        assert lookups == [], lookups
+
+    def test_a_token_that_is_gone_books_nothing(self, client, create_poll):
+        """Der Fall, den die Löschung als Bedingung abfängt -- hier ohne Nebenläufigkeit gestellt.
+
+        Der Token verschwindet zwischen dem Rendern der Seite und dem Absenden des Formulars; die
+        Antwort muss dieselbe sein wie bei einem unbekannten Token, und keine Stimme darf stehen.
+        """
+        poll, tokens = create_poll()
+        choice = poll.choice_set.first()
+        Token.objects.filter(token_string=tokens[0]).delete()
+
+        response = client.post(
+            f"/vote/{poll.identifier}/vote", {"token": tokens[0], "choice": choice.pk}
+        )
+        choice.refresh_from_db()
+        assert response.status_code == 200
+        assert response.context["error_message"] == "invalid token."
+        assert choice.votes == 0
+
+    def test_multiple_choice_counts_at_most_once_per_token(self, client, create_poll):
+        """Dieselbe Zusage für den Pfad, der mehrere Zähler anfasst."""
+        poll, tokens = create_poll(poll_type="multiple_choice", choices="Bier\nBrezn")
+        payload = {"token": tokens[0]}
+        for choice in poll.choice_set.all():
+            payload[f"choice{choice.id}"] = "yes"
+
+        assert client.post(f"/vote/{poll.identifier}/vote", payload).status_code == 302
+        second = client.post(f"/vote/{poll.identifier}/vote", payload)
+
+        assert second.status_code == 200
+        assert second.context["error_message"] == "invalid token."
+        assert [choice.votes for choice in poll.choice_set.all()] == [1, 1]
