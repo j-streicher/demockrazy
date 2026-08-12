@@ -336,6 +336,22 @@ class TestSendPending:
         assert summary["sent"] == 2
         assert summary["given_up"] == 1
 
+    def test_the_log_names_the_smtp_code_but_no_address(self, counting_backend, caplog):
+        """R6-1: die Logzeile nannte keinen Grund -- und der Kommentar behauptete das Gegenteil.
+
+        Gemessen war es genau eine Zeile: „Eine Umfrage-Mail wurde dauerhaft abgelehnt und
+        verworfen", ohne `exc_info`, ohne Code. Damit war aus dem Journal nicht zu entscheiden, ob
+        eine Adresse falsch war oder der Server zickt. Die Adresse gehört weiter **nicht** hinein
+        (F8), ein SMTP-Code ist eine Zahl.
+        """
+        counting_backend.refuse_permanently = ("a1@example.org",)
+        enqueue(3)
+        with caplog.at_level("WARNING"):
+            mail.send_pending(pause=0)
+
+        assert "550" in caplog.text
+        assert "a1@example.org" not in caplog.text
+
     def test_a_transient_rejection_stops_the_run(self, counting_backend):
         """Der `450` der Drosselung. Weitermachen hieße, die restlichen 29 gegen dieselbe Wand
         zu fahren -- der nächste Timer-Aufruf trifft ein zurückgesetztes Zeitfenster an."""
@@ -467,3 +483,30 @@ class TestUnsendableRowDoesNotStopTheRun:
         assert response.status_code == 200
         assert response.context["form"].errors["title"]
         assert OutgoingMail.objects.count() == 0
+
+
+@pytest.mark.django_db
+class TestTheRunCannotSpin:
+    """R5-2: die Schleife endet auch, wenn ein Durchlauf nichts bewegt.
+
+    Aufgefallen ist das unbeabsichtigt: eine Mutation, die den Zweig für „Server nicht erreichbar"
+    entfernte -- also eine Zeile, die weder löscht noch abbricht --, schickte die Testsuite in eine
+    Endlosschleife, die nach neun Minuten noch lief, **ohne** einen fehlschlagenden Test. In
+    Produktion wäre das schlimmer als ein Absturz: der Lauf hält die `flock`, also geht danach
+    überhaupt keine Mail mehr raus, und von außen sieht „hängt" aus wie „arbeitet noch".
+    """
+
+    def test_a_batch_that_changes_nothing_ends_the_run(self, monkeypatch, caplog):
+        enqueue(3)
+        monkeypatch.setattr(mail, "_send_batch", lambda rows, summary: False)
+
+        summary = mail.send_pending(pause=0)
+
+        assert summary == {"sent": 0, "given_up": 0, "batches": 1, "remaining": 3}
+        assert "kommt nicht voran" in caplog.text
+
+    def test_the_guard_does_not_trip_on_a_normal_multi_batch_run(self, counting_backend):
+        """Gegenprobe: solange etwas verschwindet, läuft die Warteschlange normal leer."""
+        enqueue(7)
+        summary = mail.send_pending(batch_size=2, pause=0)
+        assert summary == {"sent": 7, "given_up": 0, "batches": 4, "remaining": 0}

@@ -136,6 +136,10 @@ def _send_one(connection, row):
         code = _smtp_code(error)
         if code is not None and 400 <= code < 500:
             return _Outcome.TRANSIENT
+        # R6-1: der Code gehört ins Log, und zwar hier, wo er bekannt ist. Vorher stand die Meldung
+        # ohne ihn im Aufrufer, und aus „eine Mail wurde abgelehnt" war nicht zu entscheiden, ob
+        # eine Adresse falsch war oder der Server zickt. Ein Code ist eine Zahl, keine Adresse (F8).
+        logger.warning("Eine Umfrage-Mail wurde mit SMTP-Code %s dauerhaft abgelehnt", code)
         return _Outcome.PERMANENT
     except (SMTPException, OSError):
         # Verbindung weg, DNS kaputt, Timeout. **Kein Urteil über die Nachricht** -- deshalb hier
@@ -196,10 +200,22 @@ def send_pending(*, batch_size=None, pause=None, sleep=time.sleep):
     pause = settings.VOTE_MAIL_BATCH_PAUSE if pause is None else pause
     summary = {"sent": 0, "given_up": 0, "batches": 0}
 
+    vorige_spitze = None
     while True:
         rows = list(OutgoingMail.objects.order_by("pk")[:batch_size])
         if not rows:
             return _finish(summary)
+        if rows[0].pk == vorige_spitze:
+            # Wächter (R5-2). Die Schleife endet sonst ausschließlich dadurch, dass jeder Ausgang
+            # entweder die Zeile löscht oder abbricht -- ein fünfter Fall, der das nicht tut, dreht
+            # sich für immer und hält dabei die `flock`, womit überhaupt keine Mail mehr rausgeht.
+            # Dieselbe vorderste Zeile zweimal heißt: dieser Durchlauf hat nichts bewegt.
+            logger.error(
+                "Versand kommt nicht voran, Lauf abgebrochen -- %s Zeilen liegen noch",
+                OutgoingMail.objects.count(),
+            )
+            return _finish(summary)
+        vorige_spitze = rows[0].pk
         if summary["batches"]:
             # Die Pause liegt **zwischen** den Batches: nicht vor dem ersten (sonst wartet jeder
             # Lauf umsonst) und nicht nach dem letzten (sonst hält der Command die Sperre länger,
@@ -240,10 +256,10 @@ def _send_batch(rows, summary):
                 row.delete()
                 summary["sent"] += 1
             elif outcome is _Outcome.PERMANENT:
-                # Absichtlich ohne Adresse und ohne Umfragekennung (F8). Der Text der Ausnahme
-                # kann die Adresse selbst enthalten -- der landet über `logger.exception` im Log,
-                # das ist mit F8 bewertet und in Kauf genommen.
-                logger.warning("Eine Umfrage-Mail wurde dauerhaft abgelehnt und verworfen")
+                # Gelogt hat `_send_one()` schon, dort ist der Grund bekannt (R6-1) -- **ohne**
+                # Adresse und ohne Umfragekennung (F8). Der Text einer Ausnahme kann die Adresse
+                # enthalten; wo `logger.exception` steht, ist das mit F8 bewertet und in Kauf
+                # genommen.
                 row.delete()
                 summary["given_up"] += 1
             elif outcome is _Outcome.TRANSIENT:
