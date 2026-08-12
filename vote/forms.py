@@ -50,6 +50,20 @@ class PollCreateForm(forms.Form):
     creator_mail = forms.EmailField()
     voter_mails = forms.CharField(widget=forms.Textarea)
 
+    def clean_title(self):
+        """R5-1: keine Zeilenumbrüche -- der Titel steht in einem Mail-Betreff.
+
+        Django strippt nur außen. Ein Umbruch *innen* macht die Nachricht unversendbar
+        (`BadHeaderError`), und weil sie als erste in der Warteschlange liegt, hält sie den Versand
+        aller Umfragen an.
+        """
+        title = self.cleaned_data["title"]
+        if "\n" in title or "\r" in title:
+            raise ValidationError(
+                "The title may not contain line breaks.", code="title_has_line_breaks"
+            )
+        return title
+
     def clean_choices(self):
         return parse_lines(self.cleaned_data["choices"])
 

@@ -173,6 +173,17 @@ class TestRejectedInput:
     def test_title_at_the_column_limit_is_accepted(self):
         assert PollCreateForm(payload(title="x" * 200)).is_valid()
 
+    @pytest.mark.parametrize("umbruch", ["\n", "\r", "\r\n"])
+    def test_title_with_a_line_break_is_rejected(self, umbruch):
+        """R5-1: der Titel steht in einem Mail-Betreff, dort ist ein Umbruch nicht zustellbar.
+
+        Django strippt nur außen, ein Umbruch in der Mitte kam also durch -- und machte die erste
+        Zeile der Warteschlange unversendbar, womit der Versand *aller* Umfragen stand.
+        """
+        form = PollCreateForm(payload(title=f"Kaffee{umbruch}Bcc: leak@example.org"))
+        assert not form.is_valid()
+        assert "title" in form.errors
+
 
 class TestRecipientCap:
     """Der Deckel gegen B4 (Plan 3.8). Grenze steht in settings.VOTE_MAX_RECIPIENTS."""
