@@ -65,6 +65,42 @@ postconf | grep -i 'rate_limit\|anvil'      # auf dem Mailserver
 
 Ohne diese Zahlen wäre jede Batch-Größe und jede Pause geraten.
 
+### A4. Gibt es in Produktion ein Django-Staff-Konto? — aus dem Review, Befund R2-1
+
+`django.contrib.admin` ist installiert, `/admin/` ist geroutet, und `vote/admin.py` registriert
+`Poll`, `Choice` und `Token` ohne `readonly_fields`. Gemessen (in der Testumgebung): ein
+angemeldeter Staff-Account sieht `creator_token` und `identifier` im Poll-Formular, kann jeden
+`token_string` lesen und **`Choice.votes` direkt setzen**. Es gibt keine Drosselung von
+Anmeldeversuchen.
+
+Das ist der einzige Weg im ganzen Code, der Stimmzahlen unmittelbar verändert. Ob er offensteht,
+entscheidet zwischen „hoch" und „Notiz":
+
+```bash
+nix run nixpkgs#sqlite -- -readonly /var/lib/demockrazy/db.sqlite3 \
+  "SELECT username, is_staff, is_superuser, last_login FROM auth_user;"
+```
+
+Und zweitens: **lässt der Proxy `/admin/` überhaupt durch**, oder endet der Pfad schon dort?
+
+- **Keine Konten und/oder am Proxy gesperrt** → Notiz, nichts zu tun.
+- **Es gibt Konten** → dann gehört `/admin/` hinter eine Einschränkung, und `Choice.votes` sowie die
+  Token-Felder gehören auf `readonly` (das wäre dann Arbeit in diesem Repo).
+- **Niemand benutzt das Admin** → sauberste Lösung: App und Route entfernen.
+
+### A5. Ist das SMTP-Kennwort von 2023 noch gültig? — aus dem Review, Befund R8-1
+
+`k8s/environments/default/secrets.sops.yaml` ist mit `4e15012` gelöscht, steht aber weiter in der
+History (`git show master:k8s/environments/default/secrets.sops.yaml`) und enthält verschlüsselt
+`secret_key`, `email_host`, `email_from` und **`email_password`**, angelegt am 2023-01-17, lesbar für
+einen age- und drei PGP-Empfänger. Verschlüsselt ist das keine Preisgabe -- die Frage ist, ob das
+Kennwort noch ein gültiger Zugang auf `smtp.mayflower.de` ist, denselben Mailserver, über den
+Produktion heute verschickt.
+
+- **Account existiert nicht mehr / Kennwort rotiert** → erledigt.
+- **Noch gültig** → rotieren. History umschreiben wäre unverhältnismäßig; die Rotation ist die
+  Antwort.
+
 ---
 
 ## B. Am vorgelagerten Proxy – Härtung, unabhängig vom Deploy
@@ -409,6 +445,17 @@ DJANGO_SETTINGS_MODULE=demockrazy_config python3 manage.py check
 Meldet `demockrazy.W001`, falls C3 vergessen wurde. Genau dafür gibt es den Check – damit dieser
 Fehler nicht wieder zehn Jahre still bleibt.
 
+⚠️ **Die Ausgabe lesen, nicht den Rückgabecode** – aus dem Review, Befund R9-2: der Check ist ein
+`Warning`, und `manage.py check` beendet sich dabei mit **0** (gemessen). Wer die Zeile in ein Skript
+packt, das auf `$?` schaut, hat nichts geprüft. Und R9-1: der Check merkt nur, ob `transaction_mode`
+*irgendeinen* Wert hat – steht dort `DEFERRED`, schweigt er. Also den Wert selbst ansehen:
+
+```bash
+DJANGO_SETTINGS_MODULE=demockrazy_config python3 -c \
+  "import django; django.setup(); from django.conf import settings; \
+   print(settings.DATABASES['default'].get('OPTIONS'))"
+```
+
 ### D3. Was der Ersteller nach dem Deploy **nicht** mehr sieht
 
 Heute zeigt `create.html` eine Liste der Zustellfehler – daraus kam die `450`-Meldung, mit der das
@@ -427,3 +474,36 @@ anonymer") bewusst eng gefasst, siehe [plan.md](plan.md) §11.4.
 Der Wortlaut ist byteweise erhalten und per Test festgenagelt, **inklusive** führender und
 abschließender Leerzeile und des überzähligen `"` nach „Deutsche Bahn". Falls A1 einen Treffer
 hatte, ist das die Stelle, an der es auffällt.
+
+### D5. Vor einem Rollback hinter `0004`: die Warteschlange leeren — aus dem Review, Befund R9-3
+
+Der Rückwärtsweg der Migrations läuft sauber (gemessen: `migrate vote 0002` und wieder vorwärts,
+beides fehlerfrei). `0004` rückwärts ist aber ein `DROP TABLE vote_outgoingmail` – **liegen dann
+Einladungen in der Warteschlange, sind sie weg**, und deren Tokens erfährt niemand mehr. Die Umfrage
+schließt dann nie von selbst; der Ersteller muss sie von Hand beenden.
+
+```bash
+nix run nixpkgs#sqlite -- -readonly /var/lib/demockrazy/db.sqlite3 \
+  "SELECT count(*) FROM vote_outgoingmail;"
+```
+
+Steht dort etwas anderes als `0`, vorher `send_pending_mails` leerlaufen lassen.
+
+### D6. Falls der Mailversand stillsteht, ohne dass eine `450` im Log steht — aus dem Review, R5-1
+
+Ein Umfragetitel mit einem Zeilenumbruch (über einen rohen POST einsetzbar, das Formular lässt ihn
+durch) macht die Nachricht unversendbar: Django wirft `BadHeaderError`, der Versender fängt ihn
+nicht, und weil die Zeile die vorderste der Warteschlange ist, stirbt **jeder** folgende Timer-Lauf
+an derselben Stelle – auch für alle anderen Umfragen. Erkennbar an einem Traceback im Journal:
+
+```bash
+journalctl -u demockrazy-send-mails --since '-1h' | grep -i 'BadHeaderError'
+```
+
+Sofortmaßnahme, bis der Befund behoben ist (7.2): die betroffene Zeile löschen.
+
+```bash
+# Erst ansehen (die Adresse steht in dieser Zeile -- also nur so weit lesen wie nötig):
+nix run nixpkgs#sqlite -- -readonly /var/lib/demockrazy/db.sqlite3 \
+  "SELECT id, replace(subject, char(10), '\\n') FROM vote_outgoingmail ORDER BY id LIMIT 3;"
+```

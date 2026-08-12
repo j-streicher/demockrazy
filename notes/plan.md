@@ -1216,8 +1216,21 @@ Zustellbericht – und der braucht die Entscheidung aus **F8** (Anonymität).
 
 ## 14. Phase 7 – Umfassendes Review
 
-> **Startet auf Zuruf des Users. Noch nicht gelaufen.** Vollständig ausgearbeitet in
-> [review.md](review.md): Umfang, Vorgehen, 15 Kriterien, Schweregrade, Befundformat.
+> **Läuft, seit der User es am 2026-08-04 freigegeben hat.** Befunde und Negativraum stehen in
+> [review.md](review.md), Sonden in [review_probes.py](review_probes.py), Punkte außerhalb des Repos
+> in [to-check.md](to-check.md) (neu: A4, A5, D5, D6).
+>
+> **Zwischenstand: 23 Befunde** -- 1 kritisch, 2 hoch (einer davon hängt an einer Frage), 6 mittel,
+> 8 niedrig, 6 Notiz. Die drei, die zählen:
+> **R4-1** (kritisch) zwei gleichzeitige POSTs mit demselben Token ergeben **zwei Stimmen** -- 4 von
+> 100 Runden gemessen, beide Antworten 302; die Token-Abfrage steht außerhalb der Transaktion.
+> **R5-1** (hoch) ein Zeilenumbruch im Umfragetitel macht die erste Warteschlangenzeile
+> unversendbar, `BadHeaderError` wird nicht gefangen, und damit steht der Versand **aller** Umfragen
+> dauerhaft still.
+> **R2-1** (hoch?) `/admin/` ist geroutet und legt Tokens offen und Stimmzahlen editierbar hin --
+> ob ein Staff-Konto existiert, ist von hier nicht messbar (to-check A4).
+> **Was noch nicht geprüft ist, steht in review.md §7** -- vor allem die Suite als Text und der
+> Branch als Verlauf (80 Commits einzeln).
 
 - [ ] **7.1 Review durchführen.** Umfang ist **der ganze Branch (`master..HEAD`) *und* der
       Ist-Zustand** – ein Diff zeigt nicht, was jemand hätte ändern müssen und nicht getan hat, ein

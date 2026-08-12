@@ -5,12 +5,19 @@ Stand: 2026-08-04, Branch `update/modernize-2026`, 80 Commits über `master` (Ba
 Arbeitsbaum ist sauber, alles committed, **nichts gepusht** -- die CI hat also noch nie gelaufen,
 sie greift erst beim ersten Push.
 
-> **Nächster Schritt:** das **umfassende Review** ([review.md](review.md), Plan §14). Es ist
-> vorbereitet und **startet erst, wenn der User es sagt** -- nicht von selbst anfangen. Details in §9.
+> **Das umfassende Review läuft** ([review.md](review.md), Plan §14) -- vom User am 2026-08-04
+> freigegeben. **23 Befunde, davon einer kritisch und zwei hoch**; noch **nichts behoben**, das ist
+> Absicht (Review-Regel 3: erst die vollständige Liste, dann 7.2 mit einem Commit je Befund).
+> Was noch nicht geprüft ist, steht in review.md §7.
+>
+> **Der kritische Befund in einem Satz:** ein Doppelklick auf „Vote" ergibt zwei Stimmen aus einem
+> Token, weil die Token-Abfrage in [../vote/views.py](../vote/views.py) *außerhalb* der Transaktion
+> steht -- 4 von 100 Runden gemessen. Details und die zwei „hoch" (Versand-Stillstand durch einen
+> Zeilenumbruch im Titel, offenes `/admin/`) in review.md §5.
 >
 > **Beide Projektziele sind inhaltlich fertig** und das Bug-Register ist leer. Was noch offen ist,
 > wartet auf eine Antwort des Users (§8) oder liegt außerhalb dieses Repos
-> ([to-check.md](to-check.md)).
+> ([to-check.md](to-check.md) -- **neu aus dem Review: A4, A5, D5, D6**).
 
 ---
 
@@ -297,11 +304,25 @@ daran ein `script`-Element und verschluckte das Datenelement dahinter: **200 ohn
 
 ### Was als nächstes dran ist
 
-**Das umfassende Review** ([review.md](review.md), Plan §14) – vorbereitet, aber es **startet erst auf
-Zuruf des Users**. Umfang ist der ganze Branch *und* der Ist-Zustand; gesucht wird gegen die
-Fehlerklassen K1–K8, also gegen das, was in diesem Projekt schon real schiefgegangen ist. Zwei Regeln
-daraus lohnen den Blick, bevor jemand anfängt: **keine Reparatur während des Reviews** (sonst fehlt
-der Nachweis) und **die Testsuite ist Prüfgegenstand, nicht Prüfinstanz** (K4).
+**Das umfassende Review läuft** ([review.md](review.md), Plan §14) und ist **nicht abgeschlossen**.
+Gelaufen sind alle 15 Kriterien einmal, mit Messung; offen sind vor allem zwei Dinge (review.md §7):
+die **Testsuite als Text** (das Urteil über sie stützt sich bisher auf eine Mutationssonde, nicht auf
+eine Lektüre aller 215 Tests) und der **Branch als Verlauf** (80 Commits einzeln -- geprüft ist der
+Ist-Zustand und der Gesamtdiff).
+
+**Nach dem Review kommt 7.2: ein Commit je Befund, mit Verweis auf die Nummer.** Bis dahin ist
+absichtlich nichts behoben (Regel 3). Wer damit anfängt, fängt bei **R4-1** an -- das ist der einzige
+Befund, der Stimmen verfälscht, und der Vorschlag dazu ist klein: die Token-Abfrage in den
+`atomic()`-Block ziehen und den Token **zuerst** löschen, dann an `deleted == 1` entscheiden, ob die
+Stimme gebucht wird. Ein Regressionstest mit zwei Threads an einer Barriere gehört dazu; die Sonde
+dafür liegt in [review_probes.py](review_probes.py).
+
+Zwei Beobachtungen aus dem Lauf, die über die Einzelbefunde hinausgehen:
+**das Gefährliche stand nicht in der Logik, sondern an ihren Rändern** (Doppelklick, Zeilenumbruch im
+Titel, krummer Query-Parameter -- die Logik selbst hat gehalten), und **die Gegenmaßnahmen gegen K1
+hatten selbst K1**: der Härtungs-Check prüft `transaction_mode` nicht auf den Wert (R9-1) und macht
+als `Warning` nichts rot (R9-2). Wer eine Prüfung baut, muss sie kaputtmachen, um zu wissen, ob sie
+greift -- die 26 Mutationen waren der produktivste Teil des Laufs (21 bemerkt, 5 nicht).
 
 **Sonst ist im Repo nichts offen.** Beide Ziele sind inhaltlich fertig (§3). Was übrig ist, wartet
 auf eine Antwort (§8: F15, F17, F20) oder liegt außerhalb dieses Repos
