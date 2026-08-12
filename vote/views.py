@@ -1,3 +1,5 @@
+import re
+
 from django.conf import settings
 from django.db import transaction
 from django.db.models import F
@@ -21,6 +23,22 @@ TOKEN_COOKIE_NAME = "vote_token"
 #: History nur noch die Adresse *ohne* Token, ein Aufruf von dort käme also ohne Token an. Die
 #: Einladung selbst liegt zeitlich unbegrenzt in der Mailbox; 30 Tage sind kürzer als das.
 TOKEN_COOKIE_MAX_AGE = 60 * 60 * 24 * 30
+
+
+#: Ein echter Token ist `[A-Za-z0-9]{128}` (`mk_token()`); großzügiger geprüft wird nur, damit ein
+#: künftig längerer Token nicht still abgewiesen wird. Für die Umfragekennung in derselben URL
+#: erzwingt urls.py dieselbe Zeichenklasse mit einem eigenen Converter.
+_TOKEN_RE = re.compile(r"\A[A-Za-z0-9]{1,256}\Z")
+
+
+def _looks_like_a_token(value):
+    """R3-1: taugt der Wert überhaupt als Token? Sonst gehört er nicht in ein Cookie.
+
+    Ungeprüft war er zwei Wege in einen 500: ein Steuerzeichen wirft in `http.cookies` einen
+    `CookieError`, ein Zeichen jenseits von Latin-1 erzeugt einen Header, der nach PEP 3333 nicht in
+    WSGI gehört.
+    """
+    return bool(_TOKEN_RE.match(value))
 
 
 def _move_token_out_of_the_url(request, poll_identifier):
@@ -54,7 +72,7 @@ def _move_token_out_of_the_url(request, poll_identifier):
     response = HttpResponseRedirect(reverse("vote:polls:poll", args=(poll_identifier,)))
     cookie_path = reverse("vote:polls:poll", args=(poll_identifier,))
     token = request.GET["token"]
-    if token:
+    if _looks_like_a_token(token):
         response.set_cookie(
             TOKEN_COOKIE_NAME,
             token,
@@ -65,8 +83,9 @@ def _move_token_out_of_the_url(request, poll_identifier):
             samesite="Lax",
         )
     else:
-        # `?token=` ohne Wert heißt "ich habe keinen Token" und soll einen alten nicht stehen
-        # lassen -- sonst widerspräche die angezeigte Seite der aufgerufenen Adresse.
+        # `?token=` ohne Wert -- oder mit einem Wert, der keiner sein kann (R3-1) -- heißt "ich habe
+        # keinen Token" und soll einen alten nicht stehen lassen; sonst widerspräche die angezeigte
+        # Seite der aufgerufenen Adresse.
         response.delete_cookie(TOKEN_COOKIE_NAME, path=cookie_path)
     return response
 
