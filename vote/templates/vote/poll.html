@@ -1,5 +1,7 @@
 {% extends 'base.html' %}
 
+{% block title %}{{ poll.title }} – Demockrazy{% endblock %}
+
 {% comment %}
 Die `name`- und `id`-Attribute bleiben zeichengleich: `choice` für simple_choice, `choice<pk>` mit
 den Werten `yes`/`no` für multiple_choice. Daran hängt vote() (siehe vote/views.py), und es sind

@@ -1,5 +1,6 @@
 """Tests für vote/views.py gegen das in Phase 0 protokollierte Verhalten."""
 
+import re
 from typing import ClassVar
 
 import pytest
@@ -60,6 +61,50 @@ class TestUrls:
         """
         with pytest.raises(Resolver404):
             resolve(f"/vote/{identifier}/")
+
+
+@pytest.mark.django_db
+class TestPageTitles:
+    """R13-1: der `{% block title %}` in base.html war angelegt und blieb in jeder Vorlage leer.
+
+    Alle sechs Seiten hießen „Demockrazy". WCAG 2.4.2 verlangt einen Titel, der Thema oder Zweck
+    beschreibt, und praktisch: wer zwei Abstimmungen offen hat, unterscheidet die Tabs nicht.
+    """
+
+    #: Der Trenner ist ein Halbgeviertstrich; als Escape geschrieben, weil ihn ruff im Quelltext
+    #: sonst als verwechselbares Zeichen meldet (RUF001) und ein `noqa` hier nicht hingehört.
+    SUFFIX = " \u2013 Demockrazy"
+
+    def _title(self, client, path):
+        treffer = re.search(r"<title>(.*?)</title>", client.get(path).content.decode())
+        assert treffer, f"kein Titel in {path}"
+        return treffer.group(1)
+
+    def test_each_page_says_what_it_is(self, client, create_poll):
+        poll, _ = create_poll(title="Kantinenwahl")
+        erwartet = {
+            "/vote/": "Create a new poll",
+            f"/vote/{poll.identifier}/": "Kantinenwahl",
+            f"/vote/{poll.identifier}/manage": "Manage Kantinenwahl",
+            f"/vote/{poll.identifier}/success": "Thanks for voting on Kantinenwahl",
+        }
+        for path, text in erwartet.items():
+            assert self._title(client, path) == text + self.SUFFIX, path
+
+    def test_the_results_page_names_the_poll(self, client, create_poll):
+        poll, tokens = create_poll(title="Kantinenwahl")
+        for token in tokens:
+            client.post(
+                f"/vote/{poll.identifier}/vote",
+                {"token": token, "choice": poll.choice_set.first().id},
+            )
+        title = self._title(client, f"/vote/{poll.identifier}/results")
+        assert title == "Results for Kantinenwahl" + self.SUFFIX
+
+    def test_the_confirmation_page_has_its_own_title(self, client):
+        payload = dict(INVALID_PAYLOAD, voter_mails="a@example.org")
+        content = client.post("/vote/create", payload).content.decode()
+        assert f"<title>Poll created{self.SUFFIX}</title>" in content
 
 
 class TestIndex:
@@ -874,3 +919,32 @@ class TestMailHelpers:
     def test_voter_tokens_skips_the_creator_mail(self, create_poll, mailoutbox):
         create_poll(voters=("a@example.org", "b@example.org"))
         assert len(voter_tokens(mailoutbox)) == 2
+
+
+@pytest.mark.django_db
+class TestResultsTotals:
+    def test_total_voters_is_the_computed_number_not_the_raw_field(self, client):
+        """R14-1: `poll.num_tokens` ist bei Alt-Umfragen NULL und stand als „None" auf der Seite.
+
+        `get_amount_used_unused()` behandelt den Fall ausdrücklich („Alt-Umfragen ohne
+        Empfängerliste"); das Template umging diese Sorgfalt. Prod hat Umfragen von vor 2016.
+        """
+        poll = Poll.objects.create(title="Alt", question_text="?", num_tokens=None, is_active=False)
+        poll.choice_set.create(choice_text="Ja", votes=3)
+
+        content = client.get(f"/vote/{poll.identifier}/results").content.decode()
+
+        assert "None" not in content
+        zeile = content.split("Total Voters")[1]
+        assert "<td>3</td>" in zeile
+
+    def test_total_voters_still_matches_num_tokens_for_a_normal_poll(self, client, create_poll):
+        """Gegenprobe: wo `num_tokens` gesetzt ist, ändert sich die Zahl nicht."""
+        poll, tokens = create_poll(voters=("a@example.org", "b@example.org"))
+        for token in tokens:
+            client.post(
+                f"/vote/{poll.identifier}/vote",
+                {"token": token, "choice": poll.choice_set.first().id},
+            )
+        content = client.get(f"/vote/{poll.identifier}/results").content.decode()
+        assert "<td>2</td>" in content.split("Total Voters")[1]
