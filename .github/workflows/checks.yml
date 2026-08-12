@@ -43,8 +43,13 @@ jobs:
       - name: ruff check
         run: nix develop --command ruff check .
 
+      # `--fail-level WARNING`, weil `check` sich bei einem `Warning` sonst mit 0 beendet (Review
+      # R9-2): der Härtungs-Check aus demockrazy/checks.py wäre gedruckt und folgenlos gewesen,
+      # also genau die stille Fehlkonfiguration, gegen die er gebaut ist. Ein `Error` daraus zu
+      # machen wäre die Alternative -- sie würde aber auch den Dienststart in Produktion
+      # verweigern, und das ist eine Betriebsentscheidung des Users (notes/to-check.md D2).
       - name: django check
-        run: nix develop --command python3 manage.py check
+        run: nix develop --command python3 manage.py check --fail-level WARNING
 
       - name: migrations are complete
         run: nix develop --command python3 manage.py makemigrations --check --dry-run

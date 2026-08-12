@@ -445,16 +445,23 @@ DJANGO_SETTINGS_MODULE=demockrazy_config python3 manage.py check
 Meldet `demockrazy.W001`, falls C3 vergessen wurde. Genau dafür gibt es den Check – damit dieser
 Fehler nicht wieder zehn Jahre still bleibt.
 
-⚠️ **Die Ausgabe lesen, nicht den Rückgabecode** – aus dem Review, Befund R9-2: der Check ist ein
-`Warning`, und `manage.py check` beendet sich dabei mit **0** (gemessen). Wer die Zeile in ein Skript
-packt, das auf `$?` schaut, hat nichts geprüft. Und R9-1: der Check merkt nur, ob `transaction_mode`
-*irgendeinen* Wert hat – steht dort `DEFERRED`, schweigt er. Also den Wert selbst ansehen:
+⚠️ **Mit `--fail-level WARNING` fahren** – aus dem Review, Befund R9-2: ohne die Option beendet sich
+`manage.py check` bei einem `Warning` mit **0** (gemessen), die Zeile oben hätte also in einem Skript
+nichts geprüft. **Behoben ist das im Repo** (R9-1/R9-2: der Check sieht jetzt auf den *Wert*, und die
+CI fährt mit dem Flag), für den Aufruf gegen die echten Prod-Settings gilt es weiter:
 
 ```bash
-DJANGO_SETTINGS_MODULE=demockrazy_config python3 -c \
-  "import django; django.setup(); from django.conf import settings; \
-   print(settings.DATABASES['default'].get('OPTIONS'))"
+DJANGO_SETTINGS_MODULE=demockrazy_config python3 manage.py check --fail-level WARNING
 ```
+
+Gemessen mit `transaction_mode="DEFERRED"`: `SystemCheckError`, Rückgabecode **1**. Ohne das Flag war
+es Rückgabecode 0 bei identischer Ausgabe.
+
+**Nicht** zum `Error` gemacht, obwohl das die Alternative war und in Produktion mehr fangen würde:
+ein `Error` lässt `migrate`/`collectstatic` im `preStart` abbrechen, der Dienst käme also nach einem
+Deploy mit verlorener Option **nicht mehr hoch**. Das ist eine Betriebsentscheidung – wenn dir
+„startet nicht mit klarer Meldung" lieber ist als „läuft und verliert Stimmen an Lock-Fehler", sag es,
+dann wird `Warning` zu `Error` (eine Zeile in `demockrazy/checks.py`).
 
 ### D3. Was der Ersteller nach dem Deploy **nicht** mehr sieht
 
