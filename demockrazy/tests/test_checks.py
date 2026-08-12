@@ -67,3 +67,41 @@ def test_other_backends_are_left_alone():
     """Auf Postgres (das `postgres`-Extra existiert) hat nichts davon eine Bedeutung."""
     config = {"ENGINE": "django.db.backends.postgresql", "NAME": "demockrazy"}
     assert problems_for("default", config) == []
+
+
+def test_a_wrong_transaction_mode_is_flagged():
+    """R9-1: vorher genügte *irgendein* Wert -- `DEFERRED` ist der Zustand, den 5.4 abgeschafft hat.
+
+    Gemessen mit den Defaults: 164 von 200 gleichzeitigen Stimmabgaben scheitern dann. Ein Check,
+    der das durchlässt, ist genau der stille Fehler, gegen den er gebaut wurde (K1).
+    """
+    for wert in ("DEFERRED", "EXCLUSIVE", "quatsch", ""):
+        config = dict(GEHAERTET, OPTIONS=dict(GEHAERTET["OPTIONS"], transaction_mode=wert))
+        problems = problems_for("default", config)
+        assert len(problems) == 1, wert
+        assert "transaction_mode" in problems[0].msg
+
+
+def test_the_transaction_mode_may_be_written_in_any_case():
+    """Django reicht den Wert wörtlich in ein `BEGIN` weiter, SQLite ist dort case-insensitiv."""
+    config = dict(GEHAERTET, OPTIONS=dict(GEHAERTET["OPTIONS"], transaction_mode="immediate"))
+    assert problems_for("default", config) == []
+
+
+def test_a_timeout_of_zero_is_flagged():
+    """R9-1: `"timeout" in options` war wahr auch bei 0 -- also *keine* Wartezeit."""
+    for wert in (0, -1, None, "20"):
+        config = dict(GEHAERTET, OPTIONS=dict(GEHAERTET["OPTIONS"], timeout=wert))
+        problems = problems_for("default", config)
+        assert len(problems) == 1, wert
+        assert "timeout" in problems[0].msg
+
+
+def test_a_journal_mode_other_than_wal_is_flagged():
+    """Der Name allein genügt nicht: `journal_mode=DELETE` ist der Zustand vor 5.4."""
+    config = dict(
+        GEHAERTET, OPTIONS=dict(GEHAERTET["OPTIONS"], init_command="PRAGMA journal_mode=DELETE;")
+    )
+    problems = problems_for("default", config)
+    assert len(problems) == 1
+    assert "journal_mode" in problems[0].msg

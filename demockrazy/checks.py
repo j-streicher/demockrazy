@@ -50,12 +50,17 @@ def problems_for(alias, config):
 
     options = config.get("OPTIONS") or {}
     fehlt = []
-    if "journal_mode" not in str(options.get("init_command", "")).lower():
+    if "journal_mode=wal" not in str(options.get("init_command", "")).lower().replace(" ", ""):
         fehlt.append("init_command mit 'PRAGMA journal_mode=WAL;'")
-    if "timeout" not in options:
-        fehlt.append("timeout (sqlite3-Default sind 5 s)")
-    if not options.get("transaction_mode"):
+    # Auf den **Wert** prüfen, nicht auf die Anwesenheit (Review R9-1). Vorher genügte irgendein
+    # wahrer Wert: `DEFERRED` -- also genau der Zustand, den 5.4 abgeschafft hat -- und ein
+    # Tippfehler kamen beide durch. Ein Check gegen stille Fehlkonfiguration, der selbst still ist,
+    # ist die Fehlerklasse K1 an sich selbst.
+    if str(options.get("transaction_mode", "")).strip().upper() != "IMMEDIATE":
         fehlt.append("transaction_mode='IMMEDIATE'")
+    timeout = options.get("timeout")
+    if not isinstance(timeout, int | float) or timeout <= 0:
+        fehlt.append("timeout > 0 (sqlite3-Default sind 5 s)")
     if not fehlt:
         return []
 
