@@ -1,6 +1,8 @@
 {% extends 'base.html' %}
 {% load static %}
 
+{% block title %}Results for {{ poll.title }} – Demockrazy{% endblock %}
+
 {% block content %}
 <h1>results for poll {{ poll.title }}</h1>
 
@@ -23,7 +25,9 @@
     </tr>
     <tr>
         <td>Total Voters</td>
-        <td>{{ poll.num_tokens }}</td>
+        {% comment %}R14-1: der berechnete Wert, nicht das Rohfeld -- `num_tokens` ist bei
+        Alt-Umfragen NULL und stand dann als „None" auf der Seite.{% endcomment %}
+        <td>{{ amount_tokens_total }}</td>
     </tr>
 </table>
 

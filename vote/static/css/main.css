@@ -5,3 +5,16 @@
 body {
   padding-top: 4.5rem;
 }
+
+/* Djangos Fehlerliste heißt `errorlist`, Bootstrap 5 kennt nur `invalid-feedback` -- die Meldungen
+   standen deshalb in Textfarbe als Aufzählung da, während dieselbe Anwendung Abstimmungsfehler rot
+   zeigt (Review R13-2). Farbe ist hier die *Zugabe*: die Meldung steht schon als Text am Feld und
+   ist per aria-describedby verknüpft, WCAG 1.4.1 ist also auch ohne sie erfüllt.
+   `--bs-form-invalid-color` ist Bootstraps eigene Variable für genau diesen Zweck. */
+.errorlist {
+  color: var(--bs-form-invalid-color);
+  list-style: none;
+  padding-left: 0;
+  margin-bottom: 0.25rem;
+  font-size: 0.875em;
+}
