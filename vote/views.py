@@ -42,6 +42,16 @@ def _looks_like_a_token(value):
     return bool(_TOKEN_RE.match(value))
 
 
+def _token_state(poll):
+    """Die drei Zahlen, die `token_state.html` anzeigt -- an vier Stellen gebraucht (R14-3)."""
+    redeemed, remaining, total = poll.get_amount_used_unused()
+    return {
+        "amount_redeemed_tokens": redeemed,
+        "amount_remaining_tokens": remaining,
+        "amount_tokens_total": total,
+    }
+
+
 def _move_token_out_of_the_url(request, poll_identifier):
     """B9: den Token aus dem Query-String in ein Cookie umziehen und ohne ihn umleiten.
 
@@ -119,20 +129,10 @@ def poll(request, poll_identifier):
     # Anzeigefrage und keine Lücke (vote() prüft die Zuordnung), siehe notes/plan.md 3.3.
     if token and not Token.objects.filter(token_string=token).exists():
         error_message = "This token is invalid. Maybe you voted already?"
-    amount_redeemed_tokens, amount_remaining_tokens, amount_tokens_total = (
-        poll.get_amount_used_unused()
-    )
     return render(
         request,
         "vote/poll.html",
-        {
-            "poll": poll,
-            "token": token,
-            "amount_redeemed_tokens": amount_redeemed_tokens,
-            "amount_remaining_tokens": amount_remaining_tokens,
-            "amount_tokens_total": amount_tokens_total,
-            "error_message": error_message,
-        },
+        {"poll": poll, "token": token, "error_message": error_message, **_token_state(poll)},
     )
 
 
@@ -196,9 +196,6 @@ def vote(request, poll_identifier):
     token_string = request.POST.get("token", "")
 
     def render_error(message):
-        amount_redeemed_tokens, amount_remaining_tokens, amount_tokens_total = (
-            poll.get_amount_used_unused()
-        )
         return render(
             request,
             "vote/poll.html",
@@ -206,9 +203,7 @@ def vote(request, poll_identifier):
                 "poll": poll,
                 "error_message": message,
                 "token": token_string,
-                "amount_redeemed_tokens": amount_redeemed_tokens,
-                "amount_remaining_tokens": amount_remaining_tokens,
-                "amount_tokens_total": amount_tokens_total,
+                **_token_state(poll),
             },
         )
 
@@ -293,15 +288,10 @@ def manage(request, poll_identifier):
             poll.save()
             return HttpResponseRedirect(reverse("vote:polls:result", args=(poll_identifier,)))
         error_message = "Wrong management token"
-    amount_redeemed_tokens, amount_remaining_tokens, amount_tokens_total = (
-        poll.get_amount_used_unused()
-    )
     context = {
         "poll": poll,
-        "amount_redeemed_tokens": amount_redeemed_tokens,
-        "amount_remaining_tokens": amount_remaining_tokens,
-        "amount_tokens_total": amount_tokens_total,
         "error_message": error_message,
+        **_token_state(poll),
         # Ein Bit, keine Zahl: eine Zeile trägt keine Poll-Kennung (F8), "für diese Umfrage" ist
         # also nicht sagbar. Sicher ist nur die Leer-Richtung. Plan §11.7 Punkt 7.
         "mails_pending": OutgoingMail.objects.exists(),
@@ -311,9 +301,7 @@ def manage(request, poll_identifier):
 
 def results(request, poll_identifier):
     poll = get_object_or_404(Poll, identifier=poll_identifier)
-    amount_redeemed_tokens, amount_remaining_tokens, amount_tokens_total = (
-        poll.get_amount_used_unused()
-    )
+    token_state = _token_state(poll)
     if poll.is_active:
         return HttpResponseRedirect(reverse("vote:polls:poll", args=(poll_identifier,)))
     # Einmal auswerten und für Tabelle *und* Diagramm verwenden: `poll.choice_set.all` im Template
@@ -325,16 +313,9 @@ def results(request, poll_identifier):
     # Summe der Stimmen nicht die Zahl der Wähler.
     chart_series = [{"name": choice.choice_text, "y": choice.votes} for choice in choices]
     if poll.type == PollType.SIMPLE_CHOICE:
-        chart_series.append({"name": "Abstentions", "y": amount_remaining_tokens})
+        chart_series.append({"name": "Abstentions", "y": token_state["amount_remaining_tokens"]})
     return render(
         request,
         "vote/results.html",
-        {
-            "poll": poll,
-            "choices": choices,
-            "chart_series": chart_series,
-            "amount_redeemed_tokens": amount_redeemed_tokens,
-            "amount_remaining_tokens": amount_remaining_tokens,
-            "amount_tokens_total": amount_tokens_total,
-        },
+        {"poll": poll, "choices": choices, "chart_series": chart_series, **token_state},
     )
