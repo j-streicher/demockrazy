@@ -438,10 +438,30 @@ class TestTokenLeavesTheUrl:
         assert response.cookies[TOKEN_COOKIE_NAME].value == tokens[0]
 
     def test_the_page_varies_on_cookie(self, client, create_poll):
-        """Ein gemeinsamer Cache darf die Seite eines Wählers nicht an den nächsten ausliefern."""
-        poll, _ = create_poll()
-        response = client.get(f"/vote/{poll.identifier}/")
-        assert "Cookie" in response.headers["Vary"]
+        """Ein gemeinsamer Cache darf die Seite eines Wählers nicht an den nächsten ausliefern.
+
+        R10-1: dieser Test bestand vorher auch **ohne** `@vary_on_cookie`. Er sah den Header an der
+        Formularseite nach, und dort setzt ihn schon die CSRF-Middleware, weil das Template ein
+        `{% csrf_token %}` enthält -- er konnte also nicht fehlschlagen. Geprüft wird deshalb an
+        Antworten, in denen **kein Formular** steckt: die zwei Weiterleitungen dieser View. Dort ist
+        `Vary: Cookie` nur da, wenn der Dekorator ihn setzt.
+        """
+        poll, tokens = create_poll()
+
+        umzug = client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]})
+        assert umzug.status_code == 302
+        assert "Cookie" in umzug.headers["Vary"], "der Umzugs-Redirect trägt den Header nicht"
+
+        poll.is_active = False
+        poll.save()
+        geschlossen = client.get(f"/vote/{poll.identifier}/")
+        assert geschlossen.status_code == 302
+        assert "Cookie" in geschlossen.headers["Vary"]
+
+        # Und weiterhin auf der Seite selbst -- dort mit Gürtel und Hosenträger.
+        poll.is_active = True
+        poll.save()
+        assert "Cookie" in client.get(f"/vote/{poll.identifier}/").headers["Vary"]
 
     def test_the_vote_takes_its_token_from_the_form_not_the_cookie(self, client, create_poll):
         """Das Cookie ist eine Bequemlichkeit für die Anzeige, kein Auth-Kanal für die Abgabe."""
@@ -720,6 +740,38 @@ class TestResults:
         assert response.context["amount_redeemed_tokens"] == 2
         assert response.context["amount_remaining_tokens"] == 0
         assert str(choice.choice_text).encode() in response.content
+
+    def test_abstentions_are_a_chart_segment_only_for_simple_choice(self, client, create_poll):
+        """R10-3: die Diagrammdaten für `multiple_choice` waren von keinem Test gedeckt.
+
+        Bei `simple_choice` ist die Stimmensumme die Zahl der Wähler, offene Tokens sind also
+        Enthaltungen und ein eigenes Segment. Bei `multiple_choice` hat niemand „nichts" gewählt --
+        dort wäre ein Enthaltungssegment eine Aussage, die die Zahlen nicht tragen.
+        """
+        poll, tokens = create_poll(choices="Bier\nBrezn")
+        choice = poll.choice_set.first()
+        client.post(f"/vote/{poll.identifier}/vote", {"token": tokens[0], "choice": choice.id})
+        poll.is_active = False
+        poll.save()
+        einfach = client.get(f"/vote/{poll.identifier}/results").context["chart_series"]
+        assert einfach == [
+            {"name": "Bier", "y": 1},
+            {"name": "Brezn", "y": 0},
+            {"name": "Abstentions", "y": 1},
+        ]
+
+        mehrfach_poll, mehrfach_tokens = create_poll(
+            title="Mehrfach", poll_type="multiple_choice", choices="Bier\nBrezn"
+        )
+        payload = {"token": mehrfach_tokens[0]}
+        for eine in mehrfach_poll.choice_set.all():
+            payload[f"choice{eine.id}"] = "yes"
+        client.post(f"/vote/{mehrfach_poll.identifier}/vote", payload)
+        mehrfach_poll.is_active = False
+        mehrfach_poll.save()
+        mehrfach = client.get(f"/vote/{mehrfach_poll.identifier}/results").context["chart_series"]
+        assert mehrfach == [{"name": "Bier", "y": 1}, {"name": "Brezn", "y": 1}]
+        assert "Abstentions" not in [eintrag["name"] for eintrag in mehrfach]
 
     def test_success_page(self, client, create_poll):
         poll, _ = create_poll()

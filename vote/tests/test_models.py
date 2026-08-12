@@ -1,5 +1,6 @@
 """Tests fuer vote/models.py: Token-Erzeugung und die Zaehlerlogik."""
 
+import random
 import string
 
 import pytest
@@ -29,6 +30,26 @@ class TestRandString:
 
     def test_not_constant(self):
         assert rand_string(64) != rand_string(64)
+
+    def test_does_not_come_from_the_seedable_generator(self):
+        """R10-2: die Unvorhersagbarkeit war die einzige Token-Eigenschaft ohne Test.
+
+        Länge und Zeichenvorrat sind oben abgedeckt, und ein Tausch von `random.SystemRandom()`
+        gegen `random.choice` fiel der ganzen Suite nicht auf -- gemessen per Mutation. Der
+        Unterschied ist aber der zwischen einem Geheimnis und einer Rechenaufgabe: der Mersenne
+        Twister lässt sich aus wenigen Ausgaben rekonstruieren, und wer als eingeladener Wähler ein
+        paar Tokens kennt, könnte die übrigen ausrechnen.
+
+        Geprüft wird die *Wirkung* und nicht die Herkunft: bei gleichem Startwert muss trotzdem
+        etwas anderes herauskommen. Das hält auch, wenn jemand `secrets.choice` einsetzt -- und
+        fällt, sobald der Zufall aussaatbar wird (ein sehr naheliegender Griff ist `random.seed()`,
+        „damit die Tests deterministisch werden").
+        """
+        random.seed(4711)
+        erste = rand_string(64)
+        random.seed(4711)
+        zweite = rand_string(64)
+        assert erste != zweite
 
 
 @pytest.mark.django_db
