@@ -1,14 +1,17 @@
 # Umfassendes Review
 
-> **Status: läuft** (gestartet 2026-08-04 auf Zuruf des Users). Befunde werden **fortlaufend**
-> eingetragen, nicht erst am Ende -- so ist der Stand jederzeit lesbar, auch wenn der Lauf
-> unterbrochen wird. Angelegt 2026-08-04.
+> **Status: 7.1 gelaufen, 7.2 abgearbeitet.** 24 Befunde, davon **21 behoben** in 12 Commits --
+> ein Commit je Befund bzw. je Befundpaar, die Nummer steht im Betreff. Offen sind nur die drei, die
+> nicht in diesem Repo liegen: **R2-1** und **R8-1** warten auf eine Antwort des Users
+> ([to-check.md](to-check.md) A4/A5), **R9-3** ist ein Verfahrenshinweis (D5). Was **noch nicht
+> geprüft** ist, steht unverändert in §7. Angelegt 2026-08-04.
 >
 > Geplant in [plan.md](plan.md) §14. Befunde kommen hierher, Handlungspunkte außerhalb des Repos
 > nach [to-check.md](to-check.md).
 >
 > **Baseline zu Beginn des Laufs gemessen:** `pytest` → 215 passed, Arbeitsbaum sauber,
-> 80 Commits über `master`.
+> 80 Commits über `master`. **Nach 7.2:** `pytest` → **253 passed**,
+> `check --fail-level WARNING` → no issues, `makemigrations --check` → No changes, ruff sauber.
 
 ---
 
@@ -91,42 +94,50 @@ Reihenfolge ist die Prüfreihenfolge: das Kernversprechen zuerst, Kosmetik zulet
 
 ## 5. Befunde
 
-**Stand: der Lauf ist nicht abgeschlossen.** Was hier steht, ist gemessen; was noch fehlt, steht in
-§7 („noch nicht geprüft").
+Was hier steht, ist gemessen; was noch fehlt, steht in §7 („noch nicht geprüft").
 
-**23 Befunde, nach Schwere.** Die Reihenfolge dieser Tabelle ist die Lesereihenfolge; im Text darunter
-stehen sie gruppiert nach Kriterium.
+**Jede Behebung ist gegengeprüft:** der alte Zustand wurde wiederhergestellt und der neue Test
+gefahren -- ein Test, der auch ohne die Behebung besteht, wäre Fehlerklasse K4 und hier fehl am
+Platz. Bei **R4-1** ist zusätzlich die Threads-Messung wiederholt: vorher 4 von 100 Runden mit zwei
+Stimmen, danach **0 von 100**. Die Template-Änderungen sind **im Browser** nachgesehen (Lehre aus
+B17: `pytest` und `curl` sehen Markup-Fallen nicht).
 
-Sie ist zugleich die **Arbeitsliste für 7.2**: ein Commit je Zeile, von oben nach unten. „Klasse"
-verweist auf die Fehlerklassen in §3. **Alle 23 sind gemessen**, kein „gelesen, nicht gemessen" --
-mit einer benannten Ausnahme: bei R2-1 ist die Oberfläche gemessen, die Existenz von Konten in Prod
-nicht (Arbeitsregel 10).
+**24 Befunde, nach Schwere.** Die Reihenfolge dieser Tabelle ist die Lesereihenfolge; im Text
+darunter stehen sie gruppiert nach Kriterium. *(Beim Abarbeiten in 7.2 nachgezählt: die Tabelle
+listete zuerst 23 und ließ R14-3 aus, das als Befund darunter stand. Korrigiert -- der Commit
+`b50f5a4` und die erste Zusammenfassung an den User nennen deshalb 23.)*
 
-| # | Schwere | Befund | Ort | Vorschlag in einem Satz |
+Sie war die **Arbeitsliste für 7.2** und trägt jetzt das Ergebnis. „Klasse" verweist auf die
+Fehlerklassen in §3. **Alle 24 sind gemessen**, kein „gelesen, nicht gemessen" -- mit einer
+benannten Ausnahme: bei R2-1 ist die Oberfläche gemessen, die Existenz von Konten in Prod nicht
+(Arbeitsregel 10).
+
+| # | Schwere | Befund | Ort | erledigt |
 |---|---|---|---|---|
-| **R4-1** | **kritisch** | Zwei gleichzeitige POSTs mit demselben Token = **zwei Stimmen** (4 von 100 Runden, beide 302) | [views.py:208](../vote/views.py:208) | Abfrage in den `atomic()`-Block, Token **zuerst** löschen, nur bei `deleted == 1` buchen |
-| **R5-1** | **hoch** · K5, K7 | Ein `\n` im Titel macht die vorderste Warteschlangenzeile unversendbar → `BadHeaderError` ungefangen → Versand **aller** Umfragen steht dauerhaft | [forms.py:46](../vote/forms.py:46), [mail.py:113](../vote/services/mail.py:113) | Umbrüche im `title` ablehnen **und** eine unversendbare Zeile als `PERMANENT` behandeln statt den Lauf zu töten |
-| **R2-1** | **hoch?** | `/admin/` geroutet, `creator_token` lesbar, `Choice.votes` editierbar, kein Login-Rate-Limit -- **hängt an to-check A4** | [urls.py:10](../demockrazy/urls.py:10), [admin.py:6](../vote/admin.py:6) | Wenn niemand es benutzt: App und Route entfernen; sonst Proxy-Schutz + `readonly_fields` |
-| R3-1 | mittel · K7 | `?token=` geht ungeprüft in `set_cookie()`: Steuerzeichen → `CookieError`/**500**, Nicht-Latin-1 → Header, der nicht WSGI-konform ist | [views.py:56](../vote/views.py:56) | Wert gegen `[A-Za-z0-9]+` und eine Längengrenze prüfen, sonst den `delete_cookie`-Zweig nehmen |
-| R7-1 | mittel | Nur die Empfängerzahl ist gedeckelt: 200 000 Zeichen Beschreibung und 5 000 Choices gehen durch (1,3 MB Antwort) | [forms.py:46](../vote/forms.py:46) | `max_length` an `description`/`choices` und eine Obergrenze für die Choice-Zahl |
-| R9-1 | mittel · K1 | Der Härtungs-Check prüft `transaction_mode` nur auf Anwesenheit -- `DEFERRED` und `"quatsch"` kommen durch, `timeout: 0` auch | [checks.py:57](../demockrazy/checks.py:57) | Auf den Wert prüfen (`== "IMMEDIATE"`) und beim `timeout` einen positiven Wert verlangen |
-| R9-2 | mittel · K1 | Der Check ist ein `Warning`: `manage.py check` endet mit **0**, die CI bleibt grün, die Suite sieht ihn nie | [checks.py:63](../demockrazy/checks.py:63), [checks.yml:47](../.github/workflows/checks.yml:47) | `Error` statt `Warning` (wirkt auch im `preStart`) oder `--fail-level WARNING` in der CI |
-| R10-1 | mittel · K4 | `test_the_page_varies_on_cookie` besteht auch ohne `@vary_on_cookie` -- den Header setzt die CSRF-Middleware | [test_views.py:406](../vote/tests/test_views.py:406) | Gegen eine Response ohne `csrf_token` prüfen, sonst prüft der Test nichts |
-| R10-2 | mittel · K1 | Kein Test deckt, dass Tokens aus einem CSPRNG kommen -- `random.choice` statt `SystemRandom` bleibt unbemerkt | [models.py:16](../vote/models.py:16) | Herkunft festnageln statt Form: `SystemRandom` patchen oder gegen gleiches `random.seed()` prüfen |
-| R1-1 | niedrig · K6 | Der `OutgoingMail`-Docstring sagt „keine Poll-Kennung" -- der `body` enthält Link, `identifier` und Token | [models.py:126](../vote/models.py:126) | Auf „die *Spalten* tragen keine Kennung, der Text schon" korrigieren (auch in der README) |
-| R1-2 | niedrig | Token-`id`s stehen in Empfängerreihenfolge: wer die Liste hat und die DB liest, sieht **wer** abgestimmt hat (Stimme bleibt unverknüpfbar) | [polls.py:38](../vote/services/polls.py:38), [mail.py:277](../vote/services/mail.py:277) | `SystemRandom().shuffle(tokens)` vor dem `zip` -- eine Zeile, kein Schemaeingriff |
-| R6-1 | niedrig · K6 | Abgelehnte Mail: eine Logzeile ohne SMTP-Code und ohne Grund -- und der Kommentar daneben behauptet, `logger.exception` protokolliere die Adresse | [mail.py:237](../vote/services/mail.py:237) | `_smtp_code(error)` mitloggen (eine Zahl, keine Adresse) und den Kommentar richtigstellen |
-| R13-1 | niedrig | Alle sechs Seiten heißen „Demockrazy" -- `{% block title %}` wird von keiner Vorlage gefüllt | [base.html:15](../vote/templates/base.html:15) | Den Block in den sechs Vorlagen füllen, mit `poll.title` wo vorhanden |
-| R13-2 | niedrig | Formularfehler erscheinen in Body-Farbe als Aufzählung, während dieselbe Anwendung Abstimmungsfehler rot zeigt | [index.html:24](../vote/templates/vote/index.html:24) | `.errorlist` in `main.css` einfärben oder Felder mit `is-invalid` markieren |
-| R14-1 | niedrig | „Total Voters: **None**" bei Alt-Umfragen ohne `num_tokens` | [results.html:26](../vote/templates/vote/results.html:26) | `{{ amount_tokens_total }}` statt `{{ poll.num_tokens }}` |
-| R14-2 | niedrig · K5 | Vier Kommentare beschreiben einen überholten Stand (`deferred`-Schlüssel, `deliver()`/`on_commit`, „Bootstrap 3", falscher Pfad in `PROVENANCE`) | mail.py:165 + :273, index.html:4, chartjs/PROVENANCE.md | Vier Textkorrekturen, kein Codeeingriff |
-| R15-1 | niedrig | Die README beschreibt die Suite von vor 3.8 (`xfail(strict=True)`), nennt vier `DEMOCKRAZY_*`-Variablen nicht und wiederholt den Fehler aus R1-1 | [README.md:52](../README.md:52) | Drei Stellen nachziehen |
-| R5-2 | Notiz | Kein Wächter in `while True:` -- eine Mutation schickte die Suite in eine Endlosschleife, die die `flock` für immer hält | [mail.py:194](../vote/services/mail.py:194) | `max_batches` oder Laufzeitgrenze als Notbremse |
-| R6-2 | Notiz | Die Seite mit dem Token trägt kein `Cache-Control` (nur `Vary: Cookie`) | [views.py:79](../vote/views.py:79) | `@never_cache` auf `poll()` und `manage()` |
-| R8-1 | Notiz | sops-Geheimnisse von 2023 (`email_password`) stehen weiter in der History -- gelöscht ≠ rotiert | `master:k8s/…/secrets.sops.yaml` | Frage an den User (to-check A5); Rotation, nicht History umschreiben |
-| R9-3 | Notiz | Rückwärts-Migration hinter `0004` wirft die Warteschlange weg → Tokens ohne Einladung | [0004](../vote/migrations/0004_outgoingmail.py) | Kein Codeeingriff, ein Satz im Rollback-Verfahren (to-check D5) |
-| R10-3 | Notiz · K4 | Drei weitere unbemerkte Mutationen: Taktungs-Defaults (30/2) ungeprüft, `multiple_choice`-Diagrammdaten ungeprüft | vote/tests/ | Je ein Test |
-| R11-1 | Notiz | `multiple_choice`: ein `UPDATE` je Choice **unter der Schreibsperre** (17 Abfragen bei 10 Choices) | [views.py:194](../vote/views.py:194) | Ein `filter(pk__in=…).update(votes=F("votes") + 1)` |
+| **R4-1** | **kritisch** | Zwei gleichzeitige POSTs mit demselben Token = **zwei Stimmen** (4 von 100 Runden, beide 302) | [views.py:208](../vote/views.py:208) | `a1b5117` -- Löschung ist die Bedingung, Abfrage in der Transaktion. **0 von 100** statt 4 von 100 |
+| **R5-1** | **hoch** · K5, K7 | Ein `\n` im Titel macht die vorderste Warteschlangenzeile unversendbar → `BadHeaderError` ungefangen → Versand **aller** Umfragen steht dauerhaft | [forms.py:46](../vote/forms.py:46), [mail.py:113](../vote/services/mail.py:113) | `af30fa5` -- Umbruch abgelehnt **und** unversendbare Zeile als `PERMANENT`; das Test-Double baut die Nachricht jetzt wirklich |
+| **R2-1** | **hoch?** | `/admin/` geroutet, `creator_token` lesbar, `Choice.votes` editierbar, kein Login-Rate-Limit -- **hängt an to-check A4** | [urls.py:10](../demockrazy/urls.py:10), [admin.py:6](../vote/admin.py:6) | **offen** -- braucht die Antwort auf [to-check.md](to-check.md) A4 |
+| R3-1 | mittel · K7 | `?token=` geht ungeprüft in `set_cookie()`: Steuerzeichen → `CookieError`/**500**, Nicht-Latin-1 → Header, der nicht WSGI-konform ist | [views.py:56](../vote/views.py:56) | `4d6e003` -- `_looks_like_a_token()` vor `set_cookie()` |
+| R7-1 | mittel | Nur die Empfängerzahl ist gedeckelt: 200 000 Zeichen Beschreibung und 5 000 Choices gehen durch (1,3 MB Antwort) | [forms.py:46](../vote/forms.py:46) | `3e89f0c` -- `max_length` 10 000/20 000 und `VOTE_MAX_CHOICES` = 100 (**Wert von mir**, siehe Commit) |
+| R9-1 | mittel · K1 | Der Härtungs-Check prüft `transaction_mode` nur auf Anwesenheit -- `DEFERRED` und `"quatsch"` kommen durch, `timeout: 0` auch | [checks.py:57](../demockrazy/checks.py:57) | `a2b50d4` -- Wert statt Anwesenheit, bei allen drei Optionen |
+| R9-2 | mittel · K1 | Der Check ist ein `Warning`: `manage.py check` endet mit **0**, die CI bleibt grün, die Suite sieht ihn nie | [checks.py:63](../demockrazy/checks.py:63), [checks.yml:47](../.github/workflows/checks.yml:47) | `a2b50d4` -- CI mit `--fail-level WARNING`; `Error` bleibt **deine** Entscheidung (D2) |
+| R10-1 | mittel · K4 | `test_the_page_varies_on_cookie` besteht auch ohne `@vary_on_cookie` -- den Header setzt die CSRF-Middleware | [test_views.py:406](../vote/tests/test_views.py:406) | `eff438f` -- gegen die zwei Redirects geprüft, wo kein Formular den Header setzt |
+| R10-2 | mittel · K1 | Kein Test deckt, dass Tokens aus einem CSPRNG kommen -- `random.choice` statt `SystemRandom` bleibt unbemerkt | [models.py:16](../vote/models.py:16) | `eff438f` -- gleicher Startwert, trotzdem verschiedene Tokens |
+| R1-1 | niedrig · K6 | Der `OutgoingMail`-Docstring sagt „keine Poll-Kennung" -- der `body` enthält Link, `identifier` und Token | [models.py:126](../vote/models.py:126) | `4282901` -- Docstring und README richtiggestellt |
+| R1-2 | niedrig | Token-`id`s stehen in Empfängerreihenfolge: wer die Liste hat und die DB liest, sieht **wer** abgestimmt hat (Stimme bleibt unverknüpfbar) | [polls.py:38](../vote/services/polls.py:38), [mail.py:277](../vote/services/mail.py:277) | `8c65cd3` -- `SystemRandom().shuffle()` vor der Paarung |
+| R6-1 | niedrig · K6 | Abgelehnte Mail: eine Logzeile ohne SMTP-Code und ohne Grund -- und der Kommentar daneben behauptet, `logger.exception` protokolliere die Adresse | [mail.py:237](../vote/services/mail.py:237) | `6363cb1` -- SMTP-Code im Log, Kommentar korrigiert |
+| R13-1 | niedrig | Alle sechs Seiten heißen „Demockrazy" -- `{% block title %}` wird von keiner Vorlage gefüllt | [base.html:15](../vote/templates/base.html:15) | `decb33b` -- alle sechs Vorlagen füllen den Block, im Browser nachgesehen |
+| R13-2 | niedrig | Formularfehler erscheinen in Body-Farbe als Aufzählung, während dieselbe Anwendung Abstimmungsfehler rot zeigt | [index.html:24](../vote/templates/vote/index.html:24) | `decb33b` -- `.errorlist` in `main.css`; Kontrast gemessen 4,53:1 (AA knapp bestanden) |
+| R14-1 | niedrig | „Total Voters: **None**" bei Alt-Umfragen ohne `num_tokens` | [results.html:26](../vote/templates/vote/results.html:26) | `decb33b` -- `amount_tokens_total` |
+| R14-2 | niedrig · K5 | Vier Kommentare beschreiben einen überholten Stand (`deferred`-Schlüssel, `deliver()`/`on_commit`, „Bootstrap 3", falscher Pfad in `PROVENANCE`) | mail.py:165 + :273, index.html:4, chartjs/PROVENANCE.md | `4282901` + `8c65cd3` -- alle vier Stellen |
+| R15-1 | niedrig | Die README beschreibt die Suite von vor 3.8 (`xfail(strict=True)`), nennt vier `DEMOCKRAZY_*`-Variablen nicht und wiederholt den Fehler aus R1-1 | [README.md:52](../README.md:52) | `4282901` -- xfail, Variablenliste, Warteschlangen-Satz, `--fail-level` |
+| R5-2 | Notiz | Kein Wächter in `while True:` -- eine Mutation schickte die Suite in eine Endlosschleife, die die `flock` für immer hält | [mail.py:194](../vote/services/mail.py:194) | `6363cb1` -- Wächter auf die vorderste `pk` |
+| R6-2 | Notiz | Die Seite mit dem Token trägt kein `Cache-Control` (nur `Vary: Cookie`) | [views.py:79](../vote/views.py:79) | `5ddd491` -- `@never_cache` auf `poll()` und `manage()` |
+| R8-1 | Notiz | sops-Geheimnisse von 2023 (`email_password`) stehen weiter in der History -- gelöscht ≠ rotiert | `master:k8s/…/secrets.sops.yaml` | **offen** -- Frage an den User (A5); Rotation statt History umschreiben |
+| R9-3 | Notiz | Rückwärts-Migration hinter `0004` wirft die Warteschlange weg → Tokens ohne Einladung | [0004](../vote/migrations/0004_outgoingmail.py) | **offen als Verfahren** -- to-check.md D5, kein Codeeingriff |
+| R10-3 | Notiz · K4 | Drei weitere unbemerkte Mutationen: Taktungs-Defaults (30/2) ungeprüft, `multiple_choice`-Diagrammdaten ungeprüft | vote/tests/ | `eff438f` -- Taktungswerte 30/2 und das multiple_choice-Diagramm |
+| R11-1 | Notiz | `multiple_choice`: ein `UPDATE` je Choice **unter der Schreibsperre** (17 Abfragen bei 10 Choices) | [views.py:194](../vote/views.py:194) | `5ddd491` -- ein `UPDATE` per `filter(pk__in=...)` |
+| R14-3 | Notiz | `get_amount_used_unused()` viermal mit demselben Dreizeiler entpackt | [views.py:100](../vote/views.py:100) | `9bf0fc7` -- ein `_token_state(poll)`-Helfer, kein Verhaltens- und kein Abfrageunterschied |
 
 Zwei Muster fallen daran auf, und sie sind der eigentliche Ertrag des Laufs:
 **(1) Das Gefährliche stand nicht im Code, sondern in seinen Rändern** -- der Doppelklick, der
@@ -193,7 +204,7 @@ Anonymität gar nicht berührt.
 buchen. Alternativ `select_for_update()`, das SQLite aber nur innerhalb einer Transaktion und ohne
 echte Zeilensperre umsetzt -- die Löschung als Bedingung ist der Weg, der auf SQLite trägt. Ein
 Regressionstest gehört dazu: zwei Threads an einer Barriere, wie in der Sonde.
-Nicht getan -- Regel 3.
+Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `a1b5117`**.
 
 ### R3-1 · `?token=` landet ungeprüft in einem Cookie — zwei Wege in einen 500
 
@@ -255,7 +266,7 @@ den Token nicht.
 
 **Vorschlag:** den Wert vor dem Setzen gegen `[A-Za-z0-9]+` und eine Längenobergrenze prüfen und
 alles andere wie „kein Token" behandeln (also den `delete_cookie`-Zweig nehmen, der schon existiert).
-Das ist eine Zeile und deckt beide Fälle plus die 8 000-Zeichen-Variante ab. Nicht getan -- Regel 3.
+Das ist eine Zeile und deckt beide Fälle plus die 8 000-Zeichen-Variante ab. Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `4d6e003`**.
 
 ### R5-1 · Ein Zeilenumbruch im Umfragetitel legt den **gesamten** Mailversand still
 
@@ -301,7 +312,7 @@ von `SMTPException`).
 ablehnen oder ersetzen -- der Titel steht in einem Mail-Betreff, dort gehört keiner hin. (b) In
 `_send_one()` einen Fangzweig, der eine **nicht verschickbare** Zeile als `PERMANENT` behandelt
 statt den Lauf zu töten; nur so kann eine einzelne kaputte Zeile nie wieder alle anderen aufhalten.
-Nicht getan -- Regel 3.
+Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `af30fa5`**.
 
 ### R9-1 · Der Check gegen stille Fehlkonfiguration prüft `transaction_mode` nicht auf den Wert
 
@@ -327,7 +338,7 @@ verschreibt sich, bleibt `manage.py check` still -- und die `database is locked`
 sind zurück, ohne Vorwarnung. Das ist der Fall, für den der Check gebaut wurde.
 
 **Vorschlag:** auf den Wert prüfen (`== "IMMEDIATE"`, case-insensitiv) und beim `timeout` einen
-positiven Wert verlangen. Nicht getan -- Regel 3.
+positiven Wert verlangen. Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `a2b50d4`**.
 
 ### R9-2 · Der Check ist ein `Warning`, und damit fällt kein einziges Gate darüber
 
@@ -367,7 +378,7 @@ geprüft, und selbst dieser Befund bleibt folgenlos.
 **Vorschlag:** entweder `Error` statt `Warning` (dann bricht `check` von selbst ab, auch im
 `preStart` in Produktion -- das ist der Ort, an dem es zählt), oder in der CI
 `manage.py check --fail-level WARNING`. Ersteres ist strenger und trifft Produktion mit, letzteres
-ändert das Verhalten des Dienstes nicht. Nicht getan -- Regel 3.
+ändert das Verhalten des Dienstes nicht. Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `a2b50d4`**.
 
 ### R6-1 · Die Logzeile einer dauerhaft abgelehnten Mail nennt keinen Grund — und der Kommentar daneben behauptet das Gegenteil
 
@@ -399,7 +410,7 @@ in Kauf genommenes Restrisiko, es gibt es an dieser Stelle gar nicht. Das ist Kl
 plausibel begründet und trotzdem falsch, hier zugunsten der Anonymität.
 
 **Vorschlag:** den SMTP-Code mitloggen (`_smtp_code(error)` ist bereits berechnet und ist eine Zahl,
-keine Adresse) und den Kommentar auf das korrigieren, was passiert. Nicht getan -- Regel 3.
+keine Adresse) und den Kommentar auf das korrigieren, was passiert. Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `6363cb1`**.
 
 ### R6-2 · Die Seite mit dem Token trägt kein `Cache-Control`
 
@@ -426,7 +437,7 @@ neben `@vary_on_cookie`, die niemand einlöst, wenn sich davor etwas ändert (vg
 CSP fehlt bekanntlich und gehört an den Proxy ([to-check.md](to-check.md) §B).
 
 **Vorschlag:** `@never_cache` (oder `Cache-Control: private, no-store`) auf `poll()` und `manage()`.
-Beides sind Seiten mit Token im Markup. Nicht getan -- Regel 3.
+Beides sind Seiten mit Token im Markup. Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `5ddd491`**.
 
 ### R7-1 · Gedeckelt ist nur die Empfängerzahl — Textlängen, Choice-Zahl und Umfrage-Zahl nicht
 
@@ -461,7 +472,7 @@ benutzen.
 und eine Obergrenze für die Zahl der Choices, in derselben Größenordnung begründet wie der
 Empfänger-Deckel. Ob die Umfrage-Zahl pro Zeit gedeckelt werden soll, ist eine Frage an den User --
 F5 hat ein IP-Rate-Limit ausdrücklich abgelehnt, allerdings für den Mailversand.
-Nicht getan -- Regel 3.
+Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `3e89f0c`**.
 
 ### R2-1 · Das Django-Admin ist erreichbar und legt Tokens und Stimmzahlen in fremde Hand
 
@@ -534,7 +545,7 @@ also keine neue Preisgabe -- aber „eine zugestellte Zeile wird gelöscht, dana
 wieder der von vorher" gilt für den Management-Token nur, weil er auch vorher schon dastand.
 
 **Vorschlag:** den Docstring auf „die *Spalten* tragen keine Poll-Kennung; der gerenderte Text
-enthält Link und Token, siehe plan.md §11.4" korrigieren. Nicht getan -- Regel 3.
+enthält Link und Token, siehe plan.md §11.4" korrigieren. Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `4282901`**.
 
 ### R1-2 · Die Token-IDs stehen in Empfängerreihenfolge — wer die Liste hat, sieht, **wer** schon abgestimmt hat
 
@@ -570,7 +581,7 @@ also um die Zeit *während* des Versands.
 **Vorschlag:** die Paarung mischen. Ein `random.SystemRandom().shuffle(tokens)` in
 `poll_created_messages()` vor dem `zip` -- eine Zeile, kein Schemaeingriff, keine Verhaltensänderung
 nach außen -- und die `id`-Reihenfolge sagt nichts mehr über die Listenreihenfolge.
-Nicht getan -- Regel 3.
+Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `8c65cd3`**.
 
 ### R10-1 · `test_the_page_varies_on_cookie` besteht auch ohne `@vary_on_cookie` — ein Test, der nichts prüft
 
@@ -600,7 +611,7 @@ cacht nicht, siehe deployment.md), es ist also eine latente und keine aktuelle L
 **Vorschlag:** die *Absicht* prüfen statt das Ergebnis: den Header an einer Response messen, die
 ohne CSRF-Formular entsteht, oder direkt `poll.__wrapped__`/die Response einer Sicht ohne
 `csrf_token` -- am billigsten wäre, den Test gegen die Response einer geschlossenen Umfrage
-(Redirect, kein Formular) zu führen. Nicht getan -- Regel 3.
+(Redirect, kein Formular) zu führen. Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `eff438f`**.
 
 ### R10-2 · Die wichtigste Eigenschaft der Tokens — Unvorhersagbarkeit — ist von keinem Test gedeckt
 
@@ -627,7 +638,7 @@ niemand merkt, wenn es nichts mehr taugt.
 **Vorschlag:** ein Test, der die Herkunft festnagelt statt die Form -- z. B. `rand_string` gegen
 `random.SystemRandom` patchen und prüfen, dass es benutzt wird, oder (robuster gegen Umbauten)
 prüfen, dass zwei Prozesse mit gleichem `random.seed()` **verschiedene** Tokens erzeugen.
-Nicht getan -- Regel 3.
+Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `eff438f`**.
 
 ### R5-2 · Der Versandlauf hat keinen Wächter — die Schleife endet nur, weil jeder Zweig sie beendet
 
@@ -651,7 +662,7 @@ belegt sind (R5-1 real, dieser durch Mutation) und weil der Lauf per Konstruktio
 -- „hängt" sieht von außen aus wie „arbeitet noch".
 
 **Vorschlag:** ein `max_batches` (oder eine Gesamtlaufzeitgrenze) als Notbremse, plus die
-Beobachtung, dass sich die vorderste `pk` nicht bewegt. Nicht getan -- Regel 3.
+Beobachtung, dass sich die vorderste `pk` nicht bewegt. Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `6363cb1`**.
 
 ### R8-1 · Gelöscht ist nicht rotiert: die sops-Geheimnisse des k8s-Deployments stehen weiter in der History
 
@@ -711,7 +722,7 @@ Mail-Autoescaping, Warteschlangen-Reihenfolge, `is_active`-Weichen, Choice-Reihe
 `identifier`-Converter, `zip(strict=True)`, der Management-Token-Vergleich und `atomic()` in `vote()`.
 Das ist eine belastbare Suite; die fünf Lücken sind benannt, nicht der Normalfall.
 
-**Vorschlag:** je ein Test für die zwei Punkte oben. Nicht getan -- Regel 3.
+**Vorschlag:** je ein Test für die zwei Punkte oben. Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `eff438f`**.
 
 ### R11-1 · Eine `multiple_choice`-Stimme kostet ein `UPDATE` pro Choice — in der Transaktion, die alle Schreiber serialisiert
 
@@ -735,7 +746,7 @@ Umfrage mit 200 Choices sind es 200 Statements unter Sperre. Zusammen mit **R7-1
 ungedeckelt) ist das der Weg, aus einer erlaubten Eingabe eine lange Schreibsperre zu machen.
 
 **Vorschlag:** ein `Choice.objects.filter(pk__in=ja_ids).update(votes=F("votes") + 1)` statt der
-Schleife -- ein Statement, gleiche Semantik. Nicht getan -- Regel 3.
+Schleife -- ein Statement, gleiche Semantik. Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `5ddd491`**.
 
 ### R9-3 · Der Rückwärtsweg der Migrations ist sauber — und wirft dabei die Warteschlange weg
 
@@ -779,7 +790,7 @@ Verlauf zeigt sechs identische Einträge. Der Umfragetitel steht in jedem Kontex
 Verfügung.
 
 **Vorschlag:** `{% block title %}{{ poll.title }} – Demockrazy{% endblock %}` in den vier Vorlagen
-mit Poll-Kontext, entsprechend in `index.html`/`create.html`. Nicht getan -- Regel 3.
+mit Poll-Kontext, entsprechend in `index.html`/`create.html`. Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `decb33b`**.
 
 ### R13-2 · Formularfehler sind schwarz auf weiß, während Abstimmungsfehler rot sind
 
@@ -820,7 +831,7 @@ Bootstrap-3→5-Umstellung, die an dieser einen Stelle nicht mitgezogen ist: der
 eine Gestaltung, die es nicht gibt.
 
 **Vorschlag:** `.errorlist` in `main.css` auf die Bootstrap-Fehlerfarbe legen (drei Zeilen, kein
-Markup-Eingriff) oder die Felder bei Fehlern mit `is-invalid` markieren. Nicht getan -- Regel 3.
+Markup-Eingriff) oder die Felder bei Fehlern mit `is-invalid` markieren. Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `decb33b`**.
 
 ### R15-1 · Die README beschreibt die Testsuite, wie sie vor 3.8 war
 
@@ -843,7 +854,7 @@ weg**, die `settings.py` liest: `DEMOCKRAZY_MAIL_TIMEOUT`, `DEMOCKRAZY_MAX_RECIP
 denen laut Notizen im Störungsfall gedreht wird. Und der Satz „A queue row … names no poll" hat
 dasselbe Problem wie **R1-1**: der `body` enthält den Abstimmungslink.
 
-**Vorschlag:** die drei Stellen nachziehen. Nicht getan -- Regel 3.
+**Vorschlag:** die drei Stellen nachziehen. Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `4282901`**.
 
 ### R14-1 · Die Ergebnisseite einer Alt-Umfrage zeigt „Total Voters: None"
 
@@ -864,7 +875,7 @@ Kontext liegt und in `token_state.html` direkt darüber korrekt angezeigt wird.
 **Folge:** Nur Kosmetik, aber sichtbar für den Bestand -- Prod hat Umfragen von vor 2016. Zwei
 Zahlen auf einer Seite, die dasselbe meinen und verschieden aussehen.
 
-**Vorschlag:** `{{ amount_tokens_total }}` statt `{{ poll.num_tokens }}`. Nicht getan -- Regel 3.
+**Vorschlag:** `{{ amount_tokens_total }}` statt `{{ poll.num_tokens }}`. Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `decb33b`**.
 
 ### R14-2 · Vier Kommentare beschreiben einen Zustand, den der Code hinter sich hat
 
@@ -885,7 +896,7 @@ Buchhaltungsfehler des ersten Entwurfs, er wurde aus dem Code entfernt und blieb
 Die `PROVENANCE`-Zeile ist die einzige, die eine Anleitung falsch macht (sie sagt, wo beim nächsten
 Upgrade zu suchen ist).
 
-**Vorschlag:** vier Textkorrekturen, kein Codeeingriff. Nicht getan -- Regel 3.
+**Vorschlag:** vier Textkorrekturen, kein Codeeingriff. Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `4282901`**.
 
 ### R14-3 · `get_amount_used_unused()` wird an fünf Stellen aufgerufen, viermal mit demselben Dreizeiler
 
@@ -900,7 +911,7 @@ demselben Aufruf. Das ist keine falsche Logik, aber der Ort, an dem eine Änderu
 Token-Statistik viermal nachgezogen werden muss -- die Sorte Duplikat, die still auseinanderläuft.
 
 **Vorschlag:** entweder ein `token_state_context(poll)`-Helfer, oder (näher an Django)
-ein `inclusion_tag` für `token_state.html`, das sich seine Zahlen selbst holt. Nicht getan -- Regel 3.
+ein `inclusion_tag` für `token_state.html`, das sich seine Zahlen selbst holt. Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `9bf0fc7`**.
 
 ---
 

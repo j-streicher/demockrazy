@@ -1,19 +1,24 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: 2026-08-04, Branch `update/modernize-2026`, 80 Commits über `master` (Basis `3074dbb`).
+Stand: 2026-08-04, Branch `update/modernize-2026`, 93 Commits über `master` (Basis `3074dbb`).
 Arbeitsbaum ist sauber, alles committed, **nichts gepusht** -- die CI hat also noch nie gelaufen,
 sie greift erst beim ersten Push.
 
-> **Das umfassende Review läuft** ([review.md](review.md), Plan §14) -- vom User am 2026-08-04
-> freigegeben. **23 Befunde, davon einer kritisch und zwei hoch**; noch **nichts behoben**, das ist
-> Absicht (Review-Regel 3: erst die vollständige Liste, dann 7.2 mit einem Commit je Befund).
-> Was noch nicht geprüft ist, steht in review.md §7.
+> **Das umfassende Review ist gelaufen und abgearbeitet** ([review.md](review.md), Plan §14).
+> **24 Befunde, 21 behoben** in 12 Commits (`a1b5117` … `9bf0fc7`), jeder mit der Befundnummer im
+> Betreff. Die Suite ist von 215 auf **253** Tests gewachsen.
+> Was noch **nicht geprüft** ist, steht in review.md §7 -- der Lauf hat alle 15 Kriterien einmal
+> abgedeckt, nicht erschöpfend.
 >
-> **Der kritische Befund in einem Satz:** ein Doppelklick auf „Vote" ergibt zwei Stimmen aus einem
-> Token, weil die Token-Abfrage in [../vote/views.py](../vote/views.py) *außerhalb* der Transaktion
-> steht -- 4 von 100 Runden gemessen. Details und die zwei „hoch" (Versand-Stillstand durch einen
-> Zeilenumbruch im Titel, offenes `/admin/`) in review.md §5.
+> **Der kritische Befund in einem Satz:** ein Doppelklick auf „Vote" ergab zwei Stimmen aus einem
+> Token, weil die Token-Abfrage *außerhalb* der Transaktion stand -- 4 von 100 Runden gemessen.
+> Behoben in `a1b5117`: die Löschung des Tokens ist jetzt die **Bedingung** für die Buchung, danach
+> 0 von 100.
+>
+> **Offen sind drei, und alle drei liegen außerhalb dieses Repos:** R2-1 (gibt es in Prod ein
+> Staff-Konto? `/admin/` kann Stimmzahlen editieren), R8-1 (ist das SMTP-Kennwort von 2023 noch
+> gültig?) und R9-3 (ein Satz im Rollback-Verfahren) -- [to-check.md](to-check.md) A4, A5, D5.
 >
 > **Beide Projektziele sind inhaltlich fertig** und das Bug-Register ist leer. Was noch offen ist,
 > wartet auf eine Antwort des Users (§8) oder liegt außerhalb dieses Repos
@@ -27,7 +32,7 @@ sie greift erst beim ersten Push.
 |---|---|
 | **dieses Dokument** | Orientierung, Arbeitsregeln, offene Fragen, nächster Schritt |
 | [plan.md](plan.md) | Der Plan mit allen Phasen, Bug-Nummern B1–B18, Fragen F1–F20. **Das Hauptdokument.** |
-| **[review.md](review.md)** | **Das umfassende Review**: Umfang, Vorgehen, 15 Kriterien, die Fehlerklassen dieses Projekts. **Wartet auf das Startsignal des Users, Befunde noch leer.** Geplant als plan.md §14 |
+| **[review.md](review.md)** | **Das umfassende Review**: Umfang, Vorgehen, 15 Kriterien, die Fehlerklassen K1--K8, **24 Befunde mit Nachweis und Ergebnis**, Negativraum je Kriterium und in §7 das, was nicht geprüft ist. Geplant als plan.md §14 |
 | **[to-check.md](to-check.md)** | **Alles, was außerhalb dieses Repos zu tun oder zu beantworten ist** – Proxy, NixOS-Modul, Prod-Node, offene Fragen. Mit Befehlen und Begründung. Die Liste für den User. |
 | [deployment.md](deployment.md) | Wie Produktion wirklich läuft. **Vor jeder Settings-/Deploy-Änderung lesen.** |
 | [phase-2-migrations.md](phase-2-migrations.md) | Warum die Migrations so aussehen, wie sie aussehen |
@@ -60,8 +65,8 @@ beim Mailversand konkret aussieht -- und wo es die Fortschrittsanzeige beschnitt
    Details und Messungen in [plan.md](plan.md) §11.7, Zusammenfassung in §7.
    ⚠️ **Der systemd-Timer fehlt und liegt außerhalb dieses Repos** ([to-check.md](to-check.md) §C5)
    -- ohne ihn reiht Produktion nach dem Deploy ein und verschickt nie.
-3. ⏳ **Umfassendes Review** des ganzen Branches, [review.md](review.md) / Plan §14.
-   **Startet auf Zuruf, nicht von selbst.**
+3. ✅ **Umfassendes Review** des ganzen Branches, [review.md](review.md) / Plan §14.
+   24 Befunde, 21 behoben; die drei offenen liegen außerhalb dieses Repos (A4, A5, D5).
 
 ## 4. Umgebung und Verifikationsschleife
 
@@ -85,8 +90,9 @@ grün ist, ist dort grün.
 
 **Sollwerte, an denen du merkst, dass alles in Ordnung ist:**
 
-- `pytest` → **215 passed** (kein xfailed mehr, siehe §5)
-- `manage.py check` → **no issues (0 silenced)**
+- `pytest` → **253 passed** (kein xfailed mehr, siehe §5; 215 waren es vor Phase 7)
+- `manage.py check` → **no issues (0 silenced)**; die CI fährt es mit `--fail-level WARNING`,
+  weil ein `Warning` den Rückgabecode sonst auf 0 lässt (Review R9-2)
 - `makemigrations --check` → **No changes detected**
 - `ruff format --check` → alle Dateien unverändert
 - `ruff check` → **All checks passed** (seit 3.3 sauber, siehe §5)
@@ -304,18 +310,20 @@ daran ein `script`-Element und verschluckte das Datenelement dahinter: **200 ohn
 
 ### Was als nächstes dran ist
 
-**Das umfassende Review läuft** ([review.md](review.md), Plan §14) und ist **nicht abgeschlossen**.
-Gelaufen sind alle 15 Kriterien einmal, mit Messung; offen sind vor allem zwei Dinge (review.md §7):
-die **Testsuite als Text** (das Urteil über sie stützt sich bisher auf eine Mutationssonde, nicht auf
-eine Lektüre aller 215 Tests) und der **Branch als Verlauf** (80 Commits einzeln -- geprüft ist der
-Ist-Zustand und der Gesamtdiff).
+**Im Repo ist nichts offen.** Phase 7 ist durch: 7.1 hat 24 Befunde ergeben, 7.2 hat 21 davon
+behoben. Was übrig ist, braucht eine Antwort von dir -- **[to-check.md](to-check.md) A1 (F17), A4
+(Staff-Konto), A5 (SMTP-Kennwort)** -- oder ist ein Handgriff außerhalb dieses Repos, allen voran
+weiter der **systemd-Timer** (§C5), ohne den nach dem Deploy keine Mail rausgeht.
 
-**Nach dem Review kommt 7.2: ein Commit je Befund, mit Verweis auf die Nummer.** Bis dahin ist
-absichtlich nichts behoben (Regel 3). Wer damit anfängt, fängt bei **R4-1** an -- das ist der einzige
-Befund, der Stimmen verfälscht, und der Vorschlag dazu ist klein: die Token-Abfrage in den
-`atomic()`-Block ziehen und den Token **zuerst** löschen, dann an `deleted == 1` entscheiden, ob die
-Stimme gebucht wird. Ein Regressionstest mit zwei Threads an einer Barriere gehört dazu; die Sonde
-dafür liegt in [review_probes.py](review_probes.py).
+**Eine Zahl aus 7.2 gehört dir vorgelegt:** `VOTE_MAX_CHOICES` = 100 (Befund R7-1, Commit `3e89f0c`)
+ist von mir gewählt, nicht von dir -- anders als die 150 für Empfänger. Real vorkommende Umfragen
+haben eine Handvoll Antwortmöglichkeiten; über 1 000 wäre eine multiple_choice-Umfrage ohnehin nicht
+mehr abstimmbar. Änderbar über `DEMOCKRAZY_MAX_CHOICES`.
+
+**Was das Review *nicht* abgedeckt hat, steht in review.md §7** -- vor allem die **Testsuite als
+Text** (das Urteil über sie stützt sich auf die Mutationssonde, nicht auf eine Lektüre aller Tests)
+und der **Branch als Verlauf** (geprüft sind der Ist-Zustand und der Gesamtdiff, nicht Commit für
+Commit). Wer dort weitermacht, findet die Sonden in [review_probes.py](review_probes.py).
 
 Zwei Beobachtungen aus dem Lauf, die über die Einzelbefunde hinausgehen:
 **das Gefährliche stand nicht in der Logik, sondern an ihren Rändern** (Doppelklick, Zeilenumbruch im

@@ -1216,23 +1216,28 @@ Zustellbericht – und der braucht die Entscheidung aus **F8** (Anonymität).
 
 ## 14. Phase 7 – Umfassendes Review
 
-> **Läuft, seit der User es am 2026-08-04 freigegeben hat.** Befunde und Negativraum stehen in
-> [review.md](review.md), Sonden in [review_probes.py](review_probes.py), Punkte außerhalb des Repos
-> in [to-check.md](to-check.md) (neu: A4, A5, D5, D6).
+> **7.1 gelaufen und 7.2 abgearbeitet** (freigegeben am 2026-08-04). Befunde, Negativraum und das
+> Ergebnis je Befund stehen in [review.md](review.md), Sonden in
+> [review_probes.py](review_probes.py), Punkte außerhalb des Repos in [to-check.md](to-check.md)
+> (neu aus dem Review: A4, A5, D5, D6).
 >
-> **Zwischenstand: 23 Befunde** -- 1 kritisch, 2 hoch (einer davon hängt an einer Frage), 6 mittel,
-> 8 niedrig, 6 Notiz. Die drei, die zählen:
-> **R4-1** (kritisch) zwei gleichzeitige POSTs mit demselben Token ergeben **zwei Stimmen** -- 4 von
-> 100 Runden gemessen, beide Antworten 302; die Token-Abfrage steht außerhalb der Transaktion.
-> **R5-1** (hoch) ein Zeilenumbruch im Umfragetitel macht die erste Warteschlangenzeile
-> unversendbar, `BadHeaderError` wird nicht gefangen, und damit steht der Versand **aller** Umfragen
-> dauerhaft still.
+> **24 Befunde** -- 1 kritisch, 2 hoch (einer davon hängt an einer Frage), 6 mittel, 8 niedrig,
+> 7 Notiz. **21 sind behoben**, in 12 Commits mit der Nummer im Betreff. Die drei offenen liegen
+> außerhalb dieses Repos: **R2-1** (Staff-Konto in Prod? A4), **R8-1** (SMTP-Kennwort von 2023 noch
+> gültig? A5) und **R9-3** (Verfahrenshinweis beim Rollback, D5).
+>
+> Die drei, die zählten:
+> **R4-1** (kritisch) zwei gleichzeitige POSTs mit demselben Token ergaben **zwei Stimmen** -- 4 von
+> 100 Runden gemessen. Behoben in `a1b5117`, indem die Löschung des Tokens zur Bedingung der Buchung
+> wurde; danach **0 von 100**.
+> **R5-1** (hoch) ein Zeilenumbruch im Titel machte die erste Warteschlangenzeile unversendbar und
+> legte damit den Versand **aller** Umfragen still. Behoben in `af30fa5`, an beiden Enden.
 > **R2-1** (hoch?) `/admin/` ist geroutet und legt Tokens offen und Stimmzahlen editierbar hin --
-> ob ein Staff-Konto existiert, ist von hier nicht messbar (to-check A4).
+> **offen**, weil von hier nicht messbar ist, ob ein Staff-Konto existiert.
 > **Was noch nicht geprüft ist, steht in review.md §7** -- vor allem die Suite als Text und der
-> Branch als Verlauf (80 Commits einzeln).
+> Branch als Verlauf (Commit für Commit).
 
-- [ ] **7.1 Review durchführen.** Umfang ist **der ganze Branch (`master..HEAD`) *und* der
+- [x] **7.1 Review durchführen.** ✅ Gelaufen; Befunde in review.md §5, Negativraum in §6. Umfang ist **der ganze Branch (`master..HEAD`) *und* der
       Ist-Zustand** – ein Diff zeigt nicht, was jemand hätte ändern müssen und nicht getan hat, ein
       Blick nur auf den Endzustand nicht, was unterwegs eingeschleppt wurde.
       Geprüft wird in dieser Reihenfolge: **Anonymität, Auth, Injection, Nebenläufigkeit,
@@ -1250,9 +1255,15 @@ Zustellbericht – und der braucht die Entscheidung aus **F8** (Anonymität).
       „nicht hingesehen" zu unterscheiden.
       **Die Testsuite ist Prüfgegenstand, nicht Prüfinstanz** – nach K4 (die erste Phase-0-Sonde
       meldete Erfolg auf zwei identischen Tracebacks) ist „die Tests sind grün" kein Argument.
-- [ ] **7.2 Befunde abarbeiten.** Ein Commit je Befund, mit Verweis auf die Nummer in review.md.
-      Erst nach 7.1, damit die Liste vollständig ist, bevor sie sich bewegt.
-      Was außerhalb dieses Repos liegt, wandert nach [to-check.md](to-check.md) statt in einen Commit.
+- [x] **7.2 Befunde abarbeiten.** ✅ **21 von 24 behoben**, ein Commit je Befund bzw. Befundpaar mit
+      der Nummer im Betreff (`a1b5117` … `9bf0fc7`). Jede Behebung ist gegengeprüft: alter Zustand
+      wiederhergestellt, neuer Test gefahren -- ein Test, der auch ohne die Behebung besteht, wäre
+      K4. Die Suite ist dabei von 215 auf **253** Tests gewachsen, und alle fünf blinden Flecken der
+      Mutationssonde sind zu.
+      **Offen und nicht hier lösbar:** R2-1, R8-1 (beide brauchen eine Antwort, to-check A4/A5) und
+      R9-3 (Verfahrenshinweis, D5).
+      **Eine Zahl braucht deinen Blick:** `VOTE_MAX_CHOICES` = 100 aus R7-1 ist von mir gesetzt, nicht
+      von dir -- anders als die 150 für Empfänger.
 
 ## 13. Reihenfolge / Abhängigkeiten
 
@@ -1264,12 +1275,13 @@ Phase 3  Code-Modernisierung                                          ✅ vollst
 Phase 4  Frontend                                                     ✅ vollständig
 Phase 5  Deployment & CI                                              ✅ vollständig (5.1–5.5)
 Phase 6  Dokumentation                                                ✅ vollständig
-Phase 7  Umfassendes Review (§14)                                     ⏳ wartet auf das
-                                                                        Startsignal des Users
+Phase 7  Umfassendes Review (§14)                                     ✅ 7.1 gelaufen, 7.2 mit
+                                                                        21 von 24 Befunden behoben
 
 offen:
-  7.1  Das Review -- der einzige offene Punkt, der **nicht** auf eine Antwort von außen wartet,
-       sondern auf ein Startsignal. Umfang und Vorgehen in review.md.
+  7.2  Drei Befunde, die alle **außerhalb dieses Repos** liegen: R2-1 (Staff-Konto? A4), R8-1
+       (SMTP-Kennwort von 2023? A5), R9-3 (Rollback-Verfahren, D5). Dazu die noch nicht geprüften
+       Teile aus review.md §7 -- die Suite als Text und der Branch Commit für Commit.
   2.7  TLS-Hardening – **zum größten Teil gegenstandslos**, seit der Proxy vorliegt: `forceSSL`
        und HSTS stehen dort schon, in Django wären sie doppelt. Es bleibt (a) die Restfrage aus
        **F15** (`X-Forwarded-Proto`, und damit das CSRF-Rätsel), (b) der widersprüchliche
@@ -1291,8 +1303,9 @@ erledigt in Phase 3: 3.1 Forms · 3.2 create()/manage() · 3.3 vote() · 3.4 Mai
   └─ 3.4 ist die Schnittstelle für ZIEL 2 (Batch-Mails, nach Spec)
 ```
 
-**Nächster Schritt: das Review (§14), sobald der User es freigibt.** Es ist der einzige offene
-Punkt, der nicht auf eine Antwort von außen wartet.
+**Nächster Schritt: die drei Fragen aus [to-check.md](to-check.md) A1, A4, A5** -- alles andere im
+Repo ist abgearbeitet. Wer weiterprüfen will, findet in review.md §7, was der Review-Lauf **nicht**
+abgedeckt hat.
 
 **Für Ziel 1 ist im Repo nichts offen.** Was von 2.7 übrig ist, gehört in den Proxy und
 braucht F15. Danach ist **Ziel 2** dran – die Problembeschreibung steht in §11, die Anonymitätsfrage
