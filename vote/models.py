@@ -123,7 +123,13 @@ class OutgoingMail(models.Model):
 
     **Was hier absichtlich *nicht* steht, und das ist der wichtigste Teil (F8, Plan §11.4):**
 
-    * **Keine Poll-Kennung.** Eine Zeile sagt für sich nicht, um welche Abstimmung es geht.
+    * **Keine Poll-Kennung als Spalte** -- kein Fremdschlüssel, nichts, worüber sich Zeilen
+      gruppieren lassen. **Der gerenderte Text enthält den Abstimmungslink und damit den
+      `identifier`**, und der `recipient` steht daneben: solange die Zeile existiert, sagt sie
+      „diese Adresse ist zu dieser Umfrage eingeladen und hat diesen Token". Das ist die mit F8
+      bewertete Einbuße (Plan §11.4) und der Grund, warum eine zugestellte Zeile *gelöscht* wird --
+      hier stand vorher „eine Zeile sagt für sich nicht, um welche Abstimmung es geht", was für die
+      Spalten gilt und für die Zeile nicht (Review R1-1).
     * **Kein Zeitstempel.** Er wäre ein Fingerabdruck: gleiche Sekunde = gleiche Umfrage. Gebraucht
       wird er nicht, die Reihenfolge steckt in der ID und das Aufgeben in `attempts`.
     * **Kein `sent`-Flag und keine Historie.** Eine zugestellte Zeile wird **gelöscht**. Nach dem
