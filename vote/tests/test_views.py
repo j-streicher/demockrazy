@@ -403,6 +403,40 @@ class TestTokenLeavesTheUrl:
         response = client.get(f"/vote/{poll.identifier}/", {"token": ""}, follow=True)
         assert response.context["token"] == ""
 
+    @pytest.mark.parametrize(
+        "wert,label",
+        [
+            ("a\r\nSet-Cookie: admin=1", "Steuerzeichen"),
+            ("\u2713", "jenseits von Latin-1"),
+            ("x" * 300, "zu lang"),
+            ("kein token!", "Sonderzeichen"),
+        ],
+    )
+    def test_a_token_that_cannot_be_one_is_treated_as_none(self, client, create_poll, wert, label):
+        """R3-1: der Wert ging ungeprüft in `set_cookie()` -- zwei dieser Fälle waren ein 500.
+
+        Ein Steuerzeichen wirft in `http.cookies` einen `CookieError`, ein Zeichen jenseits von
+        Latin-1 erzeugt einen Set-Cookie-Header, den WSGI nicht führen darf. Gemeinsame Antwort:
+        was kein Token sein kann, ist keiner -- also derselbe Weg wie bei `?token=` ohne Wert.
+        """
+        poll, _ = create_poll()
+        strict = Client(raise_request_exception=True)
+        response = strict.get(f"/vote/{poll.identifier}/", {"token": wert})
+
+        assert response.status_code == 302, label
+        cookie = response.cookies.get(TOKEN_COOKIE_NAME)
+        assert cookie is not None and cookie.value == "", (
+            f"{label}: statt eines Cookies mit krummem Wert muss ein vorhandener gelöscht werden"
+        )
+        for teil in str(cookie).splitlines():
+            teil.encode("latin-1")  # WSGI-Anforderung; wirft sonst UnicodeEncodeError
+
+    def test_a_real_token_still_moves(self, client, create_poll):
+        """Die Gegenprobe zur Prüfung: der echte Wert kommt unverändert im Cookie an."""
+        poll, tokens = create_poll()
+        response = client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]})
+        assert response.cookies[TOKEN_COOKIE_NAME].value == tokens[0]
+
     def test_the_page_varies_on_cookie(self, client, create_poll):
         """Ein gemeinsamer Cache darf die Seite eines Wählers nicht an den nächsten ausliefern."""
         poll, _ = create_poll()
