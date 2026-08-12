@@ -358,6 +358,25 @@ class TestSendPending:
         assert mail.send_pending(sleep=sleep)["batches"] == 2
         assert calls == [7]
 
+    def test_the_pacing_values_are_the_ones_the_user_asked_for(self):
+        """R10-3: die Taktung war konfigurierbar, aber ihre *Werte* nagelte nichts fest.
+
+        30er Batches mit 2 s Pause sind vom User vorgegeben, und Produktion benutzt genau diese
+        Defaults -- die Tests darüber übergeben `batch_size`/`pause` aber immer ausdrücklich, also
+        blieb eine Änderung an den Defaults unbemerkt (gemessen per Mutation: 30 -> 1000 fiel der
+        ganzen Suite nicht auf).
+        """
+        from django.conf import settings as django_settings
+
+        assert (django_settings.VOTE_MAIL_BATCH_SIZE, django_settings.VOTE_MAIL_BATCH_PAUSE) == (
+            30,
+            2,
+        ), (
+            "Vom User vorgegeben (Plan §11.7). Wenn das absichtlich anders sein soll, gehört die "
+            "Begründung in die Notizen -- und wenn dieser Test lokal fehlschlägt, ist vermutlich "
+            "DEMOCKRAZY_MAIL_BATCH_SIZE/_PAUSE in der Umgebung gesetzt."
+        )
+
     def test_a_silent_mail_server_cannot_block_forever(self):
         """`EMAIL_TIMEOUT` muss endlich sein. Djangos Default ist `None`, also unbegrenzt.
 
