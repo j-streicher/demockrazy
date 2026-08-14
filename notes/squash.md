@@ -18,18 +18,21 @@ genommen wurde, steht in §6.
 
 | Messung | Wert |
 |---|---|
-| Commits vorher / nachher | 111 / 43 |
-| davon **reine Notiz-Commits** vorher | **58** (52 %) |
+| Commits vorher / nachher | 111 / 43 (plus den Notiz-Commit: 44) |
+| davon **reine Notiz-Commits** vorher / nachher | **49** (44 %) / **5** |
+| Commits, die Code anfassen, vorher / nachher | 62 / 39 |
 | `notes/plan.md` war angefasst von | 44 Commits |
 | `notes/handover.md` | 35 |
-| Verweise auf Branch-Commits per Hash (Notizen, CI) | 92 Stellen, 26 Commits – alle nachgezogen |
+| Verweise auf Branch-Commits per Hash (Notizen, CI) | 92 Stellen, 25 Commits – alle nachgezogen |
 | Merge-Commits | 0, der Branch ist linear |
 | Review-Kommentare am PR, die der Force-Push verwaisen ließe | 0 (`gh pr view 1`) |
 
-Die Hälfte des Verlaufs war Buchhaltung: „check off 3.4", „record F17", „refresh the test count".
-Diese Commits sind einzeln wertlos und zusammen mit dem Code-Commit, den sie begründen, genau
-richtig. **Da kam die Reduktion her, nicht bei den Code-Commits** – von 53 Code-Commits sind 41
-übrig, und zusammengefasst wurde dort nur, wo zwei Commits *eine* Änderung in zwei Teilen waren.
+*(Alle Zahlen hier mit Python gemessen, nicht mit `grep` – warum, steht in §7.)*
+
+**49 der 111 Commits waren reine Buchhaltung**: „check off 3.4", „record F17", „refresh the test
+count". Sie sind einzeln wertlos und zusammen mit dem Code-Commit, den sie begründen, genau richtig.
+**Da kam die Reduktion her, nicht bei den Code-Commits** – von 62 auf 39, und zusammengefasst wurde
+dort nur, wo zwei Commits *eine* Änderung in zwei Teilen waren.
 
 **Die 27 Review-Fixes behalten ihre 1:1-Abbildung.** `review.md` führt eine Tabelle mit einer Zeile
 je Befund und dem Hash des behebenden Commits; sie zeigt weiterhin auf 16 verschiedene Commits.
@@ -64,7 +67,7 @@ Review als K5/K6 führt (Prosa beschreibt einen Stand, den es nicht mehr gibt), 
 verursacht. Alle nachgezogen, mit der Tabelle in §5 als Abbildung:
 
 - Die Befundtabelle in `review.md` (27 Zeilen mit Hash) und die Statusblöcke.
-- `4e15012` → `90ab23b`, 15-mal referenziert, davon einmal in `.github/workflows/checks.yml`.
+- `4e15012` → `90ab23b`, 16-mal referenziert, davon einmal in `.github/workflows/checks.yml`.
 - Commitzahlen und -bereiche, die einen Review-Umfang beschreiben („80 Commits", „die sechs Commits
   nach 7.2"): als Messung an einem Tag markiert statt umgeschrieben, mit Verweis auf den Tag.
 - Die Stelle in `review.md`, die erklärt, warum ein Hash nicht im eigenen Commit stehen kann: das
@@ -206,3 +209,37 @@ Fast hätte ich eine richtige Zahl „korrigiert".
 
 Der Preis dieser Runde: alle 43 Hashes haben sich noch einmal geändert, also war die Abbildung in §5
 und die 92 Verweise aus §3 ein zweites Mal nachzuziehen -- mechanisch, mit derselben Abbildung.
+
+**Eine Ungenauigkeit bleibt bewusst stehen:** der Shuffle-Commit korrigiert nebenbei einen der vier
+Kommentare aus R14-2 (den `deliver()`/`on_commit`-Satz), und seine Nachricht sagt das nicht. Die
+Zeile in der Befundtabelle nennt jetzt beide Commits und welche Stelle wo behoben ist -- das kostet
+kein weiteres Umschreiben der History für einen Satz.
+
+## 8. Und dann war das Messwerkzeug selbst falsch
+
+Die Zahl „58 reine Notiz-Commits" in §1 stand hier zwei Runden lang und war falsch; es sind **49**.
+Nicht verrechnet, sondern falsch gemessen: **`grep` ist in dieser Agent-Shell eine Funktion**, die
+auf einen `ugrep`-Wrapper mit `--ignore-files --hidden -I --exclude-dir=…` umleitet, und der
+antwortet auf Pipe-Eingaben mit anderen Exit-Codes als coreutils. Nachgestellt:
+
+```bash
+printf 'README.md\nnotes/x.md\n' | grep -qv '^notes/'   # exit 1  <- die Shell-Funktion
+printf 'README.md\nnotes/x.md\n' | /usr/bin/grep -qv '^notes/'   # exit 0  <- richtig
+```
+
+Die Zählschleife fragte `if ! echo "$files" | grep -qv '^notes/'` -- also „keine Datei außerhalb von
+`notes/`". Mit dem falschen Exit-Code wurden neun Commits als reine Notiz-Commits gezählt, die
+`README.md`, `vote/tests/mailtrap.py` oder `demockrazy/checks.py` anfassen. Aufgefallen ist es nur,
+weil dieselbe Frage später in Python gestellt wurde und 49 statt 58 herauskam; ohne diese zweite
+Messung stünde die falsche Zahl weiter da.
+
+Deshalb sind alle Zahlen in §1 und §3 in Python nachgemessen. Korrigiert wurden: 58 → 49 reine
+Notiz-Commits, „von 53 Code-Commits sind 41 übrig" → 62 auf 39, „26 Commits" → 25 referenzierte
+Commits, „15-mal" → 16-mal für den k8s-Commit. Unverändert bestätigt: 92 Verweise, 44/35 Commits auf
+plan.md/handover.md, 29 Befundzeilen mit 27 Hashes auf 16 Commits, sechs CI-Schritte.
+
+**Die Lektion ist die von K4, eine Ebene höher:** nicht nur der Code unter dem Test kann falsch
+sein, sondern das Werkzeug, mit dem geprüft wird. Es ist das zweite Mal in diesem Projekt -- das erste Mal
+war der ausgelaufene `cd`, der zwei HTML-Dumps aus demselben Zustand zog (review.md §8.1). Wer eine
+Zahl aufschreibt, sollte sie mit zwei verschiedenen Werkzeugen bekommen haben, oder das Werkzeug an
+einem Fall prüfen, dessen Antwort er kennt.

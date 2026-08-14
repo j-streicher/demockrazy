@@ -141,7 +141,7 @@ benannten Ausnahme: bei R2-1 ist die Oberfläche gemessen, die Existenz von Kont
 | R13-1 | niedrig | Alle sechs Seiten heißen „Demockrazy" -- `{% block title %}` wird von keiner Vorlage gefüllt | [base.html:15](../vote/templates/base.html:15) | `d4d0942` -- alle sechs Vorlagen füllen den Block, im Browser nachgesehen |
 | R13-2 | niedrig | Formularfehler erscheinen in Body-Farbe als Aufzählung, während dieselbe Anwendung Abstimmungsfehler rot zeigt | [index.html:24](../vote/templates/vote/index.html:24) | `d4d0942` -- `.errorlist` in `main.css`; Kontrast gemessen 4,53:1 (AA knapp bestanden) |
 | R14-1 | niedrig | „Total Voters: **None**" bei Alt-Umfragen ohne `num_tokens` | [results.html:26](../vote/templates/vote/results.html:26) | `d4d0942` -- `amount_tokens_total` |
-| R14-2 | niedrig · K5 | Vier Kommentare beschreiben einen überholten Stand (`deferred`-Schlüssel, `deliver()`/`on_commit`, „Bootstrap 3", falscher Pfad in `PROVENANCE`) | mail.py:165 + :273, index.html:4, chartjs/PROVENANCE.md | `aa2beb9` + `421816f` -- alle vier Stellen |
+| R14-2 | niedrig · K5 | Vier Kommentare beschreiben einen überholten Stand (`deferred`-Schlüssel, `deliver()`/`on_commit`, „Bootstrap 3", falscher Pfad in `PROVENANCE`) | mail.py:165 + :273, index.html:4, chartjs/PROVENANCE.md | `aa2beb9` (drei Stellen) + `421816f` (der `deliver()`/`on_commit`-Satz, dort nebenbei -- seine Nachricht sagt es nicht) |
 | R15-1 | niedrig | Die README beschreibt die Suite von vor 3.8 (`xfail(strict=True)`), nennt vier `DEMOCKRAZY_*`-Variablen nicht und wiederholt den Fehler aus R1-1 | [README.md:52](../README.md:52) | `aa2beb9` -- xfail, Variablenliste, Warteschlangen-Satz, `--fail-level` |
 | R5-2 | Notiz | Kein Wächter in `while True:` -- eine Mutation schickte die Suite in eine Endlosschleife, die die `flock` für immer hält | [mail.py:194](../vote/services/mail.py:194) | `29ba658` -- Wächter auf die vorderste `pk` |
 | R6-2 | Notiz | Die Seite mit dem Token trägt kein `Cache-Control` (nur `Vary: Cookie`) | [views.py:79](../vote/views.py:79) | `0dc0ad4` -- `@never_cache` auf `poll()` und `manage()` |
@@ -1411,7 +1411,8 @@ smtpd` → `ModuleNotFoundError`, die Begründung im Docstring stimmt.
 
 **Behauptungen der neuen Notizen.** `mailtrap` wird von pytest nicht gesammelt (`--collect-only`:
 0 Treffer, 262 Tests). `demockrazy/local_settings.py` ist ignoriert (`git check-ignore -v` nennt
-`demockrazy/.gitignore:1`). Die Statuszeile „14 Commits" stimmt (14 Commits nennen eine Befundnummer).
+`demockrazy/.gitignore:1`). Die Statuszeile „14 Commits" stimmte damals (heute nennen 16 Commits eine
+Befundnummer, und die Statuszeile sagt 16).
 Die Suite ist stabil: zwei Läufe hintereinander je 262.
 
 **Ein Fehler in meiner eigenen Sonde, protokolliert weil er die Klasse zeigt.** Der erste
