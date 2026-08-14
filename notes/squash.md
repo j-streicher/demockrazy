@@ -42,8 +42,8 @@ zusammen.
 ## 2. Verfahren
 
 Alle Gruppen sind **zusammenhängend** – kein Commit wurde umsortiert. Deshalb hat jeder neue Commit
-den Baum eines alten, und „jeder Commit ist grün wie vorher" gilt unverändert weiter. Konflikte
-waren dadurch ausgeschlossen, nicht bloß unwahrscheinlich:
+den Baum eines alten, und „jeder Commit verhält sich wie sein Original" gilt unverändert weiter.
+Konflikte waren dadurch ausgeschlossen, nicht bloß unwahrscheinlich:
 
 ```bash
 git tag pre-squash-2026-08-14 && git push origin pre-squash-2026-08-14
@@ -59,6 +59,14 @@ Autorendaten sind erhalten, deshalb reicht der Verlauf weiter vom 2026-08-03 bis
 **Geprüft, nicht geglaubt:** `git diff pre-squash-2026-08-14 HEAD` leer,
 `git rev-list --count master..HEAD` = 43, und die volle lokale Schleife grün: `ruff format --check`,
 `ruff check`, `check --fail-level WARNING`, `makemigrations --check`, `pytest` → **272 passed**.
+
+„Jeder Commit ist grün" war zunächst ein Argument (gleicher Baum, also gleiches Ergebnis) und ist
+jetzt gemessen: `pytest` in einem Worktree an **jedem** Commit des Branches. 44 von 45 grün, mit
+**einer Ausnahme, die im Original genauso stand**: der Commit, der die Testsuite anlegt, meldet in
+einem frischen Checkout `49 failed, 7 passed, 9 xfailed` -- weil `migrations/` zu diesem Zeitpunkt
+noch gitignoriert ist. Genau diese Zahl nennt seine eigene Nachricht („on a fresh clone 49 of 56
+fail"), und der nächste Commit committet die Migrations. Ab dort ist jeder Commit grün, mit
+wachsender Testzahl bis 272.
 
 ## 3. Nacharbeit, die dazugehörte
 
@@ -239,7 +247,44 @@ Commits, „15-mal" → 16-mal für den k8s-Commit. Unverändert bestätigt: 92 
 plan.md/handover.md, 29 Befundzeilen mit 27 Hashes auf 16 Commits, sechs CI-Schritte.
 
 **Die Lektion ist die von K4, eine Ebene höher:** nicht nur der Code unter dem Test kann falsch
-sein, sondern das Werkzeug, mit dem geprüft wird. Es ist das zweite Mal in diesem Projekt -- das erste Mal
-war der ausgelaufene `cd`, der zwei HTML-Dumps aus demselben Zustand zog (review.md §8.1). Wer eine
-Zahl aufschreibt, sollte sie mit zwei verschiedenen Werkzeugen bekommen haben, oder das Werkzeug an
-einem Fall prüfen, dessen Antwort er kennt.
+sein, sondern das Werkzeug, mit dem geprüft wird. Es ist das zweite Mal in diesem Projekt -- das
+erste Mal war der ausgelaufene `cd`, der zwei HTML-Dumps aus demselben Zustand zog (review.md §8.1).
+Und beim Nachmessen für §9 kam ein drittes Mal dazu: eine `sed`-Extraktion mit gierigem `.*` schnitt
+aus „272 passed" ein „2 passed", also aus jeder Zahl die erste Stelle. Aufgefallen, weil „2 passed"
+für HEAD offensichtlich falsch war -- eine Zahl, deren richtigen Wert man kennt, ist der billigste
+Test für das Werkzeug. Wer eine Zahl aufschreibt, sollte sie mit zwei verschiedenen Werkzeugen
+bekommen haben, oder das Werkzeug an einem Fall prüfen, dessen Antwort er kennt.
+
+## 9. Und der Code selbst?
+
+Das Umschreiben hat **keine Codezeile angefasst**. Gemessen statt behauptet:
+`git diff pre-squash-2026-08-14 HEAD -- . ':(exclude)notes'` ergibt genau eine Zeile Unterschied,
+den Hash in einem Kommentar von `.github/workflows/checks.yml`. Der geprüfte Zustand und der
+gepushte Zustand sind dieselben.
+
+Weil das leicht zu behaupten und schwer zu glauben ist, danach noch einmal von vorn gemessen:
+
+| Prüfung | Ergebnis |
+|---|---|
+| `nix flake check` | grün |
+| `ruff format --check`, `ruff check` | grün |
+| `check --fail-level WARNING`, `makemigrations --check` | keine Befunde, keine Drift |
+| `pytest` | **272 passed** |
+| `pytest` an jedem der 45 Commits | 44 grün, die eine Ausnahme oben erklärt |
+| R4-1-Sonde, 100 Runden mit echten Threads | **0 von 100** Doppelstimmen (vor dem Fix: 4 von 100) |
+
+Und die stärkste Prüfung, die dieses Projekt kennt, noch einmal gefahren: **sieben Mutationen, alle
+sieben von der Suite bemerkt** -- darunter die vier, die im ersten Review-Lauf *unbemerkt*
+durchgingen und deren Lücken 7.2 geschlossen hat.
+
+| Mutation | Folge |
+|---|---|
+| Token-Löschung ist nicht mehr die Bedingung (R4-1) | 18 Tests rot |
+| `@vary_on_cookie` entfernt (R10-1) | 1 rot, in `test_views.py` |
+| `SystemRandom` → `random.choice` (R10-2) | 1 rot, in `test_models.py` |
+| Batch-Default 30 → 1000 (R10-3) | 1 rot, in `test_mail_service.py` |
+| `SMTPResponseException` aus dem `except` (R10-4) | 1 rot -- der Socket-Test, und nur er |
+| Token-Shuffle entfernt (R1-2) | 1 rot |
+| Zeitfenster des Fake-Servers setzt nie zurück (R15-2) | 2 rot, in `test_mailtrap.py` |
+
+Der Arbeitsbaum war nach jeder Mutation wieder sauber (`git status --porcelain` leer).
