@@ -15,6 +15,7 @@ from django.core.mail.backends.base import BaseEmailBackend
 
 from vote.models import OutgoingMail, Poll, Token
 from vote.services import mail
+from vote.tests.mailtrap import MailTrap
 
 # Wortlaut vor 3.4, aus settings.VOTE_ADMIN_MAIL_SUBJECT / VOTE_ADMIN_MAIL_TEXT.
 CREATOR_SUBJECT = "[democrazy] Poll 'Testabstimmung' created"
@@ -510,3 +511,33 @@ class TestTheRunCannotSpin:
         enqueue(7)
         summary = mail.send_pending(batch_size=2, pause=0)
         assert summary == {"sent": 7, "given_up": 0, "batches": 4, "remaining": 0}
+
+
+@pytest.mark.django_db
+class TestARealServerThatThrottles:
+    """R16-1: the one test here that speaks SMTP over a socket, against `mailtrap.MailTrap`.
+
+    Every other test on this page raises the rejection by hand through `CountingBackend` -- and it
+    raised the wrong exception. Measured through Django's own SMTP backend, a server that throttles
+    answers `450` to DATA, and smtplib turns that into `SMTPDataError`: `smtp_code` is set and there
+    is no `recipients`. `CountingBackend` only ever produced the `SMTPRecipientsRefused` form, so
+    the branch of `mail._smtp_code` that production actually takes was covered by nothing -- setting
+    it to `None` left all 261 tests green. The cost of that branch failing is not cosmetic: without
+    a code the `450` counts as permanent and the throttled invitation is dropped instead of retried.
+    """
+
+    def test_a_real_450_leaves_the_row_for_the_next_run(self, settings):
+        with MailTrap(limit=1) as trap:
+            settings.EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+            settings.EMAIL_HOST = "127.0.0.1"
+            settings.EMAIL_PORT = trap.port
+            settings.EMAIL_USE_TLS = False
+            settings.VOTE_SEND_MAILS = True
+            enqueue(3)
+
+            summary = mail.send_pending(pause=0)
+
+        assert trap.accepted == ["a0@example.org"], "the first one got through"
+        assert trap.throttled == ["a1@example.org"], "and the run stopped at the second"
+        assert summary == {"sent": 1, "given_up": 0, "batches": 1, "remaining": 2}
+        assert OutgoingMail.objects.get(recipient="a1@example.org").attempts == 1

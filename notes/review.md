@@ -1,6 +1,6 @@
 # Umfassendes Review
 
-> **Status: 7.1 gelaufen, 7.2 abgearbeitet.** 24 Befunde, davon **22 behoben** in 13 Commits --
+> **Status: 7.1 gelaufen, 7.2 abgearbeitet.** 25 Befunde, davon **23 behoben** in 14 Commits --
 > ein Commit je Befund bzw. je Befundpaar, die Nummer steht im Betreff. **R2-1 ist zu**: die
 > Django-Hälfte behoben (`5adb612`), und der User beschränkt `/admin/` am Proxy aufs Intranet, was
 > das fehlende Login-Rate-Limit gegenstandslos macht. Offen sind damit **R8-1** (der User prüft das
@@ -14,6 +14,7 @@
 > 80 Commits über `master`. **Nach 7.2:** `pytest` → **253 passed**,
 > `check --fail-level WARNING` → no issues, `makemigrations --check` → No changes, ruff sauber.
 > **Nach dem Nachzug von R2-1:** `pytest` → **261 passed**.
+> **Nach R10-4** (Nachtrag, gefunden nach 7.2): `pytest` → **262 passed**.
 
 ---
 
@@ -138,6 +139,7 @@ benannten Ausnahme: bei R2-1 ist die Oberfläche gemessen, die Existenz von Kont
 | R8-1 | Notiz | sops-Geheimnisse von 2023 (`email_password`) stehen weiter in der History -- gelöscht ≠ rotiert | `master:k8s/…/secrets.sops.yaml` | **offen** -- Frage an den User (A5); Rotation statt History umschreiben |
 | R9-3 | Notiz | Rückwärts-Migration hinter `0004` wirft die Warteschlange weg → Tokens ohne Einladung | [0004](../vote/migrations/0004_outgoingmail.py) | **offen als Verfahren** -- to-check.md D5, kein Codeeingriff |
 | R10-3 | Notiz · K4 | Drei weitere unbemerkte Mutationen: Taktungs-Defaults (30/2) ungeprüft, `multiple_choice`-Diagrammdaten ungeprüft | vote/tests/ | `eff438f` -- Taktungswerte 30/2 und das multiple_choice-Diagramm |
+| R10-4 | **Mittel** · K4 | Das Mail-Double erzeugt den `450` in der falschen smtplib-Form — der Zweig, den ein echter drosselnder Server trifft, ist von keinem Test gedeckt | [test_mail_service.py:234](../vote/tests/test_mail_service.py:234), [mail.py:106](../vote/services/mail.py:106) | siehe unten |
 | R11-1 | Notiz | `multiple_choice`: ein `UPDATE` je Choice **unter der Schreibsperre** (17 Abfragen bei 10 Choices) | [views.py:194](../vote/views.py:194) | `5ddd491` -- ein `UPDATE` per `filter(pk__in=...)` |
 | R14-3 | Notiz | `get_amount_used_unused()` viermal mit demselben Dreizeiler entpackt | [views.py:100](../vote/views.py:100) | `9bf0fc7` -- ein `_token_state(poll)`-Helfer, kein Verhaltens- und kein Abfrageunterschied |
 
@@ -747,6 +749,51 @@ Das ist eine belastbare Suite; die fünf Lücken sind benannt, nicht der Normalf
 
 **Vorschlag:** je ein Test für die zwei Punkte oben. Während des Reviews nicht getan (Regel 3), **umgesetzt in 7.2: `eff438f`**.
 
+### R10-4 · Das Mail-Double lehnt in der falschen Form ab — der Drosselungs-Zweig ist ungedeckt
+
+*(Nachtrag, gefunden nach 7.2 bei der Frage, wo der handbetriebene Fake-Mailserver hingehört.)*
+
+**Schwere:** Mittel
+**Nachweis:** **gemessen**, dreifach.
+
+(a) Was ein echter drosselnder Server durch Djangos SMTP-Backend auslöst — Sonde gegen `mailtrap`
+mit `limit=1`:
+
+```
+message 1: accepted
+message 2: smtplib.SMTPDataError
+  smtp_code attr : 450
+  recipients attr: <absent>
+```
+
+(b) Was die Suite erzeugt: `SMTPRecipientsRefused({recipient: (450, …)})`, von Hand gebaut
+([test_mail_service.py:234](../vote/tests/test_mail_service.py:234)). `grep` über `vote/tests/` und
+`demockrazy/`: **kein** Test konstruiert die `SMTPResponseException`-Form.
+
+(c) Mutation von Zweig 1 in `_smtp_code` ([mail.py:106](../vote/services/mail.py:106)) auf
+`code = None` → **242 passed** (`vote/tests`), kein Test sagt etwas.
+
+**Befund:** `_smtp_code` deckt zwei Formen ab, weil smtplib zwei liefert: `SMTPResponseException`
+trägt `smtp_code`, `SMTPRecipientsRefused` ein `(code, text)`-Paar je Empfänger. Der Code ist damit
+richtig — aber `CountingBackend` liefert nur die **zweite**, und ein Server, der drosselt, antwortet
+auf `DATA`, nicht auf `RCPT TO`, also kommt in Produktion die **erste** an. Geprüft wird der Zweig,
+den Produktion *nicht* nimmt.
+
+**Folge:** ohne Zweig 1 ist `code` gleich `None`, der `450` fällt durch auf `PERMANENT` und die
+gedrosselte Einladung wird **verworfen statt wiederholt** — genau der Fehler, für dessen Verhinderung
+die Batch-Mechanik existiert. Im Log stand bei der Mutation zweimal „SMTP-Code None dauerhaft
+abgelehnt". Das ist keine hypothetische Lücke: es ist der Hauptfehlerfall des Versands (Ziel 2 des
+Plans), und er war nur gegen eine selbstgebaute Ausnahme geprüft. **K4 in Reinform** — 261 grüne
+Tests, und der Pfad, den der Mailserver von smtp.mayflower.de nimmt, war nicht darunter.
+
+**Vorschlag:** der handbetriebene Fake-Server wird zum Gegenüber der Suite —
+[vote/tests/mailtrap.py](../vote/tests/mailtrap.py), ein `ThreadingTCPServer` auf einem freien Port,
+abhängigkeitsfrei (`smtpd` ist seit Python 3.12 aus der Standardbibliothek). Dazu **ein** Test, der
+Djangos echtes `smtp.EmailBackend` dagegen laufen lässt und prüft, dass ein *echter* `450` als
+`TRANSIENT` landet und die Zeile mit `attempts = 1` liegen bleibt. Gegenprobe: dieselbe Mutation
+ergibt jetzt **1 failed, 242 passed**, und der Fehlschlag ist genau dieser Test. Der Handbetrieb
+bleibt: `python3 -m vote.tests.mailtrap 30`. **Umgesetzt in `8b238f6`.**
+
 ### R11-1 · Eine `multiple_choice`-Stimme kostet ein `UPDATE` pro Choice — in der Transaktion, die alle Schreiber serialisiert
 
 **Schwere:** Notiz
@@ -1060,10 +1107,19 @@ still wirkungslos. Nicht prüfbar von hier: das Modul selbst, der `preStart`, di
 Produktivcode und Settings, jede einzeln, Suite je Mutation gefahren. **21 wurden bemerkt, 5 nicht**
 (→ R10-1, R10-2, R10-3, R9-2). Das ist der belastbare Teil dieses Kriteriums, und er sagt: die Suite
 prüft Wirkung, nicht Implementierung, und sie sitzt fest an den Zusagen, auf die es ankommt.
-Die Fixtures sind ehrlich: `create_poll` geht über die echte View und liest die Tokens **aus den
-Mails**, nicht aus der Datenbank -- ein Test kann also nicht dadurch grün sein, dass er dieselbe
-Quelle zweimal befragt. Nicht geprüft: eine Zeilenabdeckung (kein `coverage` im Flake) -- die wäre
-hier auch das schwächere Werkzeug.
+`create_poll` geht über die echte View und liest die Tokens **aus den Mails**, nicht aus der
+Datenbank -- ein Test kann also nicht dadurch grün sein, dass er dieselbe Quelle zweimal befragt.
+Nicht geprüft: eine Zeilenabdeckung (kein `coverage` im Flake) -- die wäre hier auch das schwächere
+Werkzeug.
+
+**Korrektur (Nachtrag).** Dieser Absatz sagte „die Fixtures sind ehrlich" und stützte das auf
+`create_poll`. Für ein Fixture war es falsch: `CountingBackend` stellt die SMTP-Ablehnung in einer
+Form nach, die ein echter Server so nicht liefert (**R10-4**). Die Mutationssonde konnte das nicht
+finden, weil sie den Produktivcode verändert und die Doubles unangetastet lässt -- eine Mutation, die
+den ungedeckten Zweig trifft, sieht aus wie „21 von 26 bemerkt", und der Zweig zählt nirgends mit.
+**Die Lehre für das nächste Review:** ein Double gegen das echte Gegenüber halten, nicht nur den Code
+gegen das Double. Gefunden hat es die Frage, wo ein handbetriebener Fake-Server hingehört -- nicht die
+Sonde.
 
 **R11 Performance.** Abfragen pro Request gemessen: `index` 0, `poll` 3, `manage` 3, `results` 3,
 `vote(simple)` 8. **Kein N+1**: `results()` materialisiert `choices` einmal für Tabelle und
@@ -1133,7 +1189,13 @@ Damit der Stand nicht mit „fertig" verwechselt wird. In dieser Reihenfolge wü
    die Summe gegen den Upstream (dafür müsste ich die Archive ziehen).
 5. **Die Mail-Templates byteweise** gegen die früheren `VOTE_*`-Settings -- `test_mail_service.py`
    behauptet das, und ich habe die Behauptung nicht gegen `master` nachgerechnet.
-6. **Nicht messbar von hier** (Arbeitsregel 10, gehört nach [to-check.md](to-check.md)): NixOS-Modul,
+6. **Die übrigen Doubles gegen ihr echtes Gegenüber.** **R10-4** hat das für SMTP nachgeholt, und der
+   Befund war ein echter. Dieselbe Frage ist für die anderen Doubles offen und von der
+   Mutationssonde grundsätzlich nicht zu beantworten: `recorded_sleep` nimmt Pausen auf, statt zu
+   warten, und `locmem` überspringt die Verbindung ganz. (Der `flock`-Test ist **nicht** in dieser
+   Liste: er sperrt wirklich, per `fcntl` auf einem zweiten Deskriptor, und die Begründung steht im
+   Docstring.)
+7. **Nicht messbar von hier** (Arbeitsregel 10, gehört nach [to-check.md](to-check.md)): NixOS-Modul,
    Colmena-Repo, Proxy-vhost, Prod-Node, Backups -- und die drei Fragen, die dieser Lauf neu
    aufwirft: existiert in Prod ein Staff-Account (R2-1), ist das SMTP-Kennwort von 2023 noch gültig
    (R8-1), und liegt in der Prod-Warteschlange gerade etwas, das ein Rollback vernichten würde
