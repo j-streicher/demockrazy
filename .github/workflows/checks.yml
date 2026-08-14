@@ -2,7 +2,7 @@
 # What is green here is green locally -- and the other way around.
 #
 # The predecessor workflow only built Docker images for the k8s deployment that has been switched off,
-# and went away with 4e15012; nothing was ever tested or linted (notes/plan.md 5.3).
+# and went away with 90ab23b; nothing was ever tested or linted (notes/plan.md 5.3).
 name: checks
 
 # Every push on every branch, exactly one run. No `pull_request` trigger: for a PR from this

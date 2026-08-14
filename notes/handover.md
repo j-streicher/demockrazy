@@ -9,7 +9,7 @@ Mal grün. (Commitzahl absichtlich nicht genannt -- `git rev-list --count master
 mitwachsende Zahl in einem Kopf ist genau R15-4.)
 
 > **Das umfassende Review ist gelaufen und abgearbeitet** ([review.md](review.md), Plan §14).
-> **29 Befunde, 27 behoben** in 16 Commits (`a1b5117` … `57574b9`), jeder mit der Befundnummer im
+> **29 Befunde, 27 behoben** in 16 Commits (`ae4a744` … `973860d`), jeder mit der Befundnummer im
 > Betreff. Die Suite ist von 215 auf **272** Tests gewachsen.
 > **Es gab zwei Läufe:** der erste über den ganzen Branch (§5--§7 dort), der zweite über die Commits
 > danach (§8) -- weil zwischen ihnen 1 200 Zeilen Prosa, eine neue Datei und ein neuer Test
@@ -19,11 +19,11 @@ mitwachsende Zahl in einem Kopf ist genau R15-4.)
 >
 > **Der kritische Befund in einem Satz:** ein Doppelklick auf „Vote" ergab zwei Stimmen aus einem
 > Token, weil die Token-Abfrage *außerhalb* der Transaktion stand -- 4 von 100 Runden gemessen.
-> Behoben in `a1b5117`: die Löschung des Tokens ist jetzt die **Bedingung** für die Buchung, danach
+> Behoben in `ae4a744`: die Löschung des Tokens ist jetzt die **Bedingung** für die Buchung, danach
 > 0 von 100.
 >
 > **R2-1 ist nachgezogen:** der User hat bestätigt, dass es in Produktion ein Staff-Konto gibt --
-> `/admin/` konnte damit Stimmzahlen editieren und jeden Token lesen. Beides ist zu (`5adb612`), und
+> `/admin/` konnte damit Stimmzahlen editieren und jeden Token lesen. Beides ist zu (`fc9ef06`), und
 > der User beschränkt `/admin/` am Proxy **aufs Intranet** -- damit ist das fehlende Rate-Limit auf
 > `/admin/login/` gegenstandslos. Die zwei Hälften ersetzen sich nicht: die eine nimmt die
 > Angriffsfläche von außen, die andere den Schaden von innen.
@@ -361,7 +361,7 @@ derselben Hand, die den Branch gerade für geprüft erklärt hatte. Was übrig i
 voran weiter der **systemd-Timer** (§C5), ohne den nach dem Deploy keine Mail rausgeht, und die
 Intranet-Beschränkung für `/admin/` (letzter Handgriff zu R2-1, entschieden -- §A4).
 
-**Eine Zahl aus 7.2 gehört dir vorgelegt:** `VOTE_MAX_CHOICES` = 100 (Befund R7-1, Commit `3e89f0c`)
+**Eine Zahl aus 7.2 gehört dir vorgelegt:** `VOTE_MAX_CHOICES` = 100 (Befund R7-1, Commit `9d2db3a`)
 ist von mir gewählt, nicht von dir -- anders als die 150 für Empfänger. Real vorkommende Umfragen
 haben eine Handvoll Antwortmöglichkeiten; über 1 000 wäre eine multiple_choice-Umfrage ohnehin nicht
 mehr abstimmbar. Änderbar über `DEMOCKRAZY_MAX_CHOICES`.
@@ -415,10 +415,13 @@ dieses Aufrufs ist nur dort zu lösen. Alle drei in [to-check.md](to-check.md) �
 
 1. **Kleine, thematisch geschlossene Commits.** Ein Commit = ein Planpunkt. Formatierung und
    Verhaltensänderung nie im gleichen Commit.
+   **Ergänzung, vom User am 2026-08-14 entschieden:** das gilt fürs Arbeiten, nicht für den fertigen
+   Branch -- zum Review sind die 111 Commits auf 43 zusammengefasst, siehe [squash.md](squash.md).
+   Also weiter klein committen; das Zusammenfassen passiert am Ende, mit Tag davor.
 2. **Commit-Nachrichten auf Englisch, Prosa, erklären *warum*** – nicht nur was. Ende jeder
    Nachricht: `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
 3. **Kommunikation mit dem User auf Deutsch. Notizen auf Deutsch. Code auf Englisch** – Bezeichner,
-   Kommentare, Docstrings, Commit-Nachrichten. Der Bestand ist mit `58e86c5` und `52de7bc`
+   Kommentare, Docstrings, Commit-Nachrichten. Der Bestand ist mit `9c8f90b` und `9c8f90b`
    nachgezogen, es steht kein deutscher Kommentar mehr im Code.
    **Ausnahme, vom User am 2026-08-14 entschieden: Betriebsausgabe bleibt deutsch.** Also die
    Logzeilen in [mail.py](../vote/services/mail.py), `--help` und die Zusammenfassung von
@@ -469,9 +472,9 @@ dieses Aufrufs ist nur dort zu lösen. Alle drei in [to-check.md](to-check.md) �
   **schreibt `vote_poll` und `vote_token` neu** (so hängt SQLite einen Constraint an). Gegen ein
   Abbild des Prod-Schemas geprüft: Daten unversehrt, FKs konsistent, Spaltenreihenfolge unverändert
   – [phase-2-migrations.md](phase-2-migrations.md).
-- **Das k8s-Setup (`briefwahl.mayflower.cloud`) ist abgeschaltet** und in `4e15012` entfernt.
+- **Das k8s-Setup (`briefwahl.mayflower.cloud`) ist abgeschaltet** und in `90ab23b` entfernt.
   Bestätigt risikofrei: das Prod-Modul konsumiert keine Flake-Outputs dieses Repos, nur den
-  Quelltext. Falls sich das doch als falsch erweist: `git revert 4e15012`.
+  Quelltext. Falls sich das doch als falsch erweist: `git revert 90ab23b`.
 - **Der Mayflower-nixpkgs-Fork existiert wegen der `mayflower.*`-NixOS-Module.** Ein Wechsel auf
   upstream nixpkgs hätte den Deploy gebrochen – der User hat mich rechtzeitig auf `mf-next`
   umgelenkt. Input bleibt `github:mayflower/nixpkgs/mf-next`.

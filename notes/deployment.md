@@ -52,7 +52,7 @@ src = pkgs.fetchFromGitHub {
    Phase 0 hat verifiziert, dass der Code auf 4.2.9 **und** 5.2.16 identisch läuft, d. h. die
    Reihenfolge ist frei: `rev`-Bump und nixpkgs-Wechsel können unabhängig erfolgen.
 
-## Was das für den Löschcommit `4e15012` bedeutet
+## Was das für den Löschcommit `90ab23b` bedeutet
 
 **Kein Risiko – bestätigt.** Das Modul konsumiert *keine* Flake-Outputs dieses Repos: es baut
 seinen eigenen uwsgi (`pkgs.uwsgi.override`), seinen eigenen `configModule` und benutzt vom Repo

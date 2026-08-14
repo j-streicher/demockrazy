@@ -116,7 +116,7 @@ samt Route zu entfernen -- ein kleiner Commit, sag Bescheid.
 
 ### A5. Ist das SMTP-Kennwort von 2023 noch gültig? — aus dem Review, Befund R8-1
 
-`k8s/environments/default/secrets.sops.yaml` ist mit `4e15012` gelöscht, steht aber weiter in der
+`k8s/environments/default/secrets.sops.yaml` ist mit `90ab23b` gelöscht, steht aber weiter in der
 History (`git show master:k8s/environments/default/secrets.sops.yaml`) und enthält verschlüsselt
 `secret_key`, `email_host`, `email_from` und **`email_password`**, angelegt am 2023-01-17, lesbar für
 einen age- und drei PGP-Empfänger. Verschlüsselt ist das keine Preisgabe -- die Frage ist, ob das

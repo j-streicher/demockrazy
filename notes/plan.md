@@ -51,7 +51,7 @@ erklärt, warum es den Mayflower-nixpkgs-Fork mit seinen `mayflower.*`-Modulen g
   Ebenso `CSRF_COOKIE_SECURE`/`SESSION_COOKIE_SECURE` und `LOGGING`.
 - **Backups laufen:** borg onsite 03:00 + offsite 04:00 auf `/var/lib/demockrazy` → 5.4 beantwortet.
 - `preStart` ruft `migrate` und `collectstatic --noinput` – kein `makemigrations`.
-- **Löschcommit `4e15012` ist bestätigt risikofrei:** das Modul konsumiert keine Flake-Outputs
+- **Löschcommit `90ab23b` ist bestätigt risikofrei:** das Modul konsumiert keine Flake-Outputs
   dieses Repos, nur den Quelltext.
 
 ⚠️ **Wie das Upgrade Prod erreicht – zwei Änderungen im User-Repo, nicht hier:**
@@ -62,11 +62,11 @@ erklärt, warum es den Mayflower-nixpkgs-Fork mit seinen `mayflower.*`-Modulen g
    `pyproject.toml` dokumentiert die Anforderung, erzwingt sie nicht.
 
 **Das k8s-Deployment (`briefwahl.mayflower.cloud`) ist abgeschaltet.** War toter Code und ist
-**in `4e15012` entfernt**: `k8s/` (Tanka/Jsonnet, Zalando-Postgres, k8s-libsonnet 1.25) inkl.
+**in `90ab23b` entfernt**: `k8s/` (Tanka/Jsonnet, Zalando-Postgres, k8s-libsonnet 1.25) inkl.
 `k8s/settings.py`, `nix/demockracy-image.nix`, `nix/nginx-image.nix`, die Flake-Outputs
 `dockerImages`/`packages.uwsgi`/`packages.django_config`/`apps`, der
 `argocd-nix-flakes-plugin`-Input und der GHCR-Image-Build in `.github/workflows/build.yml`.
-Wiederherstellbar über `git revert 4e15012`.
+Wiederherstellbar über `git revert 90ab23b`.
 
 ---
 
@@ -131,7 +131,7 @@ sich seine Migration selbst (die [README.md](../README.md) instruiert genau das:
 `migrate`). Modelländerungen sind so nicht reproduzierbar und nicht reviewbar.
 ✅ **Behoben in 2.1** – siehe [notes/phase-2-migrations.md](phase-2-migrations.md).
 Der zusätzliche `makemigrations`-beim-Containerstart im uwsgi-Wrapper des Flakes gehörte zum
-k8s-Deployment und ist mit `4e15012` weg.
+k8s-Deployment und ist mit `90ab23b` weg.
 
 **B2 – `UnboundLocalError` in `vote()`.**
 [vote/views.py](../vote/views.py) – `token_string = request.POST['token']` steht *innerhalb* des `try`.
@@ -258,7 +258,7 @@ Genau dafür lohnt der Browser-Gegencheck bei JS-/Markup-Änderungen.
 Erledigt: `/healthz` (5.5) · Cache-Busting (4.4) · Template-Defekte (4.5) · `USE_L10N` (2.4) ·
 `DEFAULT_AUTO_FIELD` (2.4) · `manage.py`-Boilerplate (2.5) ·
 README/`pip3 install django==2.2.27` (2.2) · `LOGGING` (setzt das Prod-Modul) ·
-Static-Handling aus dem Source-Tree (mit den Docker-Images in `4e15012` weg) ·
+Static-Handling aus dem Source-Tree (mit den Docker-Images in `90ab23b` weg) ·
 `len(Token.objects.filter(…))` → Zählen in der Datenbank (3.6) ·
 `mk_token()`/`mk_identifier()`-Rekursion (3.6 – die Kollisionsprüfungen sind ganz weggefallen, es
 gibt nichts mehr zu rekursieren) · `re_path` überall (3.7).
@@ -276,6 +276,10 @@ Bootstrap-3-Klasse mehr.)*
 ## 3. Arbeitsregeln für mich
 
 1. **Kleine, thematisch geschlossene Commits.** Ein Commit = ein Punkt aus dem Plan.
+   **Ergänzung, vom User am 2026-08-14 entschieden:** die Regel gilt fürs Arbeiten, nicht für den
+   fertigen Branch. Zum Review sind die 111 Commits auf 43 zusammengefasst -- ein Notiz-Commit
+   gehört zu dem Code-Commit, den er begründet. Verfahren, Gruppen und Abwägung in
+   [squash.md](squash.md); die Originale hängen am Tag `pre-squash-2026-08-14`.
 2. **Tests vor Refactoring.** Phase 1 schreibt Tests gegen das *aktuelle* Verhalten, damit die
    Umbauten in Phase 3+ verifizierbar sind. Kein Refactoring auf ungetestetem Code.
 3. **Verhalten erhalten, außer wo explizit als Bug markiert.** Keine stillschweigenden
@@ -301,8 +305,8 @@ Bootstrap-3-Klasse mehr.)*
    genau einer Stelle. Hinten angehängt, weil die Nummern 1–9 überall referenziert sind.
 
 11. **Code auf Englisch, Betriebsausgabe auf Deutsch.** Bezeichner, Kommentare, Docstrings und
-   Commit-Nachrichten englisch (vom User am 2026-08-14 gewünscht, Bestand nachgezogen in `58e86c5`
-   und `52de7bc`). **Ausnahme, ausdrücklich entschieden:** was ein Mensch im Betrieb liest, bleibt
+   Commit-Nachrichten englisch (vom User am 2026-08-14 gewünscht, Bestand nachgezogen in `9c8f90b`
+   und `9c8f90b`). **Ausnahme, ausdrücklich entschieden:** was ein Mensch im Betrieb liest, bleibt
    deutsch -- Logzeilen, `--help` und stdout von `send_pending_mails`, der `hint` des System-Checks,
    `OutgoingMail.__str__`. Drei Tests hängen an diesen Zeichenketten. Notizen und Prosa bleiben
    deutsch, der Mail-Wortlaut ist ohnehin Prüfgegenstand (Regel 3).
@@ -728,13 +732,13 @@ Ursprünglich „k8s modernisieren", nach der Klärung des Deployments zu „k8s
 das strich die aufwändigsten Punkte (k8s-libsonnet-Bump, PG14→17 mit Wartungsfenster, sops-Keys,
 Deployment-Härtung). **5.1 und 5.2 sind erledigt**, offen bleiben CI, SQLite-Härtung und `/healthz`.
 
-- [x] **5.1 Toten Deployment-Code entfernt** ✅ in `4e15012` (549 Zeilen): `k8s/`, `nix/`,
+- [x] **5.1 Toten Deployment-Code entfernt** ✅ in `90ab23b` (549 Zeilen): `k8s/`, `nix/`,
       `.sops.yaml`, die Flake-Outputs `dockerImages`/`packages.uwsgi`/`packages.django_config`/`apps`,
       der `argocd-nix-flakes-plugin`-Input und der GHCR-Image-Build-Workflow.
       **Risikofrei bestätigt** nach Einsicht ins NixOS-Modul: es konsumiert keine Flake-Outputs
       dieses Repos, nur den Quelltext ([deployment.md](deployment.md)).
       Nebeneffekt: erledigt B1s `makemigrations`-beim-Start und die alte uwsgi-vs-gunicorn-Frage.
-      Rückweg: `git revert 4e15012`.
+      Rückweg: `git revert 90ab23b`.
 - [x] **5.2 Prod-Deployment verstanden** ✅ – Analyse in [deployment.md](deployment.md).
       **Ergebnis, das im Repo nicht lösbar ist:** das Modul pinnt `rev = 3074dbb`, und die
       Django-Version kommt aus der nixpkgs des Colmena-Flakes. Damit das Upgrade Prod erreicht,
@@ -755,7 +759,7 @@ Deployment-Härtung). **5.1 und 5.2 sind erledigt**, offen bleiben CI, SQLite-H�
       das Ergebnis am Commit und erscheint am PR; beide Trigger zusammen ergäben zwei Läufe pro
       Push. Für Fork-PRs müsste der zweite Trigger dazu.
       Der Vorgänger-Workflow baute nur die Images des abgeschalteten k8s-Deployments und ist mit
-      `4e15012` entfallen – seither hatte das Repo **gar keine** CI.
+      `90ab23b` entfallen – seither hatte das Repo **gar keine** CI.
 - [x] **5.4 SQLite-Betrieb absichert (B13)** ✅ – **kein Postgres**: F13 sagt 60–100 Empfänger, das
       trägt SQLite. Drei Optionen in `DATABASES['default']['OPTIONS']`, und die wichtigste ist nicht
       die naheliegende:
@@ -1204,8 +1208,8 @@ Zustellbericht – und der braucht die Entscheidung aus **F8** (Anonymität).
 | ~~F6~~ | ~~uwsgi oder gunicorn?~~ → entfällt, der uwsgi-Wrapper gehörte zum k8s-Deployment. Neu als Teil von F11. | – |
 | ~~F7~~ | ~~Postgres 14→17-Wartungsfenster?~~ → entfällt, Prod läuft auf SQLite. Ersetzt durch B13/5.4. | – |
 | ~~F9~~ | ~~`.sops.yaml`-Keys?~~ → entfällt, fällt mit 5.1 weg. | – |
-| ~~F10~~ | ~~Darf der tote Deployment-Code raus?~~ → **ja**, erledigt in `4e15012`. Nach Einsicht ins NixOS-Modul auch nachträglich als risikofrei bestätigt. | – |
-| ~~F11~~ | ~~Wie wird deployt?~~ → **vollständig beantwortet**, Modul liegt vor. Analyse: **[notes/deployment.md](deployment.md)**. Wichtigstes Ergebnis: das Modul pinnt `rev = 3074dbb`, und die Django-Version kommt aus der nixpkgs des Colmena-Flakes – **zwei Änderungen im User-Repo nötig**, sonst erreicht das Upgrade Prod nicht. Löschcommit `4e15012` bestätigt risikofrei. | – |
+| ~~F10~~ | ~~Darf der tote Deployment-Code raus?~~ → **ja**, erledigt in `90ab23b`. Nach Einsicht ins NixOS-Modul auch nachträglich als risikofrei bestätigt. | – |
+| ~~F11~~ | ~~Wie wird deployt?~~ → **vollständig beantwortet**, Modul liegt vor. Analyse: **[notes/deployment.md](deployment.md)**. Wichtigstes Ergebnis: das Modul pinnt `rev = 3074dbb`, und die Django-Version kommt aus der nixpkgs des Colmena-Flakes – **zwei Änderungen im User-Repo nötig**, sonst erreicht das Upgrade Prod nicht. Löschcommit `90ab23b` bestätigt risikofrei. | – |
 | ~~F14~~ | ~~Setzt Prod `DEBUG = False`?~~ → **ja**, explizit im generierten `demockrazy_config`. Kein Leak, kein Hotfix. | – |
 | **F20** | **Wie hoch ist das Rate-Limit von `smtp.mayflower.de`?** Gebraucht wird der konfigurierte Wert von `smtpd_client_message_rate_limit` (bzw. was eine Policy dort setzt) und die Länge des Zeitfensters (`anvil_rate_time_unit`, Default 60 s) – dazu die **vollständige** Fehlerzeile, weil der abgeschnittene Teil hinter *from* sagt, worauf gezählt wird (Client-IP oder Absenderadresse). **Eingegrenzt vom User: 30 gingen immer durch, bei 50 kam der 450er** – die Grenze liegt also zwischen 30 und 50 pro Fenster. Davon hängen Batch-Größe und Pause ab; für eine belastbare Taktung fehlt der genaue Wert. | **Ziel 2** |
 | **F15** | **Teilweise beantwortet.** Der Proxy liegt vor: `forceSSL` + HSTS + FrameOpts/GeneralProtect-Snippets, CSP definiert aber nicht eingebunden (Analyse in [deployment.md](deployment.md)). Damit sind `SECURE_SSL_REDIRECT` und `SECURE_HSTS_SECONDS` **gegenstandslos**. **Es fehlt noch:** `services.nginx.recommendedProxySettings` auf dem Proxy-Host und der vollständige `proxyPass` – daran hängt, ob `X-Forwarded-Proto` ankommt, und damit die Auflösung des CSRF-Rätsels. | 2.7 |
@@ -1244,12 +1248,12 @@ Zustellbericht – und der braucht die Entscheidung aus **F8** (Anonymität).
 >
 > Die drei, die zählten:
 > **R4-1** (kritisch) zwei gleichzeitige POSTs mit demselben Token ergaben **zwei Stimmen** -- 4 von
-> 100 Runden gemessen. Behoben in `a1b5117`, indem die Löschung des Tokens zur Bedingung der Buchung
+> 100 Runden gemessen. Behoben in `ae4a744`, indem die Löschung des Tokens zur Bedingung der Buchung
 > wurde; danach **0 von 100**.
 > **R5-1** (hoch) ein Zeilenumbruch im Titel machte die erste Warteschlangenzeile unversendbar und
-> legte damit den Versand **aller** Umfragen still. Behoben in `af30fa5`, an beiden Enden.
+> legte damit den Versand **aller** Umfragen still. Behoben in `c17b80a`, an beiden Enden.
 > **R2-1** (hoch) `/admin/` legte Tokens offen und Stimmzahlen editierbar hin, und ein Staff-Konto
-> existiert. Behoben in `5adb612`: `votes` `readonly`, Token-Werte aus Liste und Formular heraus.
+> existiert. Behoben in `fc9ef06`: `votes` `readonly`, Token-Werte aus Liste und Formular heraus.
 > **Was noch nicht geprüft ist, steht in review.md §7** -- vor allem die Suite als Text und der
 > Branch als Verlauf (Commit für Commit).
 
@@ -1272,7 +1276,7 @@ Zustellbericht – und der braucht die Entscheidung aus **F8** (Anonymität).
       **Die Testsuite ist Prüfgegenstand, nicht Prüfinstanz** – nach K4 (die erste Phase-0-Sonde
       meldete Erfolg auf zwei identischen Tracebacks) ist „die Tests sind grün" kein Argument.
 - [x] **7.2 Befunde abarbeiten.** ✅ **22 von 24 behoben**, ein Commit je Befund bzw. Befundpaar mit
-      der Nummer im Betreff (`a1b5117` … `9bf0fc7`). Jede Behebung ist gegengeprüft: alter Zustand
+      der Nummer im Betreff (`ae4a744` … `4b1c256`). Jede Behebung ist gegengeprüft: alter Zustand
       wiederhergestellt, neuer Test gefahren -- ein Test, der auch ohne die Behebung besteht, wäre
       K4. Die Suite ist dabei von 215 auf **253** Tests gewachsen, und alle fünf blinden Flecken der
       Mutationssonde sind zu; nach dem Nachzug von R2-1 sind es **261**, nach R10-4 **262** und nach
@@ -1283,7 +1287,7 @@ Zustellbericht – und der braucht die Entscheidung aus **F8** (Anonymität).
       **Eine Zahl braucht deinen Blick:** `VOTE_MAX_CHOICES` = 100 aus R7-1 ist von mir gesetzt, nicht
       von dir -- anders als die 150 für Empfänger.
 
-- [x] **7.3 Zweiter Lauf über die Commits nach 7.2.** ✅ Umfang `3418317..565abc1` plus Ist-Zustand,
+- [x] **7.3 Zweiter Lauf über die Commits nach 7.2.** ✅ Umfang `fc9ef06..9c8f90b` plus Ist-Zustand,
       dieselben Regeln und Fehlerklassen (review.md §8). **Grund:** danach kamen R10-4, die
       Sprachumstellung (1 200 Zeilen Prosa), eine neue Datei und ein neuer Test dazu -- alles von
       derselben Hand, die den Branch für geprüft erklärt hatte, was genau der Fall ist, für den
