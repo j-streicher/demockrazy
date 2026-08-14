@@ -1,6 +1,7 @@
 # Umfassendes Review
 
-> **Status: 7.1 gelaufen, 7.2 abgearbeitet.** 25 Befunde, davon **23 behoben** in 14 Commits --
+> **Status: 7.1 gelaufen, 7.2 abgearbeitet; zweiter Lauf über die Commits danach (§8).**
+> 28 Befunde, davon **23 behoben** in 14 Commits --
 > ein Commit je Befund bzw. je Befundpaar, die Nummer steht im Betreff. **R2-1 ist zu**: die
 > Django-Hälfte behoben (`5adb612`), und der User beschränkt `/admin/` am Proxy aufs Intranet, was
 > das fehlende Login-Rate-Limit gegenstandslos macht. Offen sind damit **R8-1** (der User prüft das
@@ -15,6 +16,8 @@
 > `check --fail-level WARNING` → no issues, `makemigrations --check` → No changes, ruff sauber.
 > **Nach dem Nachzug von R2-1:** `pytest` → **261 passed**.
 > **Nach R10-4** (Nachtrag, gefunden nach 7.2): `pytest` → **262 passed**.
+> **Zweiter Lauf (§8), 2026-08-14:** drei neue Befunde -- **R15-2** (Mittel), **R10-5**, **R15-3** --
+> alle **offen**, denn Regel 3 gilt auch für den zweiten Lauf: gemessen, aufgeschrieben, nicht behoben.
 
 ---
 
@@ -142,6 +145,9 @@ benannten Ausnahme: bei R2-1 ist die Oberfläche gemessen, die Existenz von Kont
 | R10-4 | **Mittel** · K4 | Das Mail-Double erzeugt den `450` in der falschen smtplib-Form — der Zweig, den ein echter drosselnder Server trifft, ist von keinem Test gedeckt | [test_mail_service.py:234](../vote/tests/test_mail_service.py:234), [mail.py:106](../vote/services/mail.py:106) | siehe unten |
 | R11-1 | Notiz | `multiple_choice`: ein `UPDATE` je Choice **unter der Schreibsperre** (17 Abfragen bei 10 Choices) | [views.py:194](../vote/views.py:194) | `5ddd491` -- ein `UPDATE` per `filter(pk__in=...)` |
 | R14-3 | Notiz | `get_amount_used_unused()` viermal mit demselben Dreizeiler entpackt | [views.py:100](../vote/views.py:100) | `9bf0fc7` -- ein `_token_state(poll)`-Helfer, kein Verhaltens- und kein Abfrageunterschied |
+| R15-2 | **Mittel** · K6 | Die Anleitung zum Fake-Mailserver funktioniert nicht: der Trap setzt sein Fenster nie zurück, der zweite Lauf verschickt nichts | [README.md](../README.md), [handover.md](handover.md) §7 | **offen** |
+| R10-5 | Notiz · K4 | Das neue Double zählt eine abgebrochene `DATA` als zugestellt, mischt Nachrichten- und Empfängerzähler und verschluckt eigene Fehler | [mailtrap.py](../vote/tests/mailtrap.py) | **offen** |
+| R15-3 | Notiz | Die R10-4-Zeile dieser Tabelle nennt „siehe unten" statt ihres Commits | review.md:142 | **offen** |
 
 Zwei Muster fallen daran auf, und sie sind der eigentliche Ertrag des Laufs:
 **(1) Das Gefährliche stand nicht im Code, sondern in seinen Rändern** -- der Doppelklick, der
@@ -1200,3 +1206,183 @@ Damit der Stand nicht mit „fertig" verwechselt wird. In dieser Reihenfolge wü
    aufwirft: existiert in Prod ein Staff-Account (R2-1), ist das SMTP-Kennwort von 2023 noch gültig
    (R8-1), und liegt in der Prod-Warteschlange gerade etwas, das ein Rollback vernichten würde
    (R9-3).
+
+---
+
+## 8. Zweiter Lauf — die sechs Commits nach 7.2
+
+**Umfang:** `3418317..565abc1` (R10-4, die Sprachumstellung, README, Notizen) plus der Ist-Zustand.
+Angelegt 2026-08-14, nach dem Push. Dieselben Regeln wie §2, dieselben Fehlerklassen wie §3 --
+der Grund für diesen Lauf ist, dass zwischen den beiden Läufen etwa 1 200 Zeilen Prosa und eine
+neue Datei dazugekommen sind, und dass ich beides selbst geschrieben habe (Regel 1).
+
+### R15-2 · Die Anleitung zum Fake-Mailserver funktioniert nicht, wenn man ihr folgt
+
+**Schwere:** Mittel
+**Nachweis:** **gemessen**, drei Läufe gegen *einen* Trap-Prozess (`limit=5`, 8 Zeilen in der
+Warteschlange, `--pause 0`):
+
+```
+--- run 1 ---   5 verschickt, 0 aufgegeben, 3 warten noch (1 Batches).
+--- run 2 ---   0 verschickt, 0 aufgegeben, 3 warten noch (1 Batches).
+--- run 3 ---   0 verschickt, 0 aufgegeben, 3 warten noch (1 Batches).
+```
+
+Und zehn Läufe gegen einen Trap mit `limit=1` bei zwei Zeilen:
+
+```
+run  1: 1 verschickt, 0 aufgegeben, 1 warten noch (1 Batches).
+run  2..9: 0 verschickt, 0 aufgegeben, 1 warten noch (1 Batches).
+run 10: Eine Umfrage-Mail wurde 10 mal vorläufig abgelehnt und aufgegeben
+        0 verschickt, 1 aufgegeben, 0 warten noch (1 Batches).
+queue at the end: []
+```
+
+Gegenprobe, dass der Neustart der Reset ist: dieselbe Warteschlange gegen einen **frisch gestarteten**
+Trap → `3 verschickt, 0 aufgegeben, 0 warten noch`.
+
+**Befund:** [README](../README.md) und [handover.md](handover.md) §7 sagen beide: „Queue more than 30
+invitations and run the command twice: the first run stops at the `450`, the second one drains the
+rest." Das gilt nicht. `MailTrap` zählt in `self.accepted`/`self.throttled` über die **Lebensdauer des
+Prozesses** und hat kein Zeitfenster -- anders als der echte Mailserver, dessen Drosselung sich nach
+dem Fenster zurücksetzt. Der zweite Lauf trifft denselben Zähler und schickt nichts.
+
+Der eigentliche Ablauf meiner Demo war ein anderer: ich habe den Trap zwischen den Läufen **neu
+gestartet**. Genau der Schritt fehlt in der Anleitung, und weil er in der Messung nicht auffiel,
+ist er auch in der Prosa verlorengegangen -- **K6**, plausibel begründet und trotzdem falsch.
+
+**Folge:** wer der Anleitung folgt, sieht ab Lauf 2 `0 verschickt` und ab Lauf 10, dass eine
+Einladung **weggeworfen** wird. Beides ist korrektes Verhalten des Versenders gegenüber einem Server,
+der dauerhaft `450` sagt -- aber die Anleitung stellt es als Vorführung des *Normalfalls* dar. Sie
+lehrt damit das Gegenteil dessen, was sie zeigen soll: nicht „ein `450` kostet keine Mail", sondern
+„der Versender verliert Mails". Das ist die gefährlichere Richtung, weil das Werkzeug für genau diese
+Frage gebaut wurde.
+
+**Vorschlag:** zwei Möglichkeiten, und die zweite ist die bessere.
+(a) Die Anleitung um den Neustart ergänzen -- eine Zeile, aber sie verlangt vom Leser, den Unterschied
+zum echten Server zu kennen.
+(b) `MailTrap` ein **Zeitfenster** geben, wie Postfix es hat: ein `window`-Parameter, nach dessen
+Ablauf der Zähler zurückgesetzt wird. Dann stimmt die Anleitung wörtlich, das Double verhält sich wie
+sein Gegenüber, und die Lehre aus R10-4 („ein Double gegen das echte Gegenüber halten") wird auf das
+Double selbst angewandt. Der Trap braucht dafür eine Zeitquelle -- im Test bleibt `limit` ohne Fenster
+die richtige Wahl, weil ein Test nicht auf Uhrzeit warten darf.
+Während des Reviews nicht getan (Regel 3).
+
+### R10-5 · Das neue Double ist nachsichtiger als sein Gegenüber — ungeprüft in drei Punkten
+
+**Schwere:** Notiz
+**Nachweis:** **gemessen**, drei Sonden gegen `vote.tests.mailtrap`.
+
+(a) Ein Client, der mitten in `DATA` abbricht:
+
+```
+  accepted=['d@e.f'] throttled=[]      # die halbe Nachricht zählt als zugestellt
+BrokenPipeError: [Errno 32] Broken pipe   # Traceback auf stderr, Lauf grün
+```
+
+(b) Eine Nachricht mit zwei Empfängern:
+
+```
+  accepted=['one@x.org', 'two@x.org']  (len=2) -- but it was 1 message
+  second message refused 450 -> limit counts messages
+```
+
+(c) Ein Trap, dessen `deliver()` wirft (Unterklasse, absichtlich kaputt):
+
+```
+Exception occurred during processing of request from ('127.0.0.1', 33578)
+  client: SMTPServerDisconnected: Connection unexpectedly closed
+  probe reached this line, so nothing propagated out of the server
+```
+
+**Befund:** drei Abweichungen, alle in derselben Richtung — das Double nimmt mehr an bzw. verschweigt
+mehr als ein echter Server.
+
+* Eine unvollständige Nachricht wird gezählt und mit `250` quittiert. Ein Mailserver würde sie
+  verwerfen.
+* `limit` zählt **Nachrichten**, `accepted`/`throttled` zählen **Empfänger**. Im selben Objekt, ohne
+  dass es irgendwo steht. Wer künftig `len(trap.accepted)` als Nachrichtenzahl liest, rechnet falsch,
+  sobald eine Nachricht zwei Empfänger hat.
+* Bricht das Double selbst, druckt `socketserver` einen Traceback und macht weiter. Für den
+  Produktivcode sieht das aus wie **`SMTPServerDisconnected`**, also wie `_Outcome.UNREACHABLE` —
+  „Server nicht erreichbar" ist aber ein Ergebnis, das die Suite an anderer Stelle ausdrücklich
+  *erwartet*. Ein Test, der das prüft, wäre bei kaputtem Double aus dem falschen Grund grün.
+
+**Folge:** heute keine. Es gibt genau einen Socket-Test, und der verlangt `attempts == 1` — ein
+kaputtes Double liefert `attempts == 0` und der Test fällt. Der Befund ist deshalb eine Notiz, aber
+eine mit Vorgeschichte: **R10-4 ist genau daran entstanden**, dass ein Double nachsichtiger war als
+sein Gegenüber, und beim Bau des Ersatzes habe ich dieselbe Frage nicht gestellt. Die Lehre aus R10-4
+war nicht auf das neue Double angewandt.
+
+**Vorschlag:** (1) `handle_error` überschreiben, die Ausnahme auf dem Server sammeln und im Test
+`assert trap.errors == []` — dann kann ein kaputtes Double keinen Test grün lassen. (2) Die beiden
+Zähler benennen oder auf dieselbe Einheit bringen. (3) Eine abgebrochene `DATA` mit `451` ablehnen
+statt zu zählen. Während des Reviews nicht getan (Regel 3).
+
+### R15-3 · Eine Zeile der Befundtabelle nennt ihren Commit nicht
+
+**Schwere:** Notiz
+**Nachweis:** **gemessen**, `grep`: von allen Befundzeilen trägt genau eine „siehe unten" statt eines
+Hashes — die von **R10-4** ([review.md:142](review.md)). Der Hash steht nur im Befundtext.
+
+**Befund:** entstanden dadurch, dass der Hash erst nach dem Commit bekannt war und ich ihn im
+Nachtrag (`c7dc26d`) nur an einer der beiden Stellen eingesetzt habe. Die Tabelle ist die Übersicht,
+die jemand zuerst liest; eine Zeile, die auf „unten" verweist, kostet genau den Sprung, den die
+Tabelle sparen soll.
+
+**Vorschlag:** `8b238f6` in die Zeile. Während des Reviews nicht getan (Regel 3).
+
+## 8.1 Negativraum des zweiten Laufs
+
+**Gerendertes HTML gegen den Stand vor den Commits.** Acht Seiten (Index, Abstimmungsseite einfach und
+mehrfach, Seite nach dem Token-Umzug, Manage, Success, Formular mit Fehlern, Ergebnisse) in einem
+`git worktree` auf `3418317` und auf `HEAD` gerendert, csrf-Token maskiert, Hash pro Seite.
+**Sieben von acht byte-identisch.** Die achte (Ergebnisse) unterscheidet sich in **genau vier Zeilen**,
+und der Diff zeigt, dass es die zwei übersetzten `//`-Kommentare im Inline-Script sind — Kommentare in
+einem `<script>` gehen mit an den Browser, das ist der ganze Unterschied. Keine K8-Änderung.
+
+**Nicht-Python-Dateien.** `.gitignore`, `pyproject.toml`, der CI-Workflow und `main.css` nach dem
+Entfernen aller Kommentare verglichen: **inhaltlich identisch**. (Bei `pyproject.toml` meldete das
+Werkzeug einen Unterschied, weil mein Stripper nachgestellte Kommentare nicht entfernt; die Zeile ist
+`"DTZ",` mit übersetztem Kommentar, der Wert unverändert.) Das war die K3-Frage: eine verschobene
+`.gitignore`-Zeile oder ein verändertes `per-file-ignores` hätte keinen Fehler erzeugt.
+
+**Die umbenannten Bezeichner.** `angenommen`, `vorige_spitze`, `HINWEIS`, `GEHAERTET` und die zwölf in
+den Tests: `git grep` über Code, Templates, README **und Notizen** — keine Referenz auf die alten
+Namen. Die Treffer in den Notizen sind deutsche Prosawörter („angenommen", „erwartet"), keine
+Codeverweise.
+
+**Hängende Verweise in der neuen Prosa.** Jeder in Backticks gesetzte Name aus allen Kommentaren und
+Docstrings gegen den Codebestand geprüft (Skript, nicht Augenmaß): **0 von ihnen zeigt ins Leere.**
+Das ist die Klasse, zu der der `R16-1`-Verschreiber gehörte, den ich vorher von Hand gefunden hatte.
+
+**Der neue Socket-Test trägt.** Drei Mutationen an `mail.py`, jede einzeln:
+`SMTPResponseException` aus dem `except` entfernt → **1 failed, 242 passed**, und der einzige
+Fehlschlag ist dieser Test; `row.attempts += 0` → 3 failed; `return True` durch `continue` ersetzt →
+2 failed. Der Test ist damit der **alleinige** Wächter über den Zweig, den ein echter drosselnder
+Server trifft.
+
+**Hygiene von `mailtrap`.** 50 Zyklen Öffnen/Verbinden/Schließen: Threads 1 → 1, Dateideskriptoren
+4 → 4. Nach `__exit__` ist der Port frei (`ConnectionRefusedError`). Ein `with`-Block ohne eine
+einzige Verbindung hängt nicht (die `shutdown()`-vor-`serve_forever()`-Falle greift nicht). `import
+smtpd` → `ModuleNotFoundError`, die Begründung im Docstring stimmt.
+
+**Behauptungen der neuen Notizen.** `mailtrap` wird von pytest nicht gesammelt (`--collect-only`:
+0 Treffer, 262 Tests). `demockrazy/local_settings.py` ist ignoriert (`git check-ignore -v` nennt
+`demockrazy/.gitignore:1`). Die Statuszeile „14 Commits" stimmt (14 Commits nennen eine Befundnummer).
+Die Suite ist stabil: zwei Läufe hintereinander je 262.
+
+**Ein Fehler in meiner eigenen Sonde, protokolliert weil er die Klasse zeigt.** Der erste
+HTML-Vergleich meldete „identisch" — falsch: das `cd` in den Worktree galt für **beide** Läufe, die
+Sonde hat den Vorzustand mit sich selbst verglichen. Aufgefallen ist es nur, weil die Hashes aus dem
+Lauf davor noch dastanden und nicht dazu passten. Das ist **K4 am eigenen Werkzeug**, dieselbe Form wie
+die Phase-0-Sonde, die „IDENTISCH" auf zwei identischen Tracebacks meldete. Konsequenz für das nächste
+Mal: eine Vergleichssonde muss beweisen, dass sie zwei *verschiedene* Eingaben gesehen hat.
+
+**Was dieser Lauf nicht geprüft hat.** Ob das Englisch *gut* ist — geprüft wurde, ob es *stimmt*. Der
+Wortlaut der deutschen Betriebsausgabe (unverändert, per Entscheidung vom 2026-08-14). Ob
+`vote/tests/mailtrap.py` in Produktion mit ausgeliefert wird — das hängt am NixOS-Modul und ist von
+hier nicht sichtbar (Arbeitsregel 10, gehört nach [to-check.md](to-check.md)). Die übrigen Doubles
+gegen ihr echtes Gegenüber (§7, Punkt 6) sind weiter offen; `recorded_sleep` und `locmem` sind nach
+diesem Lauf sogar dringlicher, weil R10-5 zeigt, dass ich diese Frage auch beim Neubau nicht von
+selbst stelle.
