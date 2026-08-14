@@ -792,7 +792,7 @@ abhängigkeitsfrei (`smtpd` ist seit Python 3.12 aus der Standardbibliothek). Da
 Djangos echtes `smtp.EmailBackend` dagegen laufen lässt und prüft, dass ein *echter* `450` als
 `TRANSIENT` landet und die Zeile mit `attempts = 1` liegen bleibt. Gegenprobe: dieselbe Mutation
 ergibt jetzt **1 failed, 242 passed**, und der Fehlschlag ist genau dieser Test. Der Handbetrieb
-bleibt: `python3 -m vote.tests.mailtrap 30`. **Umgesetzt in `f8ed963`.**
+bleibt: `python3 -m vote.tests.mailtrap 30`. **Umgesetzt in `8b238f6`.**
 
 ### R11-1 · Eine `multiple_choice`-Stimme kostet ein `UPDATE` pro Choice — in der Transaktion, die alle Schreiber serialisiert
 
