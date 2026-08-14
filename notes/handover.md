@@ -3,8 +3,10 @@
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
 **Stand: 2026-08-14** (die Zahlen unten sind an diesem Tag gemessen und wachsen mit jeder
 Änderung nach -- R15-4 entstand daraus, dass sie stehen blieben). Branch `update/modernize-2026`,
-106 Commits über `master` (Basis `3074dbb`). Arbeitsbaum sauber, **gepusht**, PR #1 offen. Die CI läuft
-auf jeden Push (§4) und war bisher jedes Mal grün.
+Basis `3074dbb`. Arbeitsbaum sauber, **gepusht**, PR #1 offen; die Beschreibung dort ist der
+Überblick für jemanden, der nur den Diff liest. Die CI läuft auf jeden Push (§4) und war bisher jedes
+Mal grün. (Commitzahl absichtlich nicht genannt -- `git rev-list --count master..HEAD`; eine
+mitwachsende Zahl in einem Kopf ist genau R15-4.)
 
 > **Das umfassende Review ist gelaufen und abgearbeitet** ([review.md](review.md), Plan §14).
 > **29 Befunde, 27 behoben** in 16 Commits (`a1b5117` … `57574b9`), jeder mit der Befundnummer im
@@ -352,7 +354,9 @@ daran ein `script`-Element und verschluckte das Datenelement dahinter: **200 ohn
 
 **Im Repo ist nichts offen.** Phase 7 ist durch: 7.1 hat 24 Befunde ergeben, 7.2 hat 22 davon
 behoben; der Nachtrag R10-4 und der zweite Lauf (review.md §8) haben fünf weitere ergeben, alle
-behoben -- zusammen 29 Befunde, 27 davon behoben. Was übrig ist, braucht eine Antwort von dir -- **[to-check.md](to-check.md) A1 (F17) und A5
+behoben -- zusammen 29 Befunde, 27 davon behoben. **Der zweite Lauf ist der Grund, warum es §8 gibt:**
+zwischen den beiden Läufen kamen 1 200 Zeilen Prosa, eine neue Datei und ein neuer Test dazu, von
+derselben Hand, die den Branch gerade für geprüft erklärt hatte. Was übrig ist, braucht eine Antwort von dir -- **[to-check.md](to-check.md) A1 (F17) und A5
 (SMTP-Kennwort, prüfst du vor dem Deploy)** -- oder ist ein Handgriff außerhalb dieses Repos, allen
 voran weiter der **systemd-Timer** (§C5), ohne den nach dem Deploy keine Mail rausgeht, und die
 Intranet-Beschränkung für `/admin/` (letzter Handgriff zu R2-1, entschieden -- §A4).
