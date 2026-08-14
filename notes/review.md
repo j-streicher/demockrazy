@@ -148,7 +148,7 @@ benannten Ausnahme: bei R2-1 ist die Oberfläche gemessen, die Existenz von Kont
 | R14-3 | Notiz | `get_amount_used_unused()` viermal mit demselben Dreizeiler entpackt | [views.py:100](../vote/views.py:100) | `9bf0fc7` -- ein `_token_state(poll)`-Helfer, kein Verhaltens- und kein Abfrageunterschied |
 | R15-2 | **Mittel** · K6 | Die Anleitung zum Fake-Mailserver funktioniert nicht: der Trap setzt sein Fenster nie zurück, der zweite Lauf verschickt nichts | [README.md](../README.md), [handover.md](handover.md) §7 | `05b4f7d` -- Zeitfenster im Trap, Anleitung gemessen |
 | R10-5 | Notiz · K4 | Das neue Double zählt eine abgebrochene `DATA` als zugestellt, mischt Nachrichten- und Empfängerzähler und verschluckt eigene Fehler | [mailtrap.py](../vote/tests/mailtrap.py) | `57574b9` -- `451` statt `250`, `messages`, `errors` |
-| R15-3 | Notiz | Die R10-4-Zeile dieser Tabelle nennt „siehe unten" statt ihres Commits | review.md:142 | **offen** |
+| R15-3 | Notiz | Die R10-4-Zeile dieser Tabelle nennt „siehe unten" statt ihres Commits | review.md:142 | `02b0fa1` -- Hash eingesetzt |
 | R15-4 | **Mittel** | Der Kopf von handover.md nennt sechs überholte Angaben, darunter „nichts gepusht, die CI hat noch nie gelaufen" | [handover.md](handover.md) | `4773adc` -- Kopf nachgezogen, Zahlen als Messung markiert |
 
 Zwei Muster fallen daran auf, und sie sind der eigentliche Ertrag des Laufs:
@@ -1332,7 +1332,9 @@ Nachtrag (`c7dc26d`) nur an einer der beiden Stellen eingesetzt habe. Die Tabell
 die jemand zuerst liest; eine Zeile, die auf „unten" verweist, kostet genau den Sprung, den die
 Tabelle sparen soll.
 
-**Vorschlag:** `8b238f6` in die Zeile. Während des Reviews nicht getan (Regel 3).
+**Vorschlag:** `8b238f6` in die Zeile. Während des Reviews nicht getan (Regel 3), **umgesetzt in
+`02b0fa1`** -- der Hash dieses Commits konnte nicht in ihm selbst stehen, dieselbe Zweiteilung wie bei
+R10-4 (`c7dc26d`).
 
 ### R15-4 · Der Kopf von handover.md beschreibt einen Stand, den der Branch hinter sich hat
 
