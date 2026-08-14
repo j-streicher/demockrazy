@@ -12,7 +12,7 @@
 | 1 | Projekt auf heutige Standards bringen (Django, Python, Nix, CI, Frontend, Deployment) | **Phase 0–6 vollständig ✅ außer 2.7. Das Bug-Register ist vollständig abgearbeitet** – B9 ist mit 3.9 gefallen. Offen ist nur noch 2.7, und das ist zum größten Teil **gegenstandslos** geworden, nachdem der Proxy vorliegt – es bleibt eine Frage (F15) und ein Vorschlag für den Proxy, nichts im Repo. |
 | 2 | Batch-Modus für Mails bauen | **Gebaut** (§11.7): Warteschlange, getakteter Versender, Management-Command. 30er Batches / 2 s vom User vorgegeben. ⚠️ Der **systemd-Timer** fehlt noch und liegt außerhalb dieses Repos ([to-check.md](to-check.md) §C5). Offen: Bounce-Handling, Fortschrittsanzeige, **F20** |
 
-| 3 | Umfassendes Review des ganzen Branches | **Geplant, §14.** Startet auf Zuruf des Users – **noch nicht gelaufen.** Umfang, Kriterien und Vorgehen stehen in [review.md](review.md), Befunde kommen ebenfalls dorthin |
+| 3 | Umfassendes Review des ganzen Branches | **Gelaufen und abgearbeitet, zweimal ✅** (§14). Erster Lauf über den ganzen Branch, zweiter über die Commits danach. **29 Befunde, 27 behoben**; die zwei offenen liegen außerhalb dieses Repos. Alles in [review.md](review.md) |
 
 **Wichtig:** Ziel 2 wird vom User später erklärt. Ziel 1 nicht so umbauen, dass Ziel 2 blockiert wird –
 im Gegenteil: die Mail-Logik so herausziehen, dass ein Batch-Versand sauber andocken kann (§11).
@@ -299,6 +299,13 @@ Bootstrap-3-Klasse mehr.)*
    *zeigen* (`Plan §11.7`, `B9`, `F8`), statt sie zu enthalten. Vom User am 2026-08-04 gewünscht.
    **Dieses Dokument bleibt ausführlich** – hier gehört die Argumentation hin, und dann steht sie an
    genau einer Stelle. Hinten angehängt, weil die Nummern 1–9 überall referenziert sind.
+
+11. **Code auf Englisch, Betriebsausgabe auf Deutsch.** Bezeichner, Kommentare, Docstrings und
+   Commit-Nachrichten englisch (vom User am 2026-08-14 gewünscht, Bestand nachgezogen in `58e86c5`
+   und `52de7bc`). **Ausnahme, ausdrücklich entschieden:** was ein Mensch im Betrieb liest, bleibt
+   deutsch -- Logzeilen, `--help` und stdout von `send_pending_mails`, der `hint` des System-Checks,
+   `OutgoingMail.__str__`. Drei Tests hängen an diesen Zeichenketten. Notizen und Prosa bleiben
+   deutsch, der Mail-Wortlaut ist ohnehin Prüfgegenstand (Regel 3).
 
 ---
 
@@ -1221,8 +1228,15 @@ Zustellbericht – und der braucht die Entscheidung aus **F8** (Anonymität).
 > [review_probes.py](review_probes.py), Punkte außerhalb des Repos in [to-check.md](to-check.md)
 > (neu aus dem Review: A4, A5, D5, D6).
 >
-> **24 Befunde** -- 1 kritisch, 2 hoch, 6 mittel, 8 niedrig, 7 Notiz. **22 sind behoben**, in 13
-> Commits mit der Nummer im Betreff. **R2-1 ist nachgezogen**, nachdem der User bestätigt hat, dass
+> **Zwei Läufe, 29 Befunde, 27 behoben**, in 16 Commits mit der Nummer im Betreff. Der erste Lauf
+> ergab 24 (1 kritisch, 2 hoch, 6 mittel, 8 niedrig, 7 Notiz), davon 22 sofort behoben; der Nachtrag
+> **R10-4** und der zweite Lauf (review.md §8) fünf weitere.
+> **Warum ein zweiter Lauf:** danach kamen 1 200 Zeilen Prosa, eine neue Datei und ein neuer Test
+> dazu -- geschrieben von derselben Hand, die den Branch für geprüft erklärt hatte (Regel 1). Er hat
+> sich gelohnt: **R10-4** (das Mail-Double erzeugte den `450` in der falschen smtplib-Form, der Zweig
+> aus Produktion war ungedeckt), **R15-2** (die Anleitung, die ich für den Fake-Server geschrieben
+> hatte, funktionierte nicht), **R10-5** (das neue Double war selbst nachsichtiger als sein
+> Gegenüber) und **R15-4** (der Kopf von handover.md beschrieb einen überholten Stand). **R2-1 ist nachgezogen**, nachdem der User bestätigt hat, dass
 > es in Produktion ein Staff-Konto gibt: `Choice.votes` ist nicht mehr editierbar und Tokens sind
 > nicht mehr lesbar; dazu beschränkt der User `/admin/` am Proxy aufs Intranet, womit das fehlende
 > Login-Rate-Limit gegenstandslos ist. Offen bleiben **R8-1** (der User prüft das SMTP-Kennwort vor
@@ -1261,12 +1275,31 @@ Zustellbericht – und der braucht die Entscheidung aus **F8** (Anonymität).
       der Nummer im Betreff (`a1b5117` … `9bf0fc7`). Jede Behebung ist gegengeprüft: alter Zustand
       wiederhergestellt, neuer Test gefahren -- ein Test, der auch ohne die Behebung besteht, wäre
       K4. Die Suite ist dabei von 215 auf **253** Tests gewachsen, und alle fünf blinden Flecken der
-      Mutationssonde sind zu; nach dem Nachzug von R2-1 sind es **261**.
+      Mutationssonde sind zu; nach dem Nachzug von R2-1 sind es **261**, nach R10-4 **262** und nach
+      dem zweiten Lauf **272**.
       **Offen und nicht hier lösbar:** R8-1 (der User prüft das Kennwort vor dem Deploy, A5) und
       R9-3 (Verfahrenshinweis, D5). R2-1 ist zu, sobald die Intranet-Beschränkung für `/admin/`
       am Proxy steht (A4).
       **Eine Zahl braucht deinen Blick:** `VOTE_MAX_CHOICES` = 100 aus R7-1 ist von mir gesetzt, nicht
       von dir -- anders als die 150 für Empfänger.
+
+- [x] **7.3 Zweiter Lauf über die Commits nach 7.2.** ✅ Umfang `3418317..565abc1` plus Ist-Zustand,
+      dieselben Regeln und Fehlerklassen (review.md §8). **Grund:** danach kamen R10-4, die
+      Sprachumstellung (1 200 Zeilen Prosa), eine neue Datei und ein neuer Test dazu -- alles von
+      derselben Hand, die den Branch für geprüft erklärt hatte, was genau der Fall ist, für den
+      Regel 1 existiert. **Drei Befunde, beim Beheben ein vierter**, alle behoben:
+      **R15-2** (die Anleitung zum Fake-Mailserver funktionierte nicht -- der Trap hatte kein
+      Zeitfenster, der zweite Lauf verschickte nichts und der zehnte warf die Einladung weg),
+      **R10-5** (das neue Double war selbst nachsichtiger als sein Gegenüber -- dieselbe Klasse, aus
+      der R10-4 entstanden war), **R15-3** (eine Tabellenzeile ohne Commit) und **R15-4** (der Kopf
+      von handover.md beschrieb einen überholten Stand, u. a. „nichts gepusht").
+      Der Negativraum ist der größere Teil: gerendertes HTML vor/nach dem Sprachwechsel (sieben von
+      acht Seiten byte-identisch, die achte nur in zwei Kommentaren im Inline-Script), die
+      Nicht-Python-Dateien ohne Kommentare verglichen, jeder Backtick-Name der neuen Prosa gegen den
+      Code geprüft (0 hängende Verweise), drei Mutationen für den neuen Socket-Test.
+      **Auch ein Fehler in meiner eigenen Sonde ist protokolliert** (review.md §8.1): ein
+      durchgesickertes `cd` ließ den ersten HTML-Vergleich den Vorzustand mit sich selbst vergleichen
+      und „identisch" melden -- K4 am eigenen Werkzeug.
 
 ## 13. Reihenfolge / Abhängigkeiten
 
@@ -1278,8 +1311,8 @@ Phase 3  Code-Modernisierung                                          ✅ vollst
 Phase 4  Frontend                                                     ✅ vollständig
 Phase 5  Deployment & CI                                              ✅ vollständig (5.1–5.5)
 Phase 6  Dokumentation                                                ✅ vollständig
-Phase 7  Umfassendes Review (§14)                                     ✅ 7.1 gelaufen, 7.2 mit
-                                                                        22 von 24 Befunden behoben
+Phase 7  Umfassendes Review (§14)                                     ✅ zwei Läufe, 27 von 29
+                                                                        Befunden behoben
 
 offen:
   7.2  Zwei Befunde, die **außerhalb dieses Repos** liegen: R8-1 (SMTP-Kennwort, prüft der User vor

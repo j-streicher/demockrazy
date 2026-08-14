@@ -1,13 +1,19 @@
 # Handover – demockrazy-Modernisierung
 
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
-Stand: 2026-08-04, Branch `update/modernize-2026`, 96 Commits über `master` (Basis `3074dbb`).
-Arbeitsbaum ist sauber, alles committed, **nichts gepusht** -- die CI hat also noch nie gelaufen,
-sie greift erst beim ersten Push.
+**Stand: 2026-08-14** (die Zahlen unten sind an diesem Tag gemessen und wachsen mit jeder
+Änderung nach -- R15-4 entstand daraus, dass sie stehen blieben). Branch `update/modernize-2026`,
+Basis `3074dbb`. Arbeitsbaum sauber, **gepusht**, PR #1 offen; die Beschreibung dort ist der
+Überblick für jemanden, der nur den Diff liest. Die CI läuft auf jeden Push (§4) und war bisher jedes
+Mal grün. (Commitzahl absichtlich nicht genannt -- `git rev-list --count master..HEAD`; eine
+mitwachsende Zahl in einem Kopf ist genau R15-4.)
 
 > **Das umfassende Review ist gelaufen und abgearbeitet** ([review.md](review.md), Plan §14).
-> **24 Befunde, 22 behoben** in 13 Commits (`a1b5117` … `5adb612`), jeder mit der Befundnummer im
-> Betreff. Die Suite ist von 215 auf **261** Tests gewachsen.
+> **29 Befunde, 27 behoben** in 16 Commits (`a1b5117` … `57574b9`), jeder mit der Befundnummer im
+> Betreff. Die Suite ist von 215 auf **272** Tests gewachsen.
+> **Es gab zwei Läufe:** der erste über den ganzen Branch (§5--§7 dort), der zweite über die Commits
+> danach (§8) -- weil zwischen ihnen 1 200 Zeilen Prosa, eine neue Datei und ein neuer Test
+> dazugekommen sind, alles von derselben Hand.
 > Was noch **nicht geprüft** ist, steht in review.md §7 -- der Lauf hat alle 15 Kriterien einmal
 > abgedeckt, nicht erschöpfend.
 >
@@ -36,7 +42,7 @@ sie greift erst beim ersten Push.
 |---|---|
 | **dieses Dokument** | Orientierung, Arbeitsregeln, offene Fragen, nächster Schritt |
 | [plan.md](plan.md) | Der Plan mit allen Phasen, Bug-Nummern B1–B18, Fragen F1–F20. **Das Hauptdokument.** |
-| **[review.md](review.md)** | **Das umfassende Review**: Umfang, Vorgehen, 15 Kriterien, die Fehlerklassen K1--K8, **24 Befunde mit Nachweis und Ergebnis**, Negativraum je Kriterium und in §7 das, was nicht geprüft ist. Geplant als plan.md §14 |
+| **[review.md](review.md)** | **Das umfassende Review**: Umfang, Vorgehen, 15 Kriterien, die Fehlerklassen K1--K8, **29 Befunde mit Nachweis und Ergebnis**, Negativraum je Kriterium und in §7 das, was nicht geprüft ist. Geplant als plan.md §14 |
 | **[to-check.md](to-check.md)** | **Alles, was außerhalb dieses Repos zu tun oder zu beantworten ist** – Proxy, NixOS-Modul, Prod-Node, offene Fragen. Mit Befehlen und Begründung. Die Liste für den User. |
 | [deployment.md](deployment.md) | Wie Produktion wirklich läuft. **Vor jeder Settings-/Deploy-Änderung lesen.** |
 | [phase-2-migrations.md](phase-2-migrations.md) | Warum die Migrations so aussehen, wie sie aussehen |
@@ -70,7 +76,7 @@ beim Mailversand konkret aussieht -- und wo es die Fortschrittsanzeige beschnitt
    ⚠️ **Der systemd-Timer fehlt und liegt außerhalb dieses Repos** ([to-check.md](to-check.md) §C5)
    -- ohne ihn reiht Produktion nach dem Deploy ein und verschickt nie.
 3. ✅ **Umfassendes Review** des ganzen Branches, [review.md](review.md) / Plan §14.
-   24 Befunde, 22 behoben; die zwei offenen liegen außerhalb dieses Repos (A5, D5).
+   29 Befunde, 27 behoben; die zwei offenen liegen außerhalb dieses Repos (A5, D5).
 
 ## 4. Umgebung und Verifikationsschleife
 
@@ -94,7 +100,9 @@ grün ist, ist dort grün.
 
 **Sollwerte, an denen du merkst, dass alles in Ordnung ist:**
 
-- `pytest` → **261 passed** (kein xfailed mehr, siehe §5; 215 waren es vor Phase 7)
+- `pytest` → **272 passed** (kein xfailed mehr, siehe §5; 215 waren es vor Phase 7). Die Zahl
+  wächst mit jedem Fix -- wenn sie nicht stimmt, ist zuerst dieser Sollwert veraltet und nicht die
+  Suite kaputt (R15-4)
 - `manage.py check` → **no issues (0 silenced)**; die CI fährt es mit `--fail-level WARNING`,
   weil ein `Warning` den Rückgabecode sonst auf 0 lässt (Review R9-2)
 - `makemigrations --check` → **No changes detected**
@@ -345,7 +353,10 @@ daran ein `script`-Element und verschluckte das Datenelement dahinter: **200 ohn
 ### Was als nächstes dran ist
 
 **Im Repo ist nichts offen.** Phase 7 ist durch: 7.1 hat 24 Befunde ergeben, 7.2 hat 22 davon
-behoben. Was übrig ist, braucht eine Antwort von dir -- **[to-check.md](to-check.md) A1 (F17) und A5
+behoben; der Nachtrag R10-4 und der zweite Lauf (review.md §8) haben fünf weitere ergeben, alle
+behoben -- zusammen 29 Befunde, 27 davon behoben. **Der zweite Lauf ist der Grund, warum es §8 gibt:**
+zwischen den beiden Läufen kamen 1 200 Zeilen Prosa, eine neue Datei und ein neuer Test dazu, von
+derselben Hand, die den Branch gerade für geprüft erklärt hatte. Was übrig ist, braucht eine Antwort von dir -- **[to-check.md](to-check.md) A1 (F17) und A5
 (SMTP-Kennwort, prüfst du vor dem Deploy)** -- oder ist ein Handgriff außerhalb dieses Repos, allen
 voran weiter der **systemd-Timer** (§C5), ohne den nach dem Deploy keine Mail rausgeht, und die
 Intranet-Beschränkung für `/admin/` (letzter Handgriff zu R2-1, entschieden -- §A4).
