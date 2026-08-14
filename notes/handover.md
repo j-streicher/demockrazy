@@ -124,6 +124,7 @@ python3 manage.py runserver --settings=demockrazy.dev_settings
 | [../demockrazy/tests/](../demockrazy/tests/) | Projektebene: `test_healthz`, `test_transactions` (was `ATOMIC_REQUESTS` wirklich tut), `test_staticfiles` (fährt `collectstatic` echt), `test_checks` |
 | [../vote/migrations/](../vote/migrations/) | `0001`+`0002` rekonstruieren Prod von 2016, `0003` bringt Constraints und `choices`, `0004` die Mail-Warteschlange (rein additiv) |
 | [../vote/tests/](../vote/tests/) | `test_models`, `test_forms`, `test_views`, `test_mail_service`, `test_poll_service`, `test_known_bugs`, `test_templates`, `test_send_pending_mails`, `conftest` |
+| [../vote/tests/mailtrap.py](../vote/tests/mailtrap.py) | Fake-SMTP-Server, kein Test (wird von pytest nicht gesammelt). Gegenüber des einen Tests, der wirklich über einen Socket spricht, **und** von Hand startbar: `python3 -m vote.tests.mailtrap 30` (R10-4) |
 | [../demockrazy/settings.py](../demockrazy/settings.py) | Defaults; dazu `dev_settings.py` (runserver) und `test_settings.py` (pytest) |
 | [../vote/static/](../vote/static/) | Bootstrap 5.3.8 und Chart.js 4.5.1, vendored. **In beiden Verzeichnissen liegt eine `PROVENANCE.md` – vor dem Anfassen lesen**, die Bundles sind bewusst um je eine Zeile geändert (`sourceMappingURL`), sonst bricht `collectstatic` ab |
 | [../vote/templates/base.html](../vote/templates/base.html) | Navbar, Assets; kein jQuery mehr |
@@ -242,6 +243,25 @@ umgesetzt wurde und was man beim Anfassen wissen muss. Vollständig in [plan.md]
    andere Umfragen, und die Manage-Seite braucht keinen Token.
 10. Offen bleiben **Bounce-Handling** (hängt an F8 -- ein dauerhafter Status pro Adresse ist genau
    das, was nicht gespeichert werden soll) und **F20**.
+
+**Wie man den Versand von Hand prüft** (dazugekommen mit R10-4). Die Suite deckt ihn ab, aber sie
+spricht bis auf einen Test kein SMTP. Für die Fälle, die nur ein echter Server zeigt -- Taktung,
+`450`, ein Server, der schweigt:
+
+```bash
+python3 -m vote.tests.mailtrap 30
+```
+
+Dazu in `demockrazy/local_settings.py` (gitignored über `demockrazy/.gitignore`):
+`EMAIL_HOST = "127.0.0.1"`, `EMAIL_PORT = 1025`, **`EMAIL_USE_TLS = False`** und
+`VOTE_SEND_MAILS = True`. Die dritte Zeile ist die Falle: der Default ist `True`, und ein
+Debug-Server spricht kein STARTTLS. Dann `manage.py send_pending_mails --pause 1` zweimal laufen
+lassen -- der erste Lauf endet nach 30 Nachrichten mit einem `450`, der zweite räumt den Rest ab.
+Gemessen sah das so aus: `30 verschickt, 0 aufgegeben, 16 warten noch (2 Batches)`, danach
+`16 verschickt, 0 aufgegeben, 0 warten noch (1 Batches)`. Der klassische Weg
+(`python -m smtpd -n -c DebuggingServer`) existiert nicht mehr: `smtpd` ist seit Python 3.12 aus der
+Standardbibliothek. Nur die Mail-*Texte* ansehen geht einfacher, dafür genügt `dev_settings.py`
+(Console-Backend).
 
 ## 8. Offene Fragen an den User
 
@@ -376,8 +396,9 @@ dieses Aufrufs ist nur dort zu lösen. Alle drei in [to-check.md](to-check.md) �
    Verhaltensänderung nie im gleichen Commit.
 2. **Commit-Nachrichten auf Englisch, Prosa, erklären *warum*** – nicht nur was. Ende jeder
    Nachricht: `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
-3. **Kommunikation mit dem User auf Deutsch. Notizen auf Deutsch. Code-Kommentare auf Deutsch**
-   (so ist der Bestand). Commit-Nachrichten Englisch.
+3. **Kommunikation mit dem User auf Deutsch. Notizen auf Deutsch. Code auf Englisch** – Bezeichner,
+   Kommentare, Docstrings. Commit-Nachrichten Englisch. Der Bestand ist überwiegend deutsch
+   kommentiert; ob er nachgezogen wird, ist offen (der PR ist auf).
 4. **Nicht raten, messen.** Versionsnummern gegen nixpkgs prüfen, Prod-Verhalten simulieren statt
    annehmen. Das hat mehrfach falsche Schlüsse verhindert – u. a. hätte ich fast eine
    zusammengefasste Migration eingecheckt, die ein anderes Schema beschreibt als das laufende.
