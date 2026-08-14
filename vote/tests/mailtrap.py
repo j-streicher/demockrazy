@@ -14,7 +14,8 @@ import sys
 import threading
 import time
 
-END_OF_DATA = (b".\r\n", b".\n", b"")
+#: The line that ends a DATA block. An empty read means the client went away instead.
+TERMINATOR = (b".\r\n", b".\n")
 
 
 class _Handler(socketserver.StreamRequestHandler):
@@ -38,7 +39,14 @@ class _Handler(socketserver.StreamRequestHandler):
                 self._reply("250 OK")
             elif verb == "DATA":
                 self._reply("354 End data with <CR><LF>.<CR><LF>")
-                self._reply(self.server.deliver(recipients, self._read_body()))
+                subject, complete = self._read_body()
+                if not complete:
+                    # The client vanished mid-DATA, so nothing was delivered. Answering `250` here
+                    # counted half a message as sent and made a run look better than the same run
+                    # against a real server (R10-5).
+                    self._reply("451 4.3.0 Message not received completely")
+                    return
+                self._reply(self.server.deliver(recipients, subject))
                 recipients = []
             elif verb == "QUIT":
                 self._reply("221 Bye")
@@ -48,12 +56,18 @@ class _Handler(socketserver.StreamRequestHandler):
                 self._reply("250 OK")
 
     def _read_body(self):
-        """The subject line, for the hand-driven log. The rest of the body is read and dropped."""
+        """`(subject, complete)`. The subject is for the hand-driven log, the rest is dropped.
+
+        `complete` says whether the terminating dot arrived; without it the client gave up
+        mid-message.
+        """
         subject = ""
-        while (line := self.rfile.readline()) not in END_OF_DATA:
+        while line := self.rfile.readline():
+            if line in TERMINATOR:
+                return subject, True
             if line.startswith(b"Subject:"):
                 subject = line.decode("utf-8", "replace").strip()
-        return subject
+        return subject, False
 
 
 class MailTrap(socketserver.ThreadingTCPServer):
@@ -77,12 +91,24 @@ class MailTrap(socketserver.ThreadingTCPServer):
         self.limit = limit
         self.window = window
         self.verbose = verbose
+        #: Recipients, in order -- **one entry per recipient**, so two for a message addressed to
+        #: two.
         self.accepted = []
         self.throttled = []
+        #: Complete messages that arrived. `limit` counts these, not recipients (R10-5).
+        self.messages = 0
+        #: Exceptions raised inside a handler. A test can assert this is empty; without it,
+        #: `socketserver` printed the traceback and carried on, and a broken double looked to the
+        #: code under test like an unreachable server (R10-5).
+        self.errors = []
         self._clock = clock
         self._window_started = clock()
         self._in_window = 0
         self._lock = threading.Lock()
+
+    def handle_error(self, request, client_address):
+        self.errors.append(sys.exception())
+        super().handle_error(request, client_address)
 
     @property
     def port(self):
@@ -95,13 +121,14 @@ class MailTrap(socketserver.ThreadingTCPServer):
             if self.window and now - self._window_started >= self.window:
                 self._window_started, self._in_window = now, 0
             self._in_window += 1
-            count = len(self.accepted) + len(self.throttled) + 1
+            self.messages += 1
+            number = self.messages
             over_limit = bool(self.limit) and self._in_window > self.limit
             (self.throttled if over_limit else self.accepted).extend(recipients)
         if over_limit:
-            self._log(f"[{count:3d}] 450 throttled    {recipients}")
+            self._log(f"[{number:3d}] 450 throttled    {recipients}")
             return "450 4.7.1 Error: too much mail from <fake>"
-        self._log(f"[{count:3d}] 250 {(recipients or ['?'])[0]:26s} {subject[:58]}")
+        self._log(f"[{number:3d}] 250 {(recipients or ['?'])[0]:26s} {subject[:58]}")
         return "250 OK: queued"
 
     def _log(self, line):

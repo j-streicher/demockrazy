@@ -2,12 +2,15 @@
 
 It is test infrastructure and still gets tested, because that is the lesson of R10-4: a double that
 is more lenient than the real server hides exactly the failures it exists for. So these tests hold
-the trap against what it claims -- that it throttles per time window (R15-2).
+the trap against what it claims -- that it throttles per time window (R15-2) and that it does not
+accept what a mail server would refuse (R10-5).
 
 No test here waits on the wall clock: the window is driven through an injected clock.
 """
 
 import smtplib
+
+import pytest
 
 from vote.tests.mailtrap import MailTrap
 
@@ -88,3 +91,69 @@ class TestTheThrottlingWindow:
         clock = FakeClock()
         with MailTrap(limit=0, window=10, clock=clock) as trap:
             assert [send(trap.port) for _ in range(5)] == [250] * 5
+
+
+class TestItRefusesWhatAServerWouldRefuse:
+    """R10-5: the trap was more lenient than its counterpart in three ways."""
+
+    def test_an_aborted_message_is_not_counted_as_delivered(self):
+        """A client that vanishes mid-DATA has delivered nothing.
+
+        The trap used to answer `250` to the half message and count it, so a run against it looked
+        more successful than the same run against a mail server.
+        """
+        import socket
+
+        with MailTrap(limit=0) as trap:
+            connection = socket.create_connection(("127.0.0.1", trap.port), timeout=5)
+            connection.recv(200)
+            for line in (
+                b"EHLO x\r\n",
+                b"MAIL FROM:<a@b.c>\r\n",
+                b"RCPT TO:<d@e.f>\r\n",
+                b"DATA\r\n",
+            ):
+                connection.sendall(line)
+                connection.recv(200)
+            connection.sendall(b"Subject: half a message\r\n")
+            connection.close()
+
+        assert trap.accepted == [], "an unfinished message must not count as delivered"
+        assert trap.messages == 0
+
+    def test_a_complete_message_is_counted_once_however_many_recipients(self):
+        """`messages` counts messages, `accepted` counts recipients -- and says so.
+
+        The two used to be conflated: `limit` counted messages while the only visible counter
+        counted recipients, so `len(trap.accepted)` looked like a message count and was not one.
+        """
+        with MailTrap(limit=0) as trap:
+            with smtplib.SMTP("127.0.0.1", trap.port, timeout=5) as smtp:
+                smtp.sendmail("a@b.c", ["one@x.org", "two@x.org"], "Subject: s\n\nbody")
+        assert trap.messages == 1
+        assert trap.accepted == ["one@x.org", "two@x.org"]
+
+    def test_a_broken_trap_cannot_leave_a_test_green(self):
+        """An error inside the trap was printed and swallowed.
+
+        To the code under test that looks like `SMTPServerDisconnected`, which is a legitimate
+        outcome the suite asserts elsewhere -- so a broken double could have made such a test pass
+        for the wrong reason. Now it records, and a test can look.
+        """
+
+        class BrokenTrap(MailTrap):
+            def deliver(self, recipients, subject=""):
+                raise RuntimeError("the double is broken")
+
+        with BrokenTrap(limit=0) as trap:
+            with pytest.raises(smtplib.SMTPServerDisconnected):
+                with smtplib.SMTP("127.0.0.1", trap.port, timeout=5) as smtp:
+                    smtp.sendmail("a@b.c", ["one@x.org"], "Subject: s\n\nbody")
+
+        assert [type(error).__name__ for error in trap.errors] == ["RuntimeError"]
+
+    def test_a_healthy_trap_records_no_errors(self):
+        """The counter-check -- otherwise the assertion above would pass on an empty list."""
+        with MailTrap(limit=0) as trap:
+            assert send(trap.port) == 250
+        assert trap.errors == []
