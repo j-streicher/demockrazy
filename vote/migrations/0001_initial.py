@@ -1,8 +1,8 @@
-# Rekonstruktion der urspruenglichen Migration, die in Produktion am 2016-06-09 angewendet
-# wurde (django_migrations: vote/0001_initial). Die Datei existierte nie im Repo, weil
-# migrations/ gitignored war -- sie wurde aus dem Modellstand vor 0002 neu erzeugt und gegen
-# das Schema der Produktionsdatenbank verifiziert. Name und Inhalt muessen so bleiben, damit
-# `migrate` in Produktion ein No-Op ist. Details: notes/phase-2-migrations.md
+# A reconstruction of the original migration that was applied in production on 2016-06-09
+# (django_migrations: vote/0001_initial). The file never existed in the repository, because
+# migrations/ was gitignored -- it was regenerated from the model state before 0002 and verified
+# against the schema of the production database. Name and contents have to stay as they are, so that
+# `migrate` is a no-op in production. Details: notes/phase-2-migrations.md
 
 import django.db.models.deletion
 import django.utils.timezone

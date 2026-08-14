@@ -1,10 +1,10 @@
-"""Cache-Busting für statische Dateien (Plan 4.4).
+"""Cache busting for static files (plan 4.4).
 
-Der Test läuft `collectstatic` wirklich, statt nur den Settings-Wert zu behaupten. Grund: der
-Fehlerfall von `ManifestStaticFilesStorage` ist nicht „falscher Dateiname", sondern
-**`collectstatic` bricht ab**, wenn eine CSS-Datei per `url()` auf etwas verweist, das es nicht
-gibt. Das Kommando läuft in Produktion im `preStart`; ein Abbruch dort heißt, der Dienst startet
-nicht. Genau das soll die CI sehen, und zwar bevor in 4.1 ein neues Bootstrap-Bundle dazukommt.
+The test really runs `collectstatic` instead of merely asserting the settings value. The reason: the
+failure mode of `ManifestStaticFilesStorage` is not "wrong file name" but **`collectstatic` aborts**
+when a CSS file refers via `url()` to something that does not exist. That command runs in production
+in `preStart`; an abort there means the service does not start. Exactly that is what CI should see,
+and before a new Bootstrap bundle arrives in 4.1.
 """
 
 import json
@@ -20,7 +20,7 @@ MANIFEST_STORAGE = {
 
 
 def test_settings_default_to_hashed_names():
-    """Die Repo-Defaults, nicht die der Testsuite -- die stellt bewusst zurück."""
+    """The repository defaults, not the test suite's -- that one deliberately reverts them."""
     from demockrazy import settings
 
     backend = settings.STORAGES["staticfiles"]["BACKEND"]
@@ -28,21 +28,21 @@ def test_settings_default_to_hashed_names():
 
 
 def test_collectstatic_resolves_every_reference(tmp_path):
-    """Läuft durch, oder sagt genau, welche Referenz fehlt."""
+    """Either it runs through, or it says exactly which reference is missing."""
     with override_settings(STATIC_ROOT=tmp_path, STORAGES=MANIFEST_STORAGE):
         call_command("collectstatic", "--noinput", verbosity=0)
 
         manifest = json.loads((tmp_path / "staticfiles.json").read_text())
         paths = manifest["paths"]
 
-        # Eine eigene und eine Vendor-Datei. Beide müssen einen Hash tragen und dort liegen.
-        # Bootstrap 5 bringt seine Icons als inline data:-URIs mit, hat also keine externen
-        # url()-Verweise mehr -- bei Bootstrap 3 waren es die Glyphicon-Fonts. Was der Test bei 4.1
-        # tatsächlich gefangen hat, war der `sourceMappingURL`-Verweis der Bundles auf die nicht
-        # mitgelieferten .map-Dateien (siehe PROVENANCE.md neben den Dateien).
+        # One file of our own and one vendored file. Both have to carry a hash and be there.
+        # Bootstrap 5 ships its icons as inline data: URIs, so it has no external url() references
+        # any more -- with Bootstrap 3 those were the glyphicon fonts. What the test actually caught
+        # in 4.1 was the `sourceMappingURL` reference of the bundles to the .map files that are not
+        # shipped (see PROVENANCE.md next to them).
         for name in ("css/main.css", "bootstrap-5.3.8-dist/css/bootstrap.min.css"):
             assert paths[name] != name, name
             assert (tmp_path / paths[name]).exists(), name
 
-        # Und das ist der Punkt der Übung: der Name im Template trägt den Hash.
+        # And this is the point of the exercise: the name in the template carries the hash.
         assert static("css/main.css") == f"/static/{paths['css/main.css']}"

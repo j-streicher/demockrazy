@@ -3,16 +3,15 @@
 {% block title %}Create a new poll – Demockrazy{% endblock %}
 
 {% comment %}
-Das Markup bleibt absichtlich handgeschrieben, jetzt in Bootstrap 5 (4.1 ist erledigt; hier
-stand noch "Bootstrap 3, wird in Plan 4.1 ersetzt" -- Review R14-2). Was das Formular dazu braucht:
-Fehler pro Feld und die Eingaben zurück ins Feld, damit ein Tippfehler in Adresse 200 nicht die
-ganze Liste kostet.
+The markup stays hand-written on purpose, now in Bootstrap 5 (4.1 is done; this still said
+"Bootstrap 3, to be replaced in plan 4.1" -- review R14-2). What the form needs for that: errors per
+field, and the input back in the field, so that a typo in address 200 does not cost the whole list.
 
-Jede Fehlerliste hat eine eigene id, und das zugehörige Feld verweist per aria-describedby
-darauf -- sonst steht die Meldung optisch daneben, aber ein Screenreader liest beim Feld nur
-das Label und nicht, warum es abgelehnt wurde (Plan 4.5). Beide aria-Attribute erscheinen nur,
-wenn es wirklich einen Fehler gibt: aria-invalid="false" auf jedem Feld wäre Lärm, und ein
-aria-describedby auf einen leeren Container ist eine Zusage, die niemand einlöst.
+Every error list has an id of its own, and the field it belongs to points at it with
+aria-describedby -- otherwise the message sits beside the field visually, but a screen reader reads
+only the label at the field and not why it was rejected (plan 4.5). Both aria attributes appear only
+when there really is an error: aria-invalid="false" on every field would be noise, and an
+aria-describedby pointing at an empty container is a promise nobody keeps.
 {% endcomment %}
 
 {% block content %}

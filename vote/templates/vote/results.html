@@ -25,16 +25,16 @@
     </tr>
     <tr>
         <td>Total Voters</td>
-        {% comment %}R14-1: der berechnete Wert, nicht das Rohfeld -- `num_tokens` ist bei
-        Alt-Umfragen NULL und stand dann als „None" auf der Seite.{% endcomment %}
+        {% comment %}R14-1: the computed value, not the raw field -- `num_tokens` is NULL for
+        old polls and then stood on the page as "None".{% endcomment %}
         <td>{{ amount_tokens_total }}</td>
     </tr>
 </table>
 
 {% comment %}
-Das Diagramm ist die Zweitdarstellung -- alle Zahlen stehen vollständig in der Tabelle darüber.
-Deshalb trägt das Canvas nur ein knappes aria-label und keinen Versuch, seinen Inhalt für
-Screenreader nachzubauen: die Tabelle *ist* die zugängliche Fassung, und sie steht davor.
+The chart is the secondary presentation -- every number is there in full in the table above it. So the
+canvas carries only a brief aria-label and no attempt to rebuild its content for screen readers: the
+table *is* the accessible version, and it comes first.
 {% endcomment %}
 <div class="mt-4" style="max-width: 32rem;">
     <canvas id="results-chart" role="img"
@@ -44,14 +44,13 @@ Screenreader nachzubauen: die Tabelle *ist* die zugängliche Fassung, und sie st
 
 {% block js %}
 {% comment %}
-Chart.js nur hier laden, nicht in base.html: gebraucht wird es auf einer von sechs Seiten, und es
-sind 204 KB. Highcharts hing vorher in base.html und ging damit auf jede Seite mit.
+Load Chart.js only here, not in base.html: it is needed on one of six pages, and it is 204 KB.
+Highcharts used to hang in base.html and therefore went out with every page.
 
-Die Diagrammdaten kommen als JSON aus der View, nicht als in JS-Literale interpolierte Werte
-(B10). Vorher stand hier der Choice-Text direkt in einem JS-Stringliteral: Django escapte ihn
-fürs HTML, aber der Inhalt eines script-Elements wird vom Parser nicht entity-dekodiert -- aus
-`Bier & Brezn` wurde im Diagramm sichtbar `Bier &amp; Brezn`. `json_script` escapt für genau
-diesen Ort.
+The chart data comes out of the view as JSON, not as values interpolated into JS literals (B10). The
+choice text used to sit directly in a JS string literal here: Django escaped it for HTML, but the
+content of a script element is not entity-decoded by the parser -- `Bier & Brezn` became a visible
+`Bier &amp; Brezn` in the chart. `json_script` escapes for exactly this place.
 {% endcomment %}
 {{ chart_series|json_script:"chart-series" }}
 <script src="{% static "chartjs-4.5.1/chart.umd.min.js" %}"></script>
@@ -60,12 +59,12 @@ diesen Ort.
     var series = JSON.parse(document.getElementById('chart-series').textContent);
     var total = series.reduce(function (sum, entry) { return sum + entry.y; }, 0);
 
-    // Feste Palette statt Chart.js' Automatik: die Zahl der Optionen ist unbekannt, und so ist
-    // nachvollziehbar, welche Farben herauskommen. Wird zyklisch wiederverwendet.
+    // A fixed palette instead of Chart.js' automatic one: the number of choices is unknown, and this
+    // way it is clear which colours come out. Reused cyclically.
     var palette = ['#0d6efd', '#dc3545', '#198754', '#fd7e14', '#6f42c1', '#20c997', '#6c757d'];
 
-    // Der Prozentwert steht im Label, nicht in einem Datalabel-Plugin: so ist er ohne Hover und
-    // im Ausdruck sichtbar, und es bleibt bei einer einzigen Abhängigkeit.
+    // The percentage goes in the label, not into a datalabel plugin: that way it is visible without
+    // hovering and in print, and it stays at a single dependency.
     var labels = series.map(function (entry) {
         var share = total > 0 ? (100 * entry.y / total).toFixed(1) : '0.0';
         return entry.name + ' — ' + share + ' %';

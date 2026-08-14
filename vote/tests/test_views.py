@@ -1,4 +1,4 @@
-"""Tests für vote/views.py gegen das in Phase 0 protokollierte Verhalten."""
+"""Tests for vote/views.py against the behaviour recorded in phase 0."""
 
 import re
 from typing import ClassVar
@@ -15,7 +15,7 @@ from vote.views import TOKEN_COOKIE_NAME
 
 from .conftest import CREATOR_MAIL, creator_message, voter_tokens
 
-#: Eine Eingabe, die genau an einer Stelle kaputt ist -- der Rest muss die Fehlerseite überleben.
+#: Input that is broken in exactly one place -- the rest has to survive the error page.
 INVALID_PAYLOAD = {
     "title": "Wiedervorlage",
     "type": "simple_choice",
@@ -27,9 +27,9 @@ INVALID_PAYLOAD = {
 
 
 class TestUrls:
-    """Es sind Mails mit ?token=-Links auf bestehende Umfragen unterwegs.
+    """Mails with ?token= links to existing polls are out there.
 
-    Diese Pfade dürfen sich beim Modernisieren nicht ändern (Plan-Regel 4).
+    These paths must not change while modernising (plan rule 4).
     """
 
     def test_url_shapes(self):
@@ -53,11 +53,11 @@ class TestUrls:
 
     @pytest.mark.parametrize("identifier", ["ab-c", "ab_c", "äbc"])
     def test_identifier_route_matches_nothing_beyond_it(self, identifier):
-        """Gegenprobe zum eigenen Converter aus vote/urls.py.
+        """The counter-check for the converter of our own from vote/urls.py.
 
-        `mk_identifier()` zieht nur aus `ascii_letters + digits`. Djangos `slug`
-        hätte `-` und `_` zusätzlich angenommen, also mehr als der alte
-        `re_path`-Ausdruck -- das darf nicht bis zur View durchkommen.
+        `mk_identifier()` only draws from `ascii_letters + digits`. Django's `slug`
+        would also have accepted `-` and `_`, so more than the old `re_path`
+        expression -- and that must not reach the view.
         """
         with pytest.raises(Resolver404):
             resolve(f"/vote/{identifier}/")
@@ -65,30 +65,30 @@ class TestUrls:
 
 @pytest.mark.django_db
 class TestPageTitles:
-    """R13-1: der `{% block title %}` in base.html war angelegt und blieb in jeder Vorlage leer.
+    """R13-1: the `{% block title %}` in base.html existed and stayed empty in every template.
 
-    Alle sechs Seiten hießen „Demockrazy". WCAG 2.4.2 verlangt einen Titel, der Thema oder Zweck
-    beschreibt, und praktisch: wer zwei Abstimmungen offen hat, unterscheidet die Tabs nicht.
+    All six pages were called "Demockrazy". WCAG 2.4.2 asks for a title that describes topic or
+    purpose, and practically: whoever has two polls open cannot tell the tabs apart.
     """
 
-    #: Der Trenner ist ein Halbgeviertstrich; als Escape geschrieben, weil ihn ruff im Quelltext
-    #: sonst als verwechselbares Zeichen meldet (RUF001) und ein `noqa` hier nicht hingehört.
+    #: The separator is an en dash; written as an escape because ruff otherwise reports it in the
+    #: source as an ambiguous character (RUF001) and a `noqa` does not belong here.
     SUFFIX = " \u2013 Demockrazy"
 
     def _title(self, client, path):
-        treffer = re.search(r"<title>(.*?)</title>", client.get(path).content.decode())
-        assert treffer, f"kein Titel in {path}"
-        return treffer.group(1)
+        found = re.search(r"<title>(.*?)</title>", client.get(path).content.decode())
+        assert found, f"no title in {path}"
+        return found.group(1)
 
     def test_each_page_says_what_it_is(self, client, create_poll):
         poll, _ = create_poll(title="Kantinenwahl")
-        erwartet = {
+        expected = {
             "/vote/": "Create a new poll",
             f"/vote/{poll.identifier}/": "Kantinenwahl",
             f"/vote/{poll.identifier}/manage": "Manage Kantinenwahl",
             f"/vote/{poll.identifier}/success": "Thanks for voting on Kantinenwahl",
         }
-        for path, text in erwartet.items():
+        for path, text in expected.items():
             assert self._title(client, path) == text + self.SUFFIX, path
 
     def test_the_results_page_names_the_poll(self, client, create_poll):
@@ -114,16 +114,16 @@ class TestIndex:
         assert b'name="voter_mails"' in response.content
 
     def test_clean_form_carries_no_aria_error_markup(self, client):
-        """Gegenprobe zum Test unten: ohne Fehler behauptet das Formular keinen (Plan 4.5)."""
+        """The counter-check to the test below: without errors the form claims none (plan 4.5)."""
         content = client.get("/vote/").content
         assert b"aria-invalid" not in content
         assert b"aria-describedby" not in content
 
     @pytest.mark.django_db
     def test_field_error_is_announced_at_the_field(self, client):
-        """Die Fehlerliste steht optisch beim Feld -- ein Screenreader braucht die Verknüpfung.
+        """The error list sits next to the field visually -- a screen reader needs the link.
 
-        `voter_mails` ist das kaputte Feld in INVALID_PAYLOAD, `title` das intakte daneben.
+        `voter_mails` is the broken field in INVALID_PAYLOAD, `title` the intact one beside it.
         """
         content = client.post("/vote/create", INVALID_PAYLOAD).content.decode()
 
@@ -195,11 +195,11 @@ class TestCreate:
 
 @pytest.mark.django_db
 class TestCreateQueuesMails:
-    """`create()` reiht die Mails ein und verschickt selbst nichts (Plan §11.7).
+    """`create()` enqueues the mails and sends nothing itself (plan §11.7).
 
-    Das ist die neue Form der Zusage aus B7 („keine Mail, bevor die Tokens durabel sind"): sie hängt
-    nicht mehr an einem `on_commit`-Callback, sondern daran, dass ein **anderer Prozess** verschickt
-    und nur committete Zeilen sieht.
+    This is the new shape of the promise from B7 ("no mail before the tokens are durable"): it no
+    longer rests on an `on_commit` callback but on the fact that **another process** does the
+    sending and only sees committed rows.
     """
 
     PAYLOAD: ClassVar[dict] = {
@@ -213,7 +213,7 @@ class TestCreateQueuesMails:
 
     def test_the_request_sends_nothing(self, client, mailoutbox):
         client.post("/vote/create", self.PAYLOAD)
-        assert mailoutbox == [], "der Request selbst darf keine Mail verschicken"
+        assert mailoutbox == [], "the request itself must not send a mail"
 
     def test_one_queue_row_per_recipient_plus_the_creator(self, client):
         client.post("/vote/create", self.PAYLOAD)
@@ -225,11 +225,11 @@ class TestCreateQueuesMails:
         assert recipients == [CREATOR_MAIL, "a@example.org", "b@example.org"]
 
     def test_a_queue_row_does_not_name_its_poll(self, client):
-        """F8: eine Zeile soll für sich nicht sagen, um welche Abstimmung es geht.
+        """F8: a row should not say on its own which poll it belongs to.
 
-        Geprüft an den Feldern und nicht am Inhalt: ein Fremdschlüssel oder eine Kennungsspalte
-        wäre genau das, was hier nicht entstehen darf. Der *Text* nennt den Titel natürlich -- er
-        ist die Einladung.
+        Checked against the fields and not the content: a foreign key or an identifier column would
+        be exactly what must not appear here. The *text* names the title of course -- it is the
+        invitation.
         """
         client.post("/vote/create", self.PAYLOAD)
         columns = {field.name for field in OutgoingMail._meta.get_fields()}
@@ -241,11 +241,11 @@ class TestCreateQueuesMails:
         assert OutgoingMail.objects.count() == 0
 
     def test_the_queue_survives_into_a_real_transaction(self, client, mailoutbox):
-        """Gegenprobe mit echtem Commit: hier hilft kein Testmechanismus nach.
+        """The counter-check with a real commit: no test mechanism helps out here.
 
-        Vorher stand hier die Gegenprobe für `on_commit` -- dass der Versand auch ohne das
-        Ausführen der Callbacks von Hand läuft. Die Zusage ist jetzt eine andere: nach dem Commit
-        liegen die Zeilen da, und erst ein separater Lauf verschickt sie.
+        This used to be the counter-check for `on_commit` -- that sending works without executing
+        the callbacks by hand. The promise is a different one now: after the commit the rows are
+        there, and only a separate run sends them.
         """
         client.post("/vote/create", self.PAYLOAD)
         assert OutgoingMail.objects.count() == 3
@@ -261,7 +261,7 @@ class TestCreateQueuesMails:
 
 @pytest.mark.django_db
 class TestCreateFormErrors:
-    """Der Fehlerpfad von `create()`, seit es über `PollCreateForm` läuft (Plan 3.2)."""
+    """The error path of `create()`, since it goes through `PollCreateForm` (plan 3.2)."""
 
     def test_get_shows_the_form(self, client):
         response = client.get("/vote/create")
@@ -282,14 +282,14 @@ class TestCreateFormErrors:
     def test_invalid_input_sends_no_mail(
         self, client, mailoutbox, django_capture_on_commit_callbacks
     ):
-        """Auch nicht an den Ersteller -- sonst wäre eine Tippfehler-Schleife ein Mailversender."""
+        """Not to the creator either -- otherwise a loop of typos would be a mail sender."""
         with django_capture_on_commit_callbacks(execute=True) as callbacks:
             client.post("/vote/create", INVALID_PAYLOAD)
-        assert callbacks == [], "ein ungültiges Formular soll keinen Versand vormerken"
+        assert callbacks == [], "an invalid form must not schedule any sending"
         assert mailoutbox == []
 
     def test_the_entered_values_survive_an_error(self, client):
-        """Wer 200 Adressen einfügt, soll sie nach einem Tippfehler nicht neu eintippen müssen."""
+        """Whoever pastes 200 addresses should not retype them after one typo."""
         response = client.post("/vote/create", INVALID_PAYLOAD)
         content = response.content.decode()
         assert "Wiedervorlage" in content
@@ -308,9 +308,10 @@ class TestCreateFormErrors:
 
 @pytest.mark.django_db
 class TestPollPage:
-    """`follow=True`, weil ein Token in der URL seit B9 erst umzieht und dann umleitet.
+    """`follow=True`, because since B9 a token in the URL first moves and then redirects.
 
-    Was dabei passiert, prüft `TestTokenLeavesTheUrl`; hier interessiert nur die Seite am Ende.
+    What happens on the way is checked by `TestTokenLeavesTheUrl`; only the page at the end matters
+    here.
     """
 
     def test_shows_poll_and_token(self, client, create_poll):
@@ -336,7 +337,7 @@ class TestPollPage:
         assert response.context["amount_redeemed_tokens"] == 0
 
     def test_without_a_token_the_field_is_empty(self, client, create_poll):
-        """Kein Token, kein Umzug, keine Fehlermeldung -- nur ein leeres Feld zum Abtippen."""
+        """No token, no move, no error message -- only an empty field to type into."""
         poll, _ = create_poll()
         response = client.get(f"/vote/{poll.identifier}/")
         assert response.status_code == 200
@@ -355,9 +356,9 @@ class TestPollPage:
         assert response.headers["Location"] == f"/vote/{poll.identifier}/results"
 
     def test_closed_poll_redirects_to_results_even_with_a_token(self, client, create_poll):
-        """Genau *eine* Weiterleitung, nicht erst der Umzug und dann die Weiche.
+        """Exactly *one* redirect, not the move first and then the branch.
 
-        Die `is_active`-Weiche steht deshalb seit B9 vor dem Umzug.
+        Which is why the `is_active` branch has sat in front of the move since B9.
         """
         poll, tokens = create_poll()
         poll.is_active = False
@@ -369,15 +370,15 @@ class TestPollPage:
 
 @pytest.mark.django_db
 class TestTokenLeavesTheUrl:
-    """B9: der Token zieht beim ersten Aufruf aus dem Query-String in ein Cookie um.
+    """B9: on the first request the token moves out of the query string into a cookie.
 
-    Der Link in der Mail bleibt unverändert -- er *muss* es, es sind Mails unterwegs (Regel 4/5).
-    Neu ist nur, dass die Adresse, auf der der Browser stehen bleibt, keinen Token mehr trägt.
+    The link in the mail stays unchanged -- it *has* to, mails are out there (rules 4/5). All that
+    is new is that the address the browser comes to rest on carries no token any more.
 
-    **Grenze des Testclients:** sein Cookie-Speicher ist nur nach Namen sortiert und ignoriert
-    `path`. Dass zwei Umfragen sich nicht ins Gehege kommen, ist deshalb über das Attribut geprüft
-    und nicht über zwei nacheinander abgerufene Seiten -- das würde hier gelingen, wo ein Browser
-    es gar nicht erst versuchen würde.
+    **A limit of the test client:** its cookie jar is keyed by name only and ignores `path`. That
+    two polls do not get in each other's way is therefore checked through the attribute and not
+    through two pages fetched one after the other -- that would succeed here where a browser would
+    not even try.
     """
 
     def test_the_token_is_moved_into_a_cookie(self, client, create_poll):
@@ -395,37 +396,37 @@ class TestTokenLeavesTheUrl:
         assert response.context["error_message"] is None
 
     def test_the_move_happens_only_once(self, client, create_poll):
-        """Kein Pendeln: die Zieladresse trägt keinen Token, also löst sie keinen Umzug aus."""
+        """No ping-pong: the target address carries no token, so it triggers no move."""
         poll, tokens = create_poll()
         response = client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]}, follow=True)
         assert len(response.redirect_chain) == 1
         assert response.status_code == 200
 
     def test_the_cookie_is_scoped_to_this_poll(self, client, create_poll):
-        """Ohne `path` würde eine zweite Einladung die erste überschreiben.
+        """Without `path` a second invitation would overwrite the first.
 
-        Mit `?token=` in der URL gab es diese Kollision nicht -- die Bindung an den Pfad ist
-        Verhaltenserhaltung und keine Zugabe.
+        With `?token=` in the URL that collision did not exist -- binding to the path preserves
+        behaviour, it does not add any.
         """
         poll, tokens = create_poll()
         response = client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]})
         assert response.cookies[TOKEN_COOKIE_NAME]["path"] == f"/vote/{poll.identifier}/"
 
     def test_the_cookie_reaches_the_vote_endpoint(self, client, create_poll):
-        """Der Cookie-Pfad darf nicht so eng sein, dass die Stimmabgabe ihn nicht mehr sieht.
+        """The cookie path must not be so narrow that the vote itself no longer sees it.
 
-        Ein Cookie geht an jeden Pfad, der mit seinem `path` beginnt. Geprüft wird deshalb gegen
-        die echten Routen, nicht gegen ein zweites Mal hingeschriebene Zeichenketten.
+        A cookie goes to every path that starts with its `path`. So this is checked against the real
+        routes, not against strings written out a second time.
         """
         poll, tokens = create_poll()
         response = client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]})
         cookie_path = response.cookies[TOKEN_COOKIE_NAME]["path"]
-        assert cookie_path.endswith("/"), "sonst greift die Präfixregel nicht"
+        assert cookie_path.endswith("/"), "otherwise the prefix rule does not apply"
         for name in ("vote", "success", "result"):
             assert reverse(f"vote:polls:{name}", args=(poll.identifier,)).startswith(cookie_path)
 
     def test_the_cookie_is_hidden_from_scripts_and_lax(self, client, create_poll):
-        """`Lax`, nicht `Strict`: der Klick aus einem Webmailer ist seitenübergreifend."""
+        """`Lax`, not `Strict`: the click from a webmail client is cross-site."""
         poll, tokens = create_poll()
         cookie = client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]}).cookies[
             TOKEN_COOKIE_NAME
@@ -434,7 +435,7 @@ class TestTokenLeavesTheUrl:
         assert cookie["samesite"] == "Lax"
 
     def test_the_cookie_follows_the_session_cookie_setting(self, client, create_poll, settings):
-        """Ein eigener Schalter würde still von dem abweichen, den das Prod-Modul schon setzt."""
+        """A switch of its own would silently drift from the one production already sets."""
         poll, tokens = create_poll()
         assert not client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]}).cookies[
             TOKEN_COOKIE_NAME
@@ -451,94 +452,93 @@ class TestTokenLeavesTheUrl:
         assert response.context["token"] == ""
 
     @pytest.mark.parametrize(
-        "wert,label",
+        "value,label",
         [
-            ("a\r\nSet-Cookie: admin=1", "Steuerzeichen"),
-            ("\u2713", "jenseits von Latin-1"),
-            ("x" * 300, "zu lang"),
-            ("kein token!", "Sonderzeichen"),
+            ("a\r\nSet-Cookie: admin=1", "control character"),
+            ("\u2713", "beyond Latin-1"),
+            ("x" * 300, "too long"),
+            ("kein token!", "special characters"),
         ],
     )
-    def test_a_token_that_cannot_be_one_is_treated_as_none(self, client, create_poll, wert, label):
-        """R3-1: der Wert ging ungeprüft in `set_cookie()` -- zwei dieser Fälle waren ein 500.
+    def test_a_token_that_cannot_be_one_is_treated_as_none(self, client, create_poll, value, label):
+        """R3-1: the value went into `set_cookie()` unchecked -- two of these cases were a 500.
 
-        Ein Steuerzeichen wirft in `http.cookies` einen `CookieError`, ein Zeichen jenseits von
-        Latin-1 erzeugt einen Set-Cookie-Header, den WSGI nicht führen darf. Gemeinsame Antwort:
-        was kein Token sein kann, ist keiner -- also derselbe Weg wie bei `?token=` ohne Wert.
+        A control character makes `http.cookies` raise a `CookieError`, a character beyond Latin-1
+        produces a Set-Cookie header that WSGI must not carry. One answer for both: what cannot be a
+        token is not one -- so the same path as `?token=` without a value.
         """
         poll, _ = create_poll()
         strict = Client(raise_request_exception=True)
-        response = strict.get(f"/vote/{poll.identifier}/", {"token": wert})
+        response = strict.get(f"/vote/{poll.identifier}/", {"token": value})
 
         assert response.status_code == 302, label
         cookie = response.cookies.get(TOKEN_COOKIE_NAME)
         assert cookie is not None and cookie.value == "", (
-            f"{label}: statt eines Cookies mit krummem Wert muss ein vorhandener gelöscht werden"
+            f"{label}: instead of a cookie with a crooked value, an existing one must be deleted"
         )
-        for teil in str(cookie).splitlines():
-            teil.encode("latin-1")  # WSGI-Anforderung; wirft sonst UnicodeEncodeError
+        for part in str(cookie).splitlines():
+            part.encode("latin-1")  # a WSGI requirement; raises UnicodeEncodeError otherwise
 
     def test_a_real_token_still_moves(self, client, create_poll):
-        """Die Gegenprobe zur Prüfung: der echte Wert kommt unverändert im Cookie an."""
+        """The counter-check to the check: the real value arrives in the cookie unchanged."""
         poll, tokens = create_poll()
         response = client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]})
         assert response.cookies[TOKEN_COOKIE_NAME].value == tokens[0]
 
     def test_the_page_varies_on_cookie(self, client, create_poll):
-        """Ein gemeinsamer Cache darf die Seite eines Wählers nicht an den nächsten ausliefern.
+        """A shared cache must not hand one voter's page to the next.
 
-        R10-1: dieser Test bestand vorher auch **ohne** `@vary_on_cookie`. Er sah den Header an der
-        Formularseite nach, und dort setzt ihn schon die CSRF-Middleware, weil das Template ein
-        `{% csrf_token %}` enthält -- er konnte also nicht fehlschlagen. Geprüft wird deshalb an
-        Antworten, in denen **kein Formular** steckt: die zwei Weiterleitungen dieser View. Dort ist
-        `Vary: Cookie` nur da, wenn der Dekorator ihn setzt.
+        R10-1: this test passed **without** `@vary_on_cookie` as well. It looked the header up on
+        the form page, and there the CSRF middleware already sets it, because the template contains
+        a `{% csrf_token %}` -- so it could not fail. It is therefore checked against responses that
+        contain **no form**: the two redirects of this view. There, `Vary: Cookie` is only present
+        if the decorator sets it.
         """
         poll, tokens = create_poll()
 
-        umzug = client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]})
-        assert umzug.status_code == 302
-        assert "Cookie" in umzug.headers["Vary"], "der Umzugs-Redirect trägt den Header nicht"
+        moved = client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]})
+        assert moved.status_code == 302
+        assert "Cookie" in moved.headers["Vary"], "the move redirect does not carry the header"
 
         poll.is_active = False
         poll.save()
-        geschlossen = client.get(f"/vote/{poll.identifier}/")
-        assert geschlossen.status_code == 302
-        assert "Cookie" in geschlossen.headers["Vary"]
+        closed = client.get(f"/vote/{poll.identifier}/")
+        assert closed.status_code == 302
+        assert "Cookie" in closed.headers["Vary"]
 
-        # Und weiterhin auf der Seite selbst -- dort mit Gürtel und Hosenträger.
+        # And still on the page itself -- with belt and braces there.
         poll.is_active = True
         poll.save()
         assert "Cookie" in client.get(f"/vote/{poll.identifier}/").headers["Vary"]
 
     def test_the_page_with_the_token_is_not_cacheable(self, client, create_poll):
-        """R6-2: `Vary: Cookie` sagt nur, *wonach* ein Cache unterscheidet -- nicht, dass er es
-        lassen soll.
+        """R6-2: `Vary: Cookie` only says *what* a cache distinguishes by -- not that it should not
+        store at all.
 
-        Die Seite zeigt den Token im Formular; sie darf weder in einem gemeinsamen Zwischenspeicher
-        noch auf der Platte des Browsers liegen. Dasselbe gilt für die Manage-Seite, die den
-        Management-Token annimmt.
+        The page shows the token in the form; it must lie neither in a shared cache nor on the
+        browser's disk. The same holds for the manage page, which accepts the management token.
         """
         poll, _ = create_poll()
-        for pfad in (f"/vote/{poll.identifier}/", f"/vote/{poll.identifier}/manage"):
-            cache_control = client.get(pfad).headers["Cache-Control"]
-            assert "no-store" in cache_control, pfad
+        for path in (f"/vote/{poll.identifier}/", f"/vote/{poll.identifier}/manage"):
+            cache_control = client.get(path).headers["Cache-Control"]
+            assert "no-store" in cache_control, path
 
     def test_the_vote_takes_its_token_from_the_form_not_the_cookie(self, client, create_poll):
-        """Das Cookie ist eine Bequemlichkeit für die Anzeige, kein Auth-Kanal für die Abgabe."""
+        """The cookie is a convenience for the display, not an auth channel for the vote."""
         poll, tokens = create_poll()
         client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]})
         client.post(
             f"/vote/{poll.identifier}/vote",
             {"token": tokens[1], "choice": poll.choice_set.first().id},
         )
-        assert Token.objects.filter(token_string=tokens[0]).exists(), "der falsche wurde verbraucht"
+        assert Token.objects.filter(token_string=tokens[0]).exists(), "the wrong one was consumed"
         assert not Token.objects.filter(token_string=tokens[1]).exists()
 
     def test_a_spent_token_still_explains_itself(self, client, create_poll):
-        """Nach der Abgabe bleibt das Cookie stehen -- absichtlich.
+        """After voting the cookie stays -- deliberately.
 
-        Es zeigt dann dieselbe Meldung wie bisher ein erneut aufgerufener Mail-Link. Löschen wäre
-        die Alternative und würde die Erklärung durch ein leeres Feld ersetzen.
+        It then shows the same message a mail link opened a second time used to show. Deleting it
+        would be the alternative and would replace the explanation with an empty field.
         """
         poll, tokens = create_poll()
         client.get(f"/vote/{poll.identifier}/", {"token": tokens[0]})
@@ -552,10 +552,10 @@ class TestTokenLeavesTheUrl:
         )
 
     def test_voting_already_required_a_cookie_before_all_this(self, create_poll):
-        """Warum der Umzug in ein Cookie niemandem etwas wegnimmt: gemessen, nicht gehofft.
+        """Why moving into a cookie takes nothing away from anyone: measured, not hoped.
 
-        Djangos CSRF-Prüfung verlangt schon heute ein Cookie. Wer keine annimmt, konnte auch
-        vorher nicht abstimmen -- ein zweites Cookie kostet also keinen Wähler.
+        Django's CSRF check already demands a cookie today. Whoever accepts none could not vote
+        before either -- so a second cookie costs no voter.
         """
         poll, tokens = create_poll()
         strict = Client(enforce_csrf_checks=True)
@@ -623,7 +623,7 @@ class TestVoteSimpleChoice:
 
     @pytest.mark.parametrize("value", ["abc", "", "1; DROP TABLE", "-1"])
     def test_unusable_choice_id_keeps_token(self, client, create_poll, value):
-        """B15: ein nicht-numerischer Wert lief in einen ValueError aus dem pk-Lookup, also 500."""
+        """B15: a non-numeric value ran into a ValueError from the pk lookup, so a 500."""
         poll, tokens = create_poll()
         response = client.post(
             f"/vote/{poll.identifier}/vote", {"token": tokens[0], "choice": value}
@@ -634,7 +634,7 @@ class TestVoteSimpleChoice:
         assert poll.choice_set.first().votes == 0
 
     def test_get_does_not_crash(self, client, create_poll):
-        """Ohne POST-Daten gibt es keinen Token -- das ist eine Fehlermeldung, kein 500."""
+        """Without POST data there is no token -- that is an error message, not a 500."""
         poll, _ = create_poll()
         response = client.get(f"/vote/{poll.identifier}/vote")
         assert response.status_code == 200
@@ -694,7 +694,7 @@ class TestVoteMultipleChoice:
         assert votes == [1, 0, 1]
 
     def test_incomplete_answer_rolls_everything_back(self, client, create_poll):
-        """Wichtig: die Teilstimme darf nicht gezählt werden und der Token muss erhalten bleiben."""
+        """The important part: the partial vote must not count and the token has to survive."""
         poll, tokens = create_poll(
             poll_type="multiple_choice", choices="A\nB", voters=("a@example.org",)
         )
@@ -753,7 +753,7 @@ class TestManage:
 
 @pytest.mark.django_db
 class TestManageShowsTheSendState:
-    """Versandstand auf der Manage-Seite. Warum ein Satz statt „n für diese Umfrage": Plan §11.7."""
+    """The send state on the manage page. Why a sentence and not "n for this poll": plan §11.7."""
 
     def test_it_says_something_is_queued_right_after_creating(self, client, create_poll):
         poll, _ = create_poll(send=False)
@@ -767,14 +767,14 @@ class TestManageShowsTheSendState:
         assert "No invitations are waiting" in content
 
     def test_it_is_a_bit_and_not_a_number(self, client, create_poll):
-        """Eine Zahl wäre eine Aussage über *andere* Umfragen; die Seite braucht keinen Token."""
+        """A number would be a statement about *other* polls; the page needs no token."""
         poll, _ = create_poll(send=False, voters=tuple(f"w{i}@example.org" for i in range(7)))
         content = client.get(f"/vote/{poll.identifier}/manage").content.decode()
         assert "8" not in content.split("Invitations are still queued")[0][-200:]
         assert client.get(f"/vote/{poll.identifier}/manage").context["mails_pending"] is True
 
     def test_a_foreign_poll_in_the_queue_does_not_claim_to_be_this_one(self, client, create_poll):
-        """Wartet etwas, kann es eine andere Umfrage sein -- die Seite behauptet nichts anderes."""
+        """If something is queued it may be another poll -- the page claims nothing else."""
         poll, _ = create_poll()
         create_poll(title="Andere", send=False)
         content = client.get(f"/vote/{poll.identifier}/manage").content.decode()
@@ -802,11 +802,10 @@ class TestResults:
         assert str(choice.choice_text).encode() in response.content
 
     def test_a_multiple_choice_vote_is_one_update(self, client, create_poll):
-        """R11-1: vorher ein `UPDATE` pro angekreuzter Choice, alle unter der Schreibsperre.
+        """R11-1: previously one `UPDATE` per ticked choice, all of them under the write lock.
 
-        Auf SQLite hält der `atomic()`-Block der Stimmabgabe die Schreibsperre für alle vier
-        uwsgi-Prozesse; die Zahl der Statements darin soll deshalb nicht mit der Zahl der
-        Antwortmöglichkeiten wachsen.
+        On SQLite the `atomic()` block of the vote holds the write lock for all four uwsgi
+        processes, so the number of statements inside it should not grow with the number of choices.
         """
         poll, tokens = create_poll(poll_type="multiple_choice", choices="\n".join("abcdefghij"))
         payload = {"token": tokens[0]}
@@ -826,36 +825,36 @@ class TestResults:
         assert [choice.votes for choice in poll.choice_set.all()] == [1] * 10
 
     def test_abstentions_are_a_chart_segment_only_for_simple_choice(self, client, create_poll):
-        """R10-3: die Diagrammdaten für `multiple_choice` waren von keinem Test gedeckt.
+        """R10-3: the chart data for `multiple_choice` was covered by no test.
 
-        Bei `simple_choice` ist die Stimmensumme die Zahl der Wähler, offene Tokens sind also
-        Enthaltungen und ein eigenes Segment. Bei `multiple_choice` hat niemand „nichts" gewählt --
-        dort wäre ein Enthaltungssegment eine Aussage, die die Zahlen nicht tragen.
+        With `simple_choice` the sum of the votes is the number of voters, so outstanding tokens are
+        abstentions and a segment of their own. With `multiple_choice` nobody chose "nothing" -- an
+        abstention segment there would be a claim the numbers do not support.
         """
         poll, tokens = create_poll(choices="Bier\nBrezn")
         choice = poll.choice_set.first()
         client.post(f"/vote/{poll.identifier}/vote", {"token": tokens[0], "choice": choice.id})
         poll.is_active = False
         poll.save()
-        einfach = client.get(f"/vote/{poll.identifier}/results").context["chart_series"]
-        assert einfach == [
+        simple = client.get(f"/vote/{poll.identifier}/results").context["chart_series"]
+        assert simple == [
             {"name": "Bier", "y": 1},
             {"name": "Brezn", "y": 0},
             {"name": "Abstentions", "y": 1},
         ]
 
-        mehrfach_poll, mehrfach_tokens = create_poll(
+        multiple_poll, multiple_tokens = create_poll(
             title="Mehrfach", poll_type="multiple_choice", choices="Bier\nBrezn"
         )
-        payload = {"token": mehrfach_tokens[0]}
-        for eine in mehrfach_poll.choice_set.all():
-            payload[f"choice{eine.id}"] = "yes"
-        client.post(f"/vote/{mehrfach_poll.identifier}/vote", payload)
-        mehrfach_poll.is_active = False
-        mehrfach_poll.save()
-        mehrfach = client.get(f"/vote/{mehrfach_poll.identifier}/results").context["chart_series"]
-        assert mehrfach == [{"name": "Bier", "y": 1}, {"name": "Brezn", "y": 1}]
-        assert "Abstentions" not in [eintrag["name"] for eintrag in mehrfach]
+        payload = {"token": multiple_tokens[0]}
+        for one in multiple_poll.choice_set.all():
+            payload[f"choice{one.id}"] = "yes"
+        client.post(f"/vote/{multiple_poll.identifier}/vote", payload)
+        multiple_poll.is_active = False
+        multiple_poll.save()
+        multiple = client.get(f"/vote/{multiple_poll.identifier}/results").context["chart_series"]
+        assert multiple == [{"name": "Bier", "y": 1}, {"name": "Brezn", "y": 1}]
+        assert "Abstentions" not in [entry["name"] for entry in multiple]
 
     def test_success_page(self, client, create_poll):
         poll, _ = create_poll()
@@ -866,7 +865,7 @@ class TestResults:
 
 @pytest.mark.django_db
 class TestAnonymity:
-    """Das Kernversprechen: nach der Stimmabgabe gibt es keine Verbindung Wähler -> Stimme."""
+    """The core promise: after voting there is no connection from voter to vote."""
 
     def test_no_mail_address_is_stored_anywhere(self, create_poll):
         create_poll(voters=("geheim@example.org",))
@@ -884,14 +883,14 @@ class TestAnonymity:
         assert Token.objects.filter(token_string=tokens[0]).count() == 0
 
     def test_the_token_move_stores_nothing_on_the_server(self, client, create_poll):
-        """Der Umzug aus der URL ins Cookie (B9, Plan 3.9) legt **keinen** Serverzustand an.
+        """The move from the URL into a cookie (B9, plan 3.9) creates **no** server state.
 
-        Das ist die Zusage, die eine Session-basierte Lösung nicht hätte: die hätte für jeden
-        Besucher eine Zeile in `django_session` geschrieben -- einen Schreibzugriff auf dieselbe
-        SQLite-Datei, die vier uwsgi-Prozesse teilen (B13), und ein serverseitiges Gegenstueck zur
-        Paarung Adresse-zu-Token, das F8 gerade *nicht* will.
+        That is the promise a session-based solution would not have: it would write a row in
+        `django_session` for every visitor -- a write to the same SQLite file four uwsgi processes
+        share (B13), and a server-side counterpart to the address-to-token pairing that F8
+        explicitly does *not* want.
 
-        Dieser Test hält jemanden auf, der den Umzug später auf `request.session` umstellt.
+        This test stops anyone who later moves the whole thing onto `request.session`.
         """
         from django.contrib.sessions.models import Session
 
@@ -914,7 +913,7 @@ class TestAnonymity:
 
 @pytest.mark.django_db
 class TestMailHelpers:
-    """Sichert die Test-Helfer selbst ab, damit ein leeres Postfach nicht als Erfolg durchgeht."""
+    """Guards the test helpers themselves, so an empty mailbox does not pass as success."""
 
     def test_voter_tokens_skips_the_creator_mail(self, create_poll, mailoutbox):
         create_poll(voters=("a@example.org", "b@example.org"))
@@ -924,10 +923,10 @@ class TestMailHelpers:
 @pytest.mark.django_db
 class TestResultsTotals:
     def test_total_voters_is_the_computed_number_not_the_raw_field(self, client):
-        """R14-1: `poll.num_tokens` ist bei Alt-Umfragen NULL und stand als „None" auf der Seite.
+        """R14-1: `poll.num_tokens` is NULL for old polls and stood on the page as "None".
 
-        `get_amount_used_unused()` behandelt den Fall ausdrücklich („Alt-Umfragen ohne
-        Empfängerliste"); das Template umging diese Sorgfalt. Prod hat Umfragen von vor 2016.
+        `get_amount_used_unused()` handles that case explicitly ("old polls without a recipient
+        list"); the template went around that care. Production has polls from before 2016.
         """
         poll = Poll.objects.create(title="Alt", question_text="?", num_tokens=None, is_active=False)
         poll.choice_set.create(choice_text="Ja", votes=3)
@@ -935,11 +934,11 @@ class TestResultsTotals:
         content = client.get(f"/vote/{poll.identifier}/results").content.decode()
 
         assert "None" not in content
-        zeile = content.split("Total Voters")[1]
-        assert "<td>3</td>" in zeile
+        row = content.split("Total Voters")[1]
+        assert "<td>3</td>" in row
 
     def test_total_voters_still_matches_num_tokens_for_a_normal_poll(self, client, create_poll):
-        """Gegenprobe: wo `num_tokens` gesetzt ist, ändert sich die Zahl nicht."""
+        """The counter-check: where `num_tokens` is set, the number does not change."""
         poll, tokens = create_poll(voters=("a@example.org", "b@example.org"))
         for token in tokens:
             client.post(

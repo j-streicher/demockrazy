@@ -1,10 +1,9 @@
 {% comment %}
-War ein `ul.nav.nav-pills` -- also Navigations-Markup mit `role="tablist"` und `role="presentation"`
-für etwas, das keine Navigation und kein Tab ist. Ein Screenreader kündigte hier Reiter an, die
-niemand anklicken kann. Jetzt eine schlichte Liste; das führende leere `<label></label>`
-(beschriftete nichts) ist weg.
+This was a `ul.nav.nav-pills` -- navigation markup with `role="tablist"` and `role="presentation"`
+for something that is neither navigation nor a tab. A screen reader announced tabs here that nobody
+can click. Now a plain list; the leading empty `<label></label>` (which labelled nothing) is gone.
 
-Die `badge` braucht in Bootstrap 5 eine Farbklasse, sonst ist sie transparent auf transparent.
+In Bootstrap 5 the `badge` needs a colour class, otherwise it is transparent on transparent.
 {% endcomment %}
 <p class="mb-1"><b>Token State:</b></p>
 <ul class="list-inline">

@@ -1,10 +1,10 @@
-"""Tests für vote/services/mail.py -- vor allem: der Wortlaut der Mails.
+"""Tests for vote/services/mail.py -- above all: the wording of the mails.
 
-Die Texte lagen bis 3.4 als `%`-formatierte Strings in `demockrazy/settings.py` und sind jetzt
-Django-Templates. Das darf am Wortlaut **nichts** geändert haben (Plan-Regel 3/6: keine stillen
-Änderungen an Mail-Texten). Die Erwartungswerte unten sind die Settings-Strings von vor dem Umbau,
-hier absichtlich als Literale ausgeschrieben: damit hängt der Test weder an den Settings noch an
-den Templates und schlägt an, wenn sich eine der beiden Seiten bewegt.
+Until 3.4 the texts sat in `demockrazy/settings.py` as `%`-formatted strings and are Django
+templates now. That must have changed **nothing** about the wording (plan rule 3/6: no silent
+changes to mail texts). The expected values below are the settings strings from before the rebuild,
+deliberately written out as literals here: that way the test depends neither on the settings nor on
+the templates, and it fires when either side moves.
 """
 
 from smtplib import SMTPException, SMTPRecipientsRefused, SMTPServerDisconnected
@@ -17,7 +17,7 @@ from vote.models import OutgoingMail, Poll, Token
 from vote.services import mail
 from vote.tests.mailtrap import MailTrap
 
-# Wortlaut vor 3.4, aus settings.VOTE_ADMIN_MAIL_SUBJECT / VOTE_ADMIN_MAIL_TEXT.
+# The wording before 3.4, from settings.VOTE_ADMIN_MAIL_SUBJECT / VOTE_ADMIN_MAIL_TEXT.
 CREATOR_SUBJECT = "[democrazy] Poll 'Testabstimmung' created"
 CREATOR_BODY = """
 Hi, you just created a new poll with title 'Testabstimmung' that is manageable at http://testserver/vote/IDENT/manage
@@ -27,7 +27,7 @@ Thank you for traveling with Deutsche Bahn"
 
 """
 
-# Wortlaut vor 3.4, aus settings.VOTE_MAIL_SUBJECT / VOTE_MAIL_TEXT.
+# The wording before 3.4, from settings.VOTE_MAIL_SUBJECT / VOTE_MAIL_TEXT.
 VOTER_SUBJECT = "[demockrazy] Deine Stimme für 'Testabstimmung'"
 VOTER_BODY = """
 Hallo,
@@ -73,7 +73,7 @@ class TestWording:
 
 class TestRendering:
     def test_no_html_escaping_in_the_body(self, poll):
-        """Plain-Text-Mail: ein `&` im Titel darf nicht als `&amp;` beim Empfänger landen."""
+        """A plain text mail: an `&` in the title must not arrive as `&amp;`."""
         poll.title = "Bier & Brezn <heute>"
         _, body, _ = mail.voter_message(poll, "a@example.org", "TOK")
         assert "Bier & Brezn <heute>" in body
@@ -86,7 +86,7 @@ class TestRendering:
         assert subject == "[demockrazy] Deine Stimme für 'Bier & Brezn'"
 
     def test_apostrophe_in_the_title_survives(self, poll):
-        """Der Titel steht in den Texten in einfachen Anführungszeichen."""
+        """The title appears in single quotes in both texts."""
         poll.title = "Gehen wir's an"
         _, body, _ = mail.creator_message(poll, "admin@example.org", "T")
         assert "'Gehen wir's an'" in body
@@ -115,77 +115,78 @@ class TestPollCreatedMessages:
         ]
 
     def test_each_voter_gets_exactly_one_of_the_tokens(self, poll):
-        """Jeder genau einen, keiner zweimal, keiner übrig -- aber **nicht** in fester Reihenfolge.
+        """One each, none twice, none left over -- but **not** in a fixed order.
 
-        Vorher stand hier `"?token=t0" in links[0]`, also genau die Paarung, die R1-2 aufgelöst hat.
-        Geprüft ist jetzt die Eigenschaft, auf die es ankommt: eine Bijektion.
+        This used to read `"?token=t0" in links[0]`, which is exactly the pairing R1-2 undid. What
+        is checked now is the property that matters: a bijection.
         """
         tokens = [Token.objects.create(poll=poll, token_string=f"t{i}") for i in range(5)]
         voters = [f"w{i}@example.org" for i in range(5)]
         messages = mail.poll_created_messages(poll, "admin@example.org", voters, tokens)
 
-        vergeben = []
+        handed_out = []
         for _, body, recipient in messages[1:]:
-            treffer = [
+            found = [
                 token.token_string for token in tokens if f"?token={token.token_string}" in body
             ]
-            assert len(treffer) == 1, (recipient, treffer)
-            vergeben.append(treffer[0])
-        assert sorted(vergeben) == sorted(token.token_string for token in tokens)
+            assert len(found) == 1, (recipient, found)
+            handed_out.append(found[0])
+        assert sorted(handed_out) == sorted(token.token_string for token in tokens)
 
     def test_the_pairing_does_not_follow_the_recipient_order(self, poll):
-        """R1-2: die Token-`id`s liefen parallel zur Empfängerliste, und die `id`s bleiben.
+        """R1-2: the token `id`s ran parallel to the recipient list, and the `id`s remain.
 
-        Gemessen war es so: Adresse 1 bekam Token 1 ... Adresse 5 bekam Token 5. Nach dem Versand
-        steht keine Adresse mehr in der Datenbank, die `id`-Reihenfolge aber schon -- wer die Liste
-        kennt und die Datenbank lesen kann, las an den verbliebenen `id`s ab, *wer* schon abgestimmt
-        hat. Die Stimme selbst war nie betroffen.
+        Measured, it went like this: address 1 got token 1 ... address 5 got token 5. After the run
+        no address is in the database any more, but the `id` order is -- whoever knew the list and
+        could read the database could tell from the remaining `id`s *who* had already voted. The
+        vote itself was never affected.
 
-        Zehn Umfragen mit je sechs Empfängern: dass **alle** zehn zufällig die Identität treffen,
-        hat die Wahrscheinlichkeit (1/720)^10.
+        Ten polls with six recipients each: **all** ten hitting the identity by chance has
+        probability (1/720)^10.
         """
         voters = [f"w{i}@example.org" for i in range(6)]
-        unveraendert = 0
-        for runde in range(10):
+        unchanged = 0
+        for round_number in range(10):
             tokens = [
-                Token.objects.create(poll=poll, token_string=f"r{runde}t{i}") for i in range(6)
+                Token.objects.create(poll=poll, token_string=f"r{round_number}t{i}")
+                for i in range(6)
             ]
             messages = mail.poll_created_messages(poll, "admin@example.org", voters, tokens)
-            reihenfolge = [
+            order = [
                 next(token.pk for token in tokens if f"?token={token.token_string}" in body)
                 for _, body, _ in messages[1:]
             ]
-            if reihenfolge == sorted(reihenfolge):
-                unveraendert += 1
-        assert unveraendert < 10, "die Paarung folgt weiterhin der Eingabereihenfolge"
+            if order == sorted(order):
+                unchanged += 1
+        assert unchanged < 10, "the pairing still follows the input order"
 
     def test_mismatched_token_count_is_an_error(self, poll):
-        """Ein Wähler ohne Token (oder umgekehrt) ist ein Programmierfehler, kein stiller Sonderfall."""
+        """A voter without a token (or the reverse) is a programming error, not a silent edge case."""
         tokens = [Token.objects.create(poll=poll, token_string="t0")]
         with pytest.raises(ValueError):
             mail.poll_created_messages(poll, "admin@example.org", ["a@x.org", "b@x.org"], tokens)
 
 
 class CountingBackend(BaseEmailBackend):
-    """Ein Mail-Backend, das protokolliert, *wann* eine Verbindung entsteht, und Fehler nachstellt.
+    """A mail backend that records *when* a connection is opened, and stages failures.
 
-    Es gibt kein Django-Backend, das das zeigt: `locmem` überspringt Verbindungen ganz, `smtp`
-    bräuchte einen Server. Die Semantik von `open()`/`close()` ist deshalb der des SMTP-Backends
-    nachgebildet -- offen bleibt offen, ein zweites `open()` ist ein No-op.
+    No Django backend shows that: `locmem` skips connections entirely, `smtp` would need a server.
+    The semantics of `open()`/`close()` are therefore modelled on the SMTP backend -- open stays
+    open, a second `open()` is a no-op.
 
-    Gesteuert über Klassenattribute, weil Django das Backend selbst instanziiert und man ihm keine
-    Argumente mitgeben kann.
+    Driven through class attributes, because Django instantiates the backend itself and it cannot be
+    handed any arguments.
     """
 
-    #: Protokoll in Reihenfolge: "open", "close" und die Empfängeradressen.
+    #: The log in order: "open", "close" and the recipient addresses.
     log: ClassVar[list] = []
-    #: Empfänger, die der Server mit 450 vorläufig ablehnt -- die Form der Drosselung.
+    #: Recipients the server rejects for now with a 450 -- the shape of throttling.
     refuse_temporarily: ClassVar[tuple] = ()
-    #: Empfänger, die der Server mit 550 dauerhaft ablehnt.
+    #: Recipients the server rejects permanently with a 550.
     refuse_permanently: ClassVar[tuple] = ()
-    #: Server gar nicht erreichbar: `open()` bricht weg.
+    #: Server not reachable at all: `open()` breaks off.
     unreachable: ClassVar[bool] = False
-    #: Ob `close()` beim Aufräumen wirft -- was das echte SMTP-Backend beim QUIT kann.
+    #: Whether `close()` raises while cleaning up -- which the real SMTP backend can do on QUIT.
     fail_on_close: ClassVar[bool] = False
 
     @classmethod
@@ -208,7 +209,7 @@ class CountingBackend(BaseEmailBackend):
         if self.connection is not None:
             return False
         if CountingBackend.unreachable:
-            raise SMTPServerDisconnected("Verbindung weg")
+            raise SMTPServerDisconnected("connection gone")
         self.connection = object()
         CountingBackend.log.append("open")
         return True
@@ -219,15 +220,15 @@ class CountingBackend(BaseEmailBackend):
         self.connection = None
         CountingBackend.log.append("close")
         if CountingBackend.fail_on_close:
-            raise SMTPException("QUIT fehlgeschlagen")
+            raise SMTPException("QUIT failed")
 
     def send_messages(self, email_messages):
         self.open()
         for message in email_messages:
-            # `message()` baut die Nachricht wirklich -- damit prüft dieses Double dieselben Header
-            # wie ein echtes Backend (Djangos locmem-Backend tut es aus demselben Grund). Ohne den
-            # Aufruf nahm es Nachrichten an, die kein Mailserver je gesehen hätte: der
-            # `BadHeaderError` aus R5-1 entsteht genau hier.
+            # `message()` really builds the message -- so this double checks the same headers a real
+            # backend does (Django's locmem backend does it for the same reason). Without the call
+            # it accepted messages no mail server would ever have seen: the `BadHeaderError` from
+            # R5-1 arises exactly here.
             message.message()
             recipient = message.to[0]
             if recipient in CountingBackend.refuse_temporarily:
@@ -251,7 +252,7 @@ def counting_backend(settings):
 
 @pytest.fixture
 def recorded_sleep():
-    """Nimmt die Pausen auf statt zu warten. Ohne das dauerte die Suite Minuten."""
+    """Records the pauses instead of waiting them out. Without it the suite took minutes."""
     calls = []
     return calls.append, calls
 
@@ -280,7 +281,7 @@ class TestEnqueue:
 
 @pytest.mark.django_db
 class TestSendPending:
-    """Der getaktete Versender (Plan §11.7). Vorher hieß das `deliver()` und verschickte sofort."""
+    """The paced sender (plan §11.7). This used to be `deliver()` and sent immediately."""
 
     def test_the_queue_is_emptied_and_the_mails_go_out(self, counting_backend):
         enqueue(3)
@@ -294,10 +295,10 @@ class TestSendPending:
         assert summary == {"sent": 3, "given_up": 0, "batches": 1, "remaining": 0}
 
     def test_one_connection_per_batch(self, counting_backend):
-        """Vorher baute jeder send_mail()-Aufruf seine eigene: 101 Mails = 101 Verbindungen.
+        """Every send_mail() call used to build its own: 101 mails = 101 connections.
 
-        Die Verbindung endet an der Batchgrenze, damit die Pause nicht in einer offenen Verbindung
-        verbracht wird -- innerhalb eines Batches bleibt es bei einer für alle Nachrichten.
+        The connection ends at the batch boundary, so the pause is not spent inside an open connection
+        -- within a batch it stays one for all the messages.
         """
         enqueue(20)
         mail.send_pending(batch_size=5, pause=0)
@@ -306,8 +307,9 @@ class TestSendPending:
         assert len(counting_backend.recipients()) == 20
 
     def test_the_pause_lies_between_the_batches(self, counting_backend, recorded_sleep):
-        """Nicht vor dem ersten Batch (sonst wartet jeder Lauf umsonst) und nicht nach dem letzten
-        (sonst hält der Command seine Sperre länger, als er arbeitet)."""
+        """
+        Not before the first batch (or every run waits for nothing) and not after the last one (or
+        the command holds its lock longer than it works)."""
         sleep, calls = recorded_sleep
         enqueue(9)
         summary = mail.send_pending(batch_size=3, pause=2, sleep=sleep)
@@ -328,7 +330,7 @@ class TestSendPending:
         assert summary == {"sent": 0, "given_up": 0, "batches": 0, "remaining": 0}
 
     def test_a_permanent_rejection_drops_the_row_and_the_batch_continues(self, counting_backend):
-        """Ein 5xx betrifft genau diese Adresse -- die übrigen des Batches gehen raus."""
+        """A 5xx concerns that one address -- the rest of the batch goes out."""
         counting_backend.refuse_permanently = ("a1@example.org",)
         enqueue(3)
         summary = mail.send_pending(pause=0)
@@ -338,12 +340,12 @@ class TestSendPending:
         assert summary["given_up"] == 1
 
     def test_the_log_names_the_smtp_code_but_no_address(self, counting_backend, caplog):
-        """R6-1: die Logzeile nannte keinen Grund -- und der Kommentar behauptete das Gegenteil.
+        """R6-1: the log line named no reason -- and the comment beside it claimed the opposite.
 
-        Gemessen war es genau eine Zeile: „Eine Umfrage-Mail wurde dauerhaft abgelehnt und
-        verworfen", ohne `exc_info`, ohne Code. Damit war aus dem Journal nicht zu entscheiden, ob
-        eine Adresse falsch war oder der Server zickt. Die Adresse gehört weiter **nicht** hinein
-        (F8), ein SMTP-Code ist eine Zahl.
+        Measured, it was exactly one line: "Eine Umfrage-Mail wurde dauerhaft abgelehnt und
+        verworfen", without `exc_info`, without a code. So from the journal there was no way to
+        decide whether an address was wrong or the server was being difficult. The address still
+        does **not** belong in there (F8); an SMTP code is a number.
         """
         counting_backend.refuse_permanently = ("a1@example.org",)
         enqueue(3)
@@ -354,14 +356,15 @@ class TestSendPending:
         assert "a1@example.org" not in caplog.text
 
     def test_a_transient_rejection_stops_the_run(self, counting_backend):
-        """Der `450` der Drosselung. Weitermachen hieße, die restlichen 29 gegen dieselbe Wand
-        zu fahren -- der nächste Timer-Aufruf trifft ein zurückgesetztes Zeitfenster an."""
+        """
+        The `450` of throttling. Carrying on would mean driving the remaining 29 into the same wall
+        -- the next timer invocation meets a window that has been reset."""
         counting_backend.refuse_temporarily = ("a1@example.org",)
         enqueue(4)
         summary = mail.send_pending(pause=0)
         assert counting_backend.recipients() == ["a0@example.org"]
         assert summary["sent"] == 1
-        assert summary["remaining"] == 3, "die abgelehnte Zeile und die zwei dahinter liegen noch"
+        assert summary["remaining"] == 3, "the rejected row and the two behind it are still queued"
         assert OutgoingMail.objects.get(recipient="a1@example.org").attempts == 1
 
     def test_a_transient_rejection_is_given_up_eventually(self, counting_backend):
@@ -369,12 +372,12 @@ class TestSendPending:
         enqueue(1)
         for _ in range(mail.MAX_ATTEMPTS):
             mail.send_pending(pause=0)
-        assert OutgoingMail.objects.count() == 0, "irgendwann wird aufgegeben"
+        assert OutgoingMail.objects.count() == 0, "at some point it is given up on"
 
     def test_an_unreachable_server_costs_no_attempt(self, counting_backend):
-        """Sonst würde ein einstündiger Ausfall die Einladungen der Reihe nach wegwerfen.
+        """Otherwise an hour-long outage would throw the invitations away one by one.
 
-        Der Server hat über *diese* Nachricht nichts gesagt -- also kein Urteil über sie.
+        The server said nothing about *this* message -- so there is no verdict about it.
         """
         counting_backend.unreachable = True
         enqueue(3)
@@ -384,8 +387,8 @@ class TestSendPending:
         assert {row.attempts for row in OutgoingMail.objects.all()} == {0}
 
     def test_a_failure_while_closing_does_not_escape(self, counting_backend):
-        """Die Mails dieses Batches sind raus und ihre Zeilen gelöscht -- ein QUIT, das schiefgeht,
-        darf daraus keinen Abbruch machen."""
+        """The mails of this batch are out and their rows deleted -- a QUIT that goes wrong must not
+        turn that into an abort."""
         counting_backend.fail_on_close = True
         enqueue(2)
         summary = mail.send_pending(pause=0)
@@ -393,8 +396,8 @@ class TestSendPending:
         assert OutgoingMail.objects.count() == 0
 
     def test_nothing_is_sent_when_sending_is_disabled(self, counting_backend, settings, capsys):
-        """Ohne Versand entsteht keine Verbindung. Die Zeilen verschwinden trotzdem -- sonst liefe
-        der Lauf endlos über dieselbe Warteschlange."""
+        """With sending off, no connection appears. The rows disappear anyway -- otherwise the run
+        would go over the same queue forever."""
         settings.VOTE_SEND_MAILS = False
         enqueue(2)
         mail.send_pending(pause=0)
@@ -403,7 +406,7 @@ class TestSendPending:
         assert "Betreff 0" in capsys.readouterr().out
 
     def test_the_defaults_come_from_the_settings(self, counting_backend, recorded_sleep, settings):
-        """Die zwei Zahlen sind vom User vorgegeben und müssen konfigurierbar bleiben."""
+        """The two numbers were given by the user and have to stay configurable."""
         sleep, calls = recorded_sleep
         settings.VOTE_MAIL_BATCH_SIZE = 2
         settings.VOTE_MAIL_BATCH_PAUSE = 7
@@ -412,12 +415,11 @@ class TestSendPending:
         assert calls == [7]
 
     def test_the_pacing_values_are_the_ones_the_user_asked_for(self):
-        """R10-3: die Taktung war konfigurierbar, aber ihre *Werte* nagelte nichts fest.
+        """R10-3: the pacing was configurable, but nothing nailed down its *values*.
 
-        30er Batches mit 2 s Pause sind vom User vorgegeben, und Produktion benutzt genau diese
-        Defaults -- die Tests darüber übergeben `batch_size`/`pause` aber immer ausdrücklich, also
-        blieb eine Änderung an den Defaults unbemerkt (gemessen per Mutation: 30 -> 1000 fiel der
-        ganzen Suite nicht auf).
+        Batches of 30 with a 2 s pause were given by the user, and production uses exactly these
+        defaults -- but the tests above always pass `batch_size`/`pause` explicitly, so a change to
+        the defaults went unnoticed (measured by mutation: 30 -> 1000 escaped the whole suite).
         """
         from django.conf import settings as django_settings
 
@@ -425,19 +427,19 @@ class TestSendPending:
             30,
             2,
         ), (
-            "Vom User vorgegeben (Plan §11.7). Wenn das absichtlich anders sein soll, gehört die "
-            "Begründung in die Notizen -- und wenn dieser Test lokal fehlschlägt, ist vermutlich "
-            "DEMOCKRAZY_MAIL_BATCH_SIZE/_PAUSE in der Umgebung gesetzt."
+            "Given by the user (plan §11.7). If this is meant to be different on purpose, the reason "
+            "belongs in the notes -- and if this test fails locally, DEMOCKRAZY_MAIL_BATCH_SIZE/_PAUSE "
+            "is probably set in the environment."
         )
 
     def test_a_silent_mail_server_cannot_block_forever(self):
-        """`EMAIL_TIMEOUT` muss endlich sein. Djangos Default ist `None`, also unbegrenzt.
+        """`EMAIL_TIMEOUT` has to be finite. Django's default is `None`, so unlimited.
 
-        Nachgesehen statt vermutet: bei `None` gibt das SMTP-Backend `timeout` nicht an `smtplib`
-        weiter, das nimmt den Socket-Default, und der ist ebenfalls `None`. Ein Server, der die
-        Verbindung annimmt und dann schweigt, haelt damit einen uwsgi-Prozess -- und es gibt vier.
-        Fuer den getakteten Versender ist es schlimmer: er sperrt sich selbst, ein Lauf ohne Ende
-        haelt die Sperre und dann geht gar keine Mail mehr raus.
+        Looked up rather than assumed: with `None` the SMTP backend does not pass `timeout` on to
+        `smtplib`, which takes the socket default, and that is `None` as well. A server that accepts
+        the connection and then goes quiet therefore holds a uwsgi process -- and there are four.
+        For the paced sender it is worse: it locks itself out, a run without end holds the lock, and
+        then no mail goes out at all.
         """
         from django.conf import settings as django_settings
 
@@ -447,13 +449,13 @@ class TestSendPending:
 
 @pytest.mark.django_db
 class TestUnsendableRowDoesNotStopTheRun:
-    """R5-1: eine Zeile, die sich nicht zu einer Nachricht bauen lässt, kostet nur sich selbst.
+    """R5-1: a row that cannot be built into a message costs only itself.
 
-    Der Befund: ein Zeilenumbruch im Umfragetitel landete im Betreff, Djangos
-    `forbid_multi_line_headers` warf einen `BadHeaderError` -- eine `ValueError`-Unterklasse, die
-    weder von `SMTPException` noch von `OSError` gedeckt ist. Sie flog bis in den
-    Management-Command, und weil die Zeile vorn in der Warteschlange liegen blieb, starb jeder
-    weitere Timer-Aufruf an derselben Stelle: kein Versand mehr, für keine Umfrage.
+    The finding: a line break in the poll title ended up in the subject, Django's
+    `forbid_multi_line_headers` raised a `BadHeaderError` -- a `ValueError` subclass covered neither
+    by `SMTPException` nor by `OSError`. It flew all the way into the management command, and
+    because the row stayed at the front of the queue, every further timer invocation died in the
+    same place: no sending any more, for any poll.
     """
 
     def test_the_run_survives_it_and_the_others_go_out(self, counting_backend):
@@ -466,10 +468,10 @@ class TestUnsendableRowDoesNotStopTheRun:
 
         assert counting_backend.recipients() == ["zweite@example.org"]
         assert summary == {"sent": 1, "given_up": 1, "batches": 1, "remaining": 0}
-        assert OutgoingMail.objects.count() == 0, "die kaputte Zeile muss verschwinden"
+        assert OutgoingMail.objects.count() == 0, "the broken row has to disappear"
 
     def test_a_poll_created_through_the_form_cannot_produce_such_a_row(self, client):
-        """Die andere Hälfte der Behebung: das Formular lässt den Umbruch nicht mehr durch."""
+        """The other half of the fix: the form no longer lets the line break through."""
         response = client.post(
             "/vote/create",
             {
@@ -488,13 +490,13 @@ class TestUnsendableRowDoesNotStopTheRun:
 
 @pytest.mark.django_db
 class TestTheRunCannotSpin:
-    """R5-2: die Schleife endet auch, wenn ein Durchlauf nichts bewegt.
+    """R5-2: the loop ends even when a pass moves nothing.
 
-    Aufgefallen ist das unbeabsichtigt: eine Mutation, die den Zweig für „Server nicht erreichbar"
-    entfernte -- also eine Zeile, die weder löscht noch abbricht --, schickte die Testsuite in eine
-    Endlosschleife, die nach neun Minuten noch lief, **ohne** einen fehlschlagenden Test. In
-    Produktion wäre das schlimmer als ein Absturz: der Lauf hält die `flock`, also geht danach
-    überhaupt keine Mail mehr raus, und von außen sieht „hängt" aus wie „arbeitet noch".
+    This came up by accident: a mutation that removed the branch for "server unreachable" -- so a
+    line that neither deletes nor breaks off -- sent the test suite into an endless loop that was
+    still running after nine minutes, **without** a failing test. In production that would be worse
+    than a crash: the run holds the `flock`, so afterwards no mail goes out at all, and from the
+    outside "hanging" looks like "still working".
     """
 
     def test_a_batch_that_changes_nothing_ends_the_run(self, monkeypatch, caplog):
@@ -507,7 +509,7 @@ class TestTheRunCannotSpin:
         assert "kommt nicht voran" in caplog.text
 
     def test_the_guard_does_not_trip_on_a_normal_multi_batch_run(self, counting_backend):
-        """Gegenprobe: solange etwas verschwindet, läuft die Warteschlange normal leer."""
+        """The counter-check: as long as something disappears, the queue drains normally."""
         enqueue(7)
         summary = mail.send_pending(batch_size=2, pause=0)
         assert summary == {"sent": 7, "given_up": 0, "batches": 4, "remaining": 0}
@@ -515,7 +517,7 @@ class TestTheRunCannotSpin:
 
 @pytest.mark.django_db
 class TestARealServerThatThrottles:
-    """R16-1: the one test here that speaks SMTP over a socket, against `mailtrap.MailTrap`.
+    """R10-4: the one test here that speaks SMTP over a socket, against `mailtrap.MailTrap`.
 
     Every other test on this page raises the rejection by hand through `CountingBackend` -- and it
     raised the wrong exception. Measured through Django's own SMTP backend, a server that throttles

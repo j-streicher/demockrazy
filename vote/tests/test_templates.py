@@ -1,4 +1,4 @@
-"""Fallen in den Templates, die kein View-Test bemerkt."""
+"""Traps in the templates that no view test notices."""
 
 import pathlib
 import re
@@ -7,18 +7,18 @@ TEMPLATE_ROOT = pathlib.Path(__file__).resolve().parents[1] / "templates"
 
 
 def test_no_multiline_brace_hash_comments():
-    """`{# … #}` über mehrere Zeilen ist in Django **kein** Kommentar.
+    """`{# … #}` across several lines is **not** a comment in Django.
 
-    Gemessen, weil es beim Umbau von results.html (4.2) genau einmal zugeschlagen hat: Djangos
-    `tag_re` ist ohne `re.DOTALL` kompiliert, ein `{#` findet sein `#}` also nur in derselben Zeile.
-    Ein mehrzeiliger Block bleibt Text -- inklusive der `{{ … }}` darin, die dann ausgewertet
-    werden. Im konkreten Fall stand das Wort „script" in spitzen Klammern in der Prosa; der Parser
-    öffnete daran ein script-Element und verschluckte das Datenelement dahinter. Die Seite lieferte
-    einen fehlerfreien 200 und zeigte kein Diagramm.
+    Measured, because it struck exactly once while rebuilding results.html (4.2): Django's `tag_re`
+    is compiled without `re.DOTALL`, so a `{#` finds its `#}` only on the same line. A multi-line
+    block stays text -- including the `{{ … }}` inside it, which are then evaluated. In that
+    concrete case the word "script" stood in angle brackets in the prose; the parser opened a script
+    element there and swallowed the data element behind it. The page returned a faultless 200 and
+    showed no chart.
 
-    Warum es so lange keiner merkte: in einem Kind-Template verwirft Django alles außerhalb der
-    `{% block %}`s, und dort standen die beiden älteren Fälle. Verschiebt sie jemand nach innen,
-    leaken sie. Für mehrzeilige Kommentare gibt es `{% comment %}`.
+    Why nobody noticed for so long: in a child template Django discards everything outside the
+    `{% block %}`s, and that is where the two older cases sat. If someone moves them inside, they
+    leak. For multi-line comments there is `{% comment %}`.
     """
     offenders = []
     for path in sorted(TEMPLATE_ROOT.rglob("*.html")):
@@ -31,6 +31,4 @@ def test_no_multiline_brace_hash_comments():
                     f"{path.relative_to(TEMPLATE_ROOT)}:{text[: match.start()].count(chr(10)) + 1}"
                 )
 
-    assert not offenders, "mehrzeilige {# #}-Blöcke -- {% comment %} verwenden: " + ", ".join(
-        offenders
-    )
+    assert not offenders, "multi-line {# #} blocks -- use {% comment %}: " + ", ".join(offenders)

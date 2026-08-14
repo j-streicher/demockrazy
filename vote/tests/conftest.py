@@ -1,7 +1,7 @@
-"""Gemeinsame Helfer für die Testsuite.
+"""Shared helpers for the test suite.
 
-Die Suite ist gegen das in Phase 0 protokollierte Ist-Verhalten geschrieben
-(siehe notes/phase-0-baseline.md) und dient als Netz für die Umbauten in Phase 3.
+The suite is written against the behaviour recorded in phase 0 (see notes/phase-0-baseline.md) and
+serves as the net for the rebuilds in phase 3.
 """
 
 import re
@@ -11,7 +11,7 @@ import pytest
 from vote.models import Poll
 from vote.services import mail
 
-#: In der Wähler-Mail steht der Abstimmungslink mit angehängtem Token.
+#: The voter mail contains the voting link with the token appended.
 TOKEN_IN_URL = re.compile(r"\?token=([A-Za-z0-9]+)")
 
 CREATOR_MAIL = "admin@example.org"
@@ -19,21 +19,20 @@ CREATOR_MAIL = "admin@example.org"
 
 @pytest.fixture
 def create_poll(client, mailoutbox):
-    """Legt über die echte create-View eine Umfrage an, leert die Warteschlange, liefert
-    (poll, tokens).
+    """Creates a poll through the real create view, empties the queue, returns (poll, tokens).
 
-    Absichtlich über HTTP und nicht über die ORM-Objekte: die Token-Vergabe passiert in der
-    View, und genau die soll getestet werden.
+    Deliberately over HTTP rather than through the ORM objects: handing out the tokens happens in
+    the view, and that is exactly what should be tested.
 
-    **Der Versand ist seit Plan §11.7 nicht mehr Teil des Requests.** `create()` reiht die Mails
-    nur ein; verschickt werden sie von einem Management-Command, den in Produktion ein
-    systemd-Timer aufruft. Diese Fixture spielt beide Schritte, weil fast jeder Test die Tokens
-    aus den *Mails* liest -- mit `pause=0`, damit die Suite nicht in echten Pausen wartet.
-    Dass `create()` von sich aus nichts verschickt, prüft `test_views.py::TestCreateQueuesMails`.
+    **Since plan §11.7 sending is no longer part of the request.** `create()` only enqueues the
+    mails; they are sent by a management command that a systemd timer invokes in production. This
+    fixture plays both steps, because almost every test reads the tokens from the *mails* -- with
+    `pause=0`, so the suite does not wait through real pauses. That `create()` sends nothing by
+    itself is checked by `test_views.py::TestCreateQueuesMails`.
 
-    *(Hier stand vorher ein `django_capture_on_commit_callbacks`: der Versand hing an
-    `transaction.on_commit`, und ein `django_db`-Test committet nie. Beides ist entfallen -- das
-    Einreihen läuft jetzt in derselben Transaktion wie die Tokens, ohne Callback.)*
+    *(There used to be a `django_capture_on_commit_callbacks` here: sending hung off
+    `transaction.on_commit`, and a `django_db` test never commits. Both are gone -- enqueueing now
+    runs in the same transaction as the tokens, without a callback.)*
     """
 
     def _create(
@@ -58,7 +57,7 @@ def create_poll(client, mailoutbox):
                 "voter_mails": "\n".join(voters),
             },
         )
-        assert response.status_code == 200, "create sollte die Bestätigungsseite rendern"
+        assert response.status_code == 200, "create should render the confirmation page"
         if send:
             mail.send_pending(pause=0)
         poll = Poll.objects.get(title=title)
@@ -68,19 +67,19 @@ def create_poll(client, mailoutbox):
 
 
 def voter_tokens(mailoutbox, creator_mail=CREATOR_MAIL):
-    """Alle Tokens aus den Wähler-Mails, in Versandreihenfolge."""
+    """Every token from the voter mails, in sending order."""
     tokens = []
     for message in mailoutbox:
         if message.to == [creator_mail]:
             continue
         match = TOKEN_IN_URL.search(message.body)
-        assert match, f"kein Token im Mailtext an {message.to}"
+        assert match, f"no token in the mail body to {message.to}"
         tokens.append(match.group(1))
     return tokens
 
 
 def creator_message(mailoutbox, creator_mail=CREATOR_MAIL):
-    """Die Mail an den Umfrage-Ersteller."""
+    """The mail to the poll's creator."""
     matches = [m for m in mailoutbox if m.to == [creator_mail]]
-    assert len(matches) == 1, f"genau eine Admin-Mail erwartet, {len(matches)} gefunden"
+    assert len(matches) == 1, f"expected exactly one admin mail, found {len(matches)}"
     return matches[0]

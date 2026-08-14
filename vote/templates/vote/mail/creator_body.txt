@@ -1,4 +1,4 @@
-{% autoescape off %}{# Wortlaut exakt wie der frühere settings.VOTE_ADMIN_MAIL_TEXT, inklusive des überzähligen Anführungszeichens und der Leerzeile am Ende. #}
+{% autoescape off %}{# Wording exactly as the former settings.VOTE_ADMIN_MAIL_TEXT, including the superfluous quotation mark and the blank line at the end. #}
 Hi, you just created a new poll with title '{{ title }}' that is manageable at {{ manage_url }}
 Your admin token is: {{ creator_token }}
 

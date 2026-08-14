@@ -1,4 +1,4 @@
-{% autoescape off %}{# Wortlaut exakt wie der frühere settings.VOTE_MAIL_TEXT. #}
+{% autoescape off %}{# Wording exactly as the former settings.VOTE_MAIL_TEXT. #}
 Hallo,
 
 Jemand hat eine Abstimmung mit dem Titel '{{ title }}' auf {{ vote_base_url }} erstellt.

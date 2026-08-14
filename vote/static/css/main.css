@@ -1,16 +1,16 @@
-/* Die Navbar ist `fixed-top` und liegt damit über dem Inhalt -- der Body braucht Platz in ihrer
-   Höhe. Im Browser gemessen, nicht geschätzt: die Bootstrap-5-Navbar ist hier 56px hoch (Bootstrap
-   3 waren es 50px, daher der alte Wert -- mit dem verdeckte sie die Überschrift um 6px). 4.5rem
-   = 72px lässt 16px Luft. */
+/* The navbar is `fixed-top` and therefore lies above the content -- the body needs room the height of
+   it. Measured in the browser, not guessed: the Bootstrap 5 navbar is 56px high here (with Bootstrap 3
+   it was 50px, hence the old value -- with which it covered the heading by 6px). 4.5rem = 72px leaves
+   16px of air. */
 body {
   padding-top: 4.5rem;
 }
 
-/* Djangos Fehlerliste heißt `errorlist`, Bootstrap 5 kennt nur `invalid-feedback` -- die Meldungen
-   standen deshalb in Textfarbe als Aufzählung da, während dieselbe Anwendung Abstimmungsfehler rot
-   zeigt (Review R13-2). Farbe ist hier die *Zugabe*: die Meldung steht schon als Text am Feld und
-   ist per aria-describedby verknüpft, WCAG 1.4.1 ist also auch ohne sie erfüllt.
-   `--bs-form-invalid-color` ist Bootstraps eigene Variable für genau diesen Zweck. */
+/* Django's error list is called `errorlist`, Bootstrap 5 only knows `invalid-feedback` -- so the
+   messages stood there as a bullet list in body colour, while the same application shows voting errors
+   in red (review R13-2). Colour is the *addition* here: the message is already there as text at the
+   field and linked with aria-describedby, so WCAG 1.4.1 is met without it.
+   `--bs-form-invalid-color` is Bootstrap's own variable for exactly this purpose. */
 .errorlist {
   color: var(--bs-form-invalid-color);
   list-style: none;
