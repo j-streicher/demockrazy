@@ -1,6 +1,6 @@
-# Rekonstruktion der zweiten Migration, in Produktion am 2016-07-01 angewendet
-# (django_migrations: vote/0002_auto_20160701_2022). Fuegt num_tokens und type an vote_poll an --
-# genau in dieser Reihenfolge, was die Spaltenreihenfolge der Produktionstabelle bestaetigt.
+# A reconstruction of the second migration, applied in production on 2016-07-01
+# (django_migrations: vote/0002_auto_20160701_2022). Appends num_tokens and type to vote_poll --
+# in exactly this order, which confirms the column order of the production table.
 # Details: notes/phase-2-migrations.md
 
 from django.db import migrations, models

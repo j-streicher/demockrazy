@@ -99,6 +99,21 @@ one retries; a `5xx` concerns one address only and that row is dropped. Nothing 
 database transaction — a long transaction on SQLite makes concurrent voting wait and, past the
 20-second `timeout`, fail.
 
+To watch this by hand, `vote/tests/mailtrap.py` is a fake SMTP server that accepts, logs and starts
+answering `450` past a limit — the shape of the throttling above. It is dependency-free, because
+`smtpd` left the standard library in Python 3.12:
+
+```bash
+python3 -m vote.tests.mailtrap 30
+```
+
+Point Django at it in `demockrazy/local_settings.py` (gitignored) with `EMAIL_HOST = "127.0.0.1"`,
+`EMAIL_PORT = 1025`, `VOTE_SEND_MAILS = True` and **`EMAIL_USE_TLS = False`** — the default is `True`
+and a fake server speaks no STARTTLS. Queue more than 30 invitations and run the command twice: the
+first run stops at the `450`, the second one drains the rest. To look at the mail *texts* only,
+`dev_settings.py` is enough; it prints them to the console. The same trap is the counterpart of the
+one test in the suite that speaks SMTP over a socket.
+
 A queue row carries only recipient, subject, body and an attempt count. No column names a poll and
 there is no timestamp — but the rendered body contains the voting link and therefore the poll
 identifier, so while the row exists it does say that this address was invited to this poll with this

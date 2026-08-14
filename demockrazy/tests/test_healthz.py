@@ -1,4 +1,4 @@
-"""Tests für den Betriebs-Endpunkt aus demockrazy/views.py (Plan 5.5)."""
+"""Tests for the operational endpoint from demockrazy/views.py (plan 5.5)."""
 
 import pytest
 from django.db.utils import OperationalError
@@ -16,14 +16,14 @@ class TestHealthz:
         assert response.headers["Content-Type"] == "text/plain"
 
     def test_head_works_too(self, client):
-        """Manche Prober schicken HEAD. `require_safe` lässt GET und HEAD durch."""
+        """Some probers send HEAD. `require_safe` lets GET and HEAD through."""
         assert client.head("/healthz").status_code == 200
 
     def test_rejects_write_methods(self, client):
         assert client.post("/healthz").status_code == 405
 
     def test_reports_503_without_leaking_why(self, client, monkeypatch, caplog):
-        """Der Endpunkt ist unauthentifiziert -- der Dateipfad darf nicht in der Antwort stehen."""
+        """The endpoint is unauthenticated -- the file path must not appear in the response."""
 
         path = "/var/lib/demockrazy/db.sqlite3"
 
@@ -31,7 +31,7 @@ class TestHealthz:
             def cursor(self):
                 raise OperationalError(f"unable to open database file: {path}")
 
-            # Django schließt die Verbindung am Ende des Requests.
+            # Django closes the connection at the end of the request.
             def close(self):
                 pass
 
@@ -45,11 +45,11 @@ class TestHealthz:
 
 
 def test_declares_itself_non_atomic():
-    """Bewusst die Deklaration prüfen, nicht das Verhalten.
+    """Deliberately checking the declaration, not the behaviour.
 
-    Heute ist um keine View eine Transaktion gelegt (B16), ein Verhaltenstest wäre also aus dem
-    falschen Grund grün -- siehe test_transactions.py. Was hier festgehalten wird, ist die Absicht:
-    falls `ATOMIC_REQUESTS` je eingeschaltet wird (F18), bleibt dieser Endpunkt ausgenommen.
+    Today no view has a transaction around it (B16), so a behaviour test would be green for the
+    wrong reason -- see test_transactions.py. What is recorded here is the intent: if
+    `ATOMIC_REQUESTS` is ever switched on (F18), this endpoint stays exempt.
     """
     view = resolve("/healthz").func
     assert "default" in getattr(view, "_non_atomic_requests", set())

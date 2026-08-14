@@ -1,13 +1,13 @@
-"""R2-1: was ein Staff-Konto über `/admin/` **nicht** kann.
+"""R2-1: what a staff account **cannot** do through `/admin/`.
 
-Der Befund war nicht theoretisch: `/admin/` ist seit 2016 geroutet, alle drei Modelle waren ohne
-Einschränkung registriert, und der User hat bestätigt, dass es in Produktion ein Staff-Konto gibt.
-Ein Passwort öffnete damit den einzigen Weg im System, der Stimmzahlen unmittelbar ändern und jeden
-Wähler-Token lesen konnte.
+The finding was not theoretical: `/admin/` has been routed since 2016, all three models were
+registered without restriction, and the user confirmed that a staff account exists in production.
+One password therefore opened the only path in the system that could change vote counts directly and
+read every voter token.
 
-Die Tests fahren gegen die echte Admin-Oberfläche, nicht gegen die `ModelAdmin`-Attribute: geprüft
-werden soll die Wirkung. `admin_client` (pytest-django) legt einen Superuser an und meldet ihn an --
-also der stärkste Fall, nicht der schwächste.
+The tests drive the real admin interface, not the `ModelAdmin` attributes: what should be checked is
+the effect. `admin_client` (pytest-django) creates a superuser and logs it in -- so the strongest
+case, not the weakest.
 """
 
 import pytest
@@ -29,11 +29,11 @@ class TestVoteCountsCannotBeEdited:
         choice = poll.choice_set.get()
         content = admin_client.get(f"/admin/vote/choice/{choice.pk}/change/").content.decode()
         assert 'name="votes"' not in content
-        # Angezeigt wird die Zahl weiterhin -- nur eben nicht als Eingabefeld.
+        # The number is still displayed -- just not as an input field.
         assert '<div class="readonly">7</div>' in content
 
     def test_a_posted_vote_count_is_ignored(self, admin_client, poll):
-        """Der eigentliche Beweis: auch ein Formular, das das Feld mitschickt, ändert nichts."""
+        """The actual proof: even a form that submits the field changes nothing."""
         choice = poll.choice_set.get()
         response = admin_client.post(
             f"/admin/vote/choice/{choice.pk}/change/",
@@ -41,46 +41,46 @@ class TestVoteCountsCannotBeEdited:
         )
         choice.refresh_from_db()
         assert response.status_code in (200, 302)
-        assert choice.votes == 7, "Stimmzahl über das Admin-Formular verändert"
+        assert choice.votes == 7, "vote count changed through the admin form"
 
     def test_adding_a_choice_starts_at_zero(self, admin_client, poll):
         admin_client.post(
             "/admin/vote/choice/add/",
             {"poll": poll.pk, "choice_text": "Pasta", "votes": "500"},
         )
-        neu = Choice.objects.get(choice_text="Pasta")
-        assert neu.votes == 0
+        created = Choice.objects.get(choice_text="Pasta")
+        assert created.votes == 0
 
 
 @pytest.mark.django_db
 class TestTokensCannotBeRead:
     def test_the_voter_token_appears_neither_in_the_list_nor_in_the_form(self, admin_client, poll):
         token = poll.token_set.get()
-        liste = admin_client.get("/admin/vote/token/").content.decode()
-        formular = admin_client.get(f"/admin/vote/token/{token.pk}/change/").content.decode()
-        for seite in (liste, formular):
-            assert token.token_string not in seite
-            assert 'name="token_string"' not in seite
+        listing = admin_client.get("/admin/vote/token/").content.decode()
+        form = admin_client.get(f"/admin/vote/token/{token.pk}/change/").content.decode()
+        for page in (listing, form):
+            assert token.token_string not in page
+            assert 'name="token_string"' not in page
 
     def test_the_creator_token_is_not_shown_either(self, admin_client, poll):
-        """Er schließt die Umfrage vorzeitig -- ein Geheimnis, das nicht auf eine Seite gehört."""
-        liste = admin_client.get("/admin/vote/poll/").content.decode()
-        formular = admin_client.get(f"/admin/vote/poll/{poll.pk}/change/").content.decode()
-        for seite in (liste, formular):
-            assert poll.creator_token not in seite
-            assert 'name="creator_token"' not in seite
+        """It closes the poll early -- a secret that does not belong on a page."""
+        listing = admin_client.get("/admin/vote/poll/").content.decode()
+        form = admin_client.get(f"/admin/vote/poll/{poll.pk}/change/").content.decode()
+        for page in (listing, form):
+            assert poll.creator_token not in page
+            assert 'name="creator_token"' not in page
 
     def test_the_identifier_cannot_be_changed(self, admin_client, poll):
-        """Es sind Mails mit Links auf diese Kennung unterwegs (Arbeitsregel 5).
+        """Mails with links to this identifier are out there (working rule 5).
 
-        Der Statuscode gehört zur Prüfung: ohne ihn besteht dieser Test auch mit der alten
-        Registrierung, weil der POST dort an einem *anderen* fehlenden Pflichtfeld scheitert und die
-        Kennung deshalb ebenfalls stehen bleibt. Ein Test, der aus dem falschen Grund grün ist, ist
-        Fehlerklasse K4 -- gemessen, indem die alte `admin.py` zurückgespielt wurde.
+        The status code is part of the check: without it this test passes with the old registration
+        too, because the POST fails there on a *different* missing required field, which leaves the
+        identifier standing as well. A test that is green for the wrong reason is error class K4 --
+        measured by restoring the old `admin.py`.
         """
-        alt = poll.identifier
-        formular = admin_client.get(f"/admin/vote/poll/{poll.pk}/change/").content.decode()
-        assert 'name="identifier"' not in formular
+        previous = poll.identifier
+        form = admin_client.get(f"/admin/vote/poll/{poll.pk}/change/").content.decode()
+        assert 'name="identifier"' not in form
 
         response = admin_client.post(
             f"/admin/vote/poll/{poll.pk}/change/",
@@ -96,13 +96,13 @@ class TestTokensCannotBeRead:
             },
         )
         poll.refresh_from_db()
-        assert response.status_code == 302, "der POST muss durchgehen, sonst prüft der Test nichts"
-        assert poll.identifier == alt
+        assert response.status_code == 302, "the POST has to go through, or the test checks nothing"
+        assert poll.identifier == previous
 
 
 @pytest.mark.django_db
 class TestWhatStaysPossible:
-    """Gegenprobe: die Oberfläche ist beschnitten, nicht abgeschaltet."""
+    """The counter-check: the interface is cut back, not switched off."""
 
     def test_a_poll_can_still_be_closed(self, admin_client, poll):
         admin_client.post(
@@ -117,9 +117,9 @@ class TestWhatStaysPossible:
             },
         )
         poll.refresh_from_db()
-        assert poll.is_active is False, "das Häkchen fehlt im POST, also soll die Umfrage zu sein"
+        assert poll.is_active is False, "the checkbox is absent from the POST, so the poll closes"
 
     def test_a_poll_can_still_be_deleted(self, admin_client, poll):
         admin_client.post(f"/admin/vote/poll/{poll.pk}/delete/", {"post": "yes"})
         assert not Poll.objects.filter(pk=poll.pk).exists()
-        assert Token.objects.count() == 0, "die Tokens hängen per CASCADE daran"
+        assert Token.objects.count() == 0, "the tokens hang off it via CASCADE"

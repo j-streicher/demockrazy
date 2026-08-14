@@ -1,27 +1,27 @@
-"""Settings für die lokale Entwicklung.
+"""Settings for local development.
 
-`settings.py` hat bewusst produktionssichere Defaults (`DEBUG = False`, kein eingebauter
-`SECRET_KEY`), womit `runserver` ohne Zutun nicht startet -- Django verlangt dann ein gefülltes
-`ALLOWED_HOSTS`. Dieses Modul ist der dokumentierte Weg drumherum:
+`settings.py` deliberately has production-safe defaults (`DEBUG = False`, no built-in `SECRET_KEY`),
+which means `runserver` does not start on its own -- Django then demands a non-empty
+`ALLOWED_HOSTS`. This module is the documented way around that:
 
     ./manage.py runserver --settings=demockrazy.dev_settings
 
-Alternativ über die Umgebung, ohne dieses Modul:
+Alternatively through the environment, without this module:
 
     DEMOCKRAZY_DEBUG=1 ./manage.py runserver
 
-Produktion ist davon unberührt -- dort setzt der systemd-Service
-`DJANGO_SETTINGS_MODULE=demockrazy_config` (siehe notes/deployment.md).
+Production is untouched by this -- there the systemd service sets
+`DJANGO_SETTINGS_MODULE=demockrazy_config` (see notes/deployment.md).
 """
 
 from .settings import *  # noqa: F403
 
 DEBUG = True
 
-# Bei DEBUG=True erlaubt Django localhost automatisch; explizit ist trotzdem klarer.
+# With DEBUG=True Django allows localhost automatically; being explicit is clearer anyway.
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "[::1]"]
 
-# Mails auf die Konsole statt in die Welt. VOTE_SEND_MAILS muss True sein, damit die Views
-# überhaupt send_mail() aufrufen -- sonst printen sie nur die Argumente.
+# Mails to the console instead of into the world. VOTE_SEND_MAILS has to be True for the views to
+# call send_mail() at all -- otherwise they only print the arguments.
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 VOTE_SEND_MAILS = True

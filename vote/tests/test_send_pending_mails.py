@@ -1,8 +1,8 @@
-"""Tests für den Management-Command `send_pending_mails`.
+"""Tests for the management command `send_pending_mails`.
 
-Der Command ist bewusst dünn -- die Arbeit steht in `vote.services.mail.send_pending()` und ist in
-test_mail_service.py geprüft. Hier geht es um die Betriebsdinge: die **Sperre**, die Optionen und
-den Ort der Sperrdatei.
+The command is deliberately thin -- the work lives in `vote.services.mail.send_pending()` and is
+checked in test_mail_service.py. This is about the operational parts: the **lock**, the options, and
+where the lock file goes.
 """
 
 import fcntl
@@ -22,15 +22,15 @@ def enqueue(count):
 
 
 class TestLockPath:
-    """Reine Funktion, damit der Test kein `DATABASES` überschreiben muss.
+    """A pure function, so the test does not have to override `DATABASES`.
 
-    Ein Override dort erzeugt bei jedem Test eine `UserWarning` -- dieselbe Überlegung wie bei
-    `demockrazy/checks.py` (Plan 5.4).
+    An override there produces a `UserWarning` in every test -- the same consideration as in
+    `demockrazy/checks.py` (plan 5.4).
     """
 
     def test_it_sits_next_to_the_database(self):
-        """`BASE_DIR` ist in Produktion der read-only Nix-Store -- deshalb folgt die Sperrdatei
-        der Datenbank und nicht dem Projektverzeichnis."""
+        """In production `BASE_DIR` is the read-only Nix store -- which is why the lock file follows
+        the database and not the project directory."""
         assert lock_path("/var/lib/demockrazy/db.sqlite3") == Path(
             "/var/lib/demockrazy/db.mailsend.lock"
         )
@@ -59,11 +59,11 @@ class TestCommand:
         assert "2 Batches" in out.getvalue()
 
     def test_a_second_run_does_nothing_while_the_first_holds_the_lock(self, mailoutbox):
-        """Ein Lauf dauert Minuten, der Timer feuert im Minutentakt -- zwei gleichzeitige Läufe
-        würden dieselben Zeilen greifen und doppelt verschicken.
+        """A run takes minutes, the timer fires every minute -- two concurrent runs would grab the
+        same rows and send them twice.
 
-        `flock` bindet an den geöffneten Deskriptor, nicht an den Prozess: ein zweiter `open()`
-        derselben Datei kollidiert deshalb auch innerhalb dieses Tests.
+        `flock` binds to the open descriptor, not to the process: a second `open()` of the same file
+        therefore collides inside this test as well.
         """
         enqueue(2)
         with lock_path().open("w") as held:
@@ -71,11 +71,11 @@ class TestCommand:
             out = StringIO()
             call_command("send_pending_mails", "--pause", "0", stdout=out)
             assert "läuft schon" in out.getvalue()
-        assert mailoutbox == [], "nichts verschickt"
-        assert OutgoingMail.objects.count() == 2, "und nichts angefasst"
+        assert mailoutbox == [], "nothing sent"
+        assert OutgoingMail.objects.count() == 2, "and nothing touched"
 
     def test_the_lock_is_released_afterwards(self, mailoutbox):
-        """Sonst wäre der erste Lauf der letzte."""
+        """Otherwise the first run would be the last one."""
         enqueue(1)
         call_command("send_pending_mails", "--pause", "0", stdout=StringIO())
         enqueue(1)

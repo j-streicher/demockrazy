@@ -397,8 +397,15 @@ dieses Aufrufs ist nur dort zu lösen. Alle drei in [to-check.md](to-check.md) �
 2. **Commit-Nachrichten auf Englisch, Prosa, erklären *warum*** – nicht nur was. Ende jeder
    Nachricht: `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
 3. **Kommunikation mit dem User auf Deutsch. Notizen auf Deutsch. Code auf Englisch** – Bezeichner,
-   Kommentare, Docstrings. Commit-Nachrichten Englisch. Der Bestand ist überwiegend deutsch
-   kommentiert; ob er nachgezogen wird, ist offen (der PR ist auf).
+   Kommentare, Docstrings, Commit-Nachrichten. Der Bestand ist mit `58e86c5` und `52de7bc`
+   nachgezogen, es steht kein deutscher Kommentar mehr im Code.
+   **Ausnahme, vom User am 2026-08-14 entschieden: Betriebsausgabe bleibt deutsch.** Also die
+   Logzeilen in [mail.py](../vote/services/mail.py), `--help` und die Zusammenfassung von
+   `send_pending_mails`, der `hint` in [checks.py](../demockrazy/checks.py) und
+   `OutgoingMail.__str__`. Das liest ein Mensch im Journal oder auf einem Terminal, es ist keine
+   Code-Prosa – und drei Tests prüfen genau auf diese Zeichenketten (`"läuft schon"`,
+   `"2 verschickt"`, `"kommt nicht voran"`). Wer den Code das nächste Mal durchgeht, lässt sie
+   stehen. Der deutsche Mail-Wortlaut ist ohnehin Prüfgegenstand (Regel 3/6).
 4. **Nicht raten, messen.** Versionsnummern gegen nixpkgs prüfen, Prod-Verhalten simulieren statt
    annehmen. Das hat mehrfach falsche Schlüsse verhindert – u. a. hätte ich fast eine
    zusammengefasste Migration eingecheckt, die ein anderes Schema beschreibt als das laufende.

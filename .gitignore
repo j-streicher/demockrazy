@@ -64,17 +64,17 @@ target/
 *.swp
 
 db.sqlite3
-# Die Sperrdatei des Mailversands liegt neben der Datenbank (Plan §11.7).
-# Bewusst **ohne** führenden Slash: der Datenbankpfad ist über DEMOCKRAZY_DB_PATH frei wählbar,
-# die Sperrdatei folgt ihm. Das ist die Ausnahme zu der Lehre aus B18 -- dort war die fehlende
-# Verankerung der Fehler, hier ist sie die Absicht.
+# The lock file of the mail sender sits next to the database (plan §11.7).
+# Deliberately **without** a leading slash: the database path is freely configurable through
+# DEMOCKRAZY_DB_PATH, and the lock file follows it. This is the exception to the lesson from B18 --
+# there the missing anchoring was the bug, here it is the intent.
 *.mailsend.lock
 
-# Gemeint ist STATIC_ROOT, also die collectstatic-Ausgabe unter BASE_DIR/static -- deshalb mit
-# fuehrendem Slash auf das Projektwurzel-Verzeichnis begrenzt. Ohne den Slash trifft das Muster
-# jedes Verzeichnis namens "static" auf jeder Ebene, also auch vote/static/ mit den Quell-Assets
-# der App. Genau das hat es von 2016 bis 2026 getan (siehe B18): dort waren nur die zwei Dateien
-# getrackt, die aelter als die Regel sind, und jedes neue Asset fiel stillschweigend raus.
+# This means STATIC_ROOT, so the collectstatic output under BASE_DIR/static -- which is why the leading
+# slash limits it to the project root. Without the slash the pattern matches every directory named
+# "static" at every level, so vote/static/ with the app's source assets as well. That is exactly what it
+# did from 2016 to 2026 (see B18): only the two files older than the rule were tracked there, and every
+# new asset silently fell out.
 /static/
 
 .direnv

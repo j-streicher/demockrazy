@@ -1,4 +1,4 @@
-"""Tests fuer vote/models.py: Token-Erzeugung und die Zaehlerlogik."""
+"""Tests for vote/models.py: token generation and the counting logic."""
 
 import random
 import string
@@ -32,29 +32,29 @@ class TestRandString:
         assert rand_string(64) != rand_string(64)
 
     def test_does_not_come_from_the_seedable_generator(self):
-        """R10-2: die Unvorhersagbarkeit war die einzige Token-Eigenschaft ohne Test.
+        """R10-2: unpredictability was the only token property without a test.
 
-        Länge und Zeichenvorrat sind oben abgedeckt, und ein Tausch von `random.SystemRandom()`
-        gegen `random.choice` fiel der ganzen Suite nicht auf -- gemessen per Mutation. Der
-        Unterschied ist aber der zwischen einem Geheimnis und einer Rechenaufgabe: der Mersenne
-        Twister lässt sich aus wenigen Ausgaben rekonstruieren, und wer als eingeladener Wähler ein
-        paar Tokens kennt, könnte die übrigen ausrechnen.
+        Length and character set are covered above, and swapping `random.SystemRandom()` for
+        `random.choice` went unnoticed by the whole suite -- measured by mutation. But the
+        difference is the one between a secret and an arithmetic exercise: the Mersenne Twister can
+        be reconstructed from a few outputs, and an invited voter who knows a handful of tokens
+        could compute the rest.
 
-        Geprüft wird die *Wirkung* und nicht die Herkunft: bei gleichem Startwert muss trotzdem
-        etwas anderes herauskommen. Das hält auch, wenn jemand `secrets.choice` einsetzt -- und
-        fällt, sobald der Zufall aussaatbar wird (ein sehr naheliegender Griff ist `random.seed()`,
-        „damit die Tests deterministisch werden").
+        What is checked is the *effect*, not the origin: with the same seed the result still has to
+        differ. That holds if someone switches to `secrets.choice` -- and fails as soon as the
+        randomness becomes seedable (a very obvious move being `random.seed()`, "so the tests become
+        deterministic").
         """
         random.seed(4711)
-        erste = rand_string(64)
+        first = rand_string(64)
         random.seed(4711)
-        zweite = rand_string(64)
-        assert erste != zweite
+        second = rand_string(64)
+        assert first != second
 
 
 @pytest.mark.django_db
 class TestTokenGeneration:
-    """Die Längen sind Teil des Datenmodells (max_length) und dürfen sich nicht ändern."""
+    """The lengths are part of the data model (max_length) and must not change."""
 
     def test_identifier_length(self):
         assert len(mk_identifier()) == 64
@@ -83,10 +83,10 @@ class TestStr:
 
 @pytest.mark.django_db
 class TestGetAmountUsedUnused:
-    """Liefert (eingelöst, offen, gesamt).
+    """Returns (redeemed, outstanding, total).
 
-    Zwei Pfade: mit gesetztem num_tokens wird von der Gesamtzahl heruntergerechnet, ohne
-    (Alt-Umfragen ohne Empfängerliste) über die Summe der Stimmen.
+    Two paths: with num_tokens set it counts down from the total, without it (old polls with no
+    recipient list) it goes by the sum of the votes.
     """
 
     def test_nothing_redeemed_yet(self):
@@ -117,12 +117,12 @@ class TestGetAmountUsedUnused:
         assert poll.get_amount_used_unused() == (7, 0, 7)
 
     def test_without_num_tokens_and_without_choices(self):
-        """Seit 3.6 summiert die Datenbank; `Sum()` liefert dann `None` statt `0`."""
+        """Since 3.6 the database does the summing; `Sum()` then returns `None` rather than `0`."""
         poll = Poll.objects.create(title="P", question_text="?", num_tokens=None)
         assert poll.get_amount_used_unused() == (0, 0, 0)
 
     def test_counting_is_one_query_per_branch(self, django_assert_num_queries):
-        """`.count()`/`aggregate()` statt `len()`: die Zeilen bleiben in der Datenbank."""
+        """`.count()`/`aggregate()` instead of `len()`: the rows stay in the database."""
         poll = Poll.objects.create(title="P", question_text="?", num_tokens=3)
         for _ in range(3):
             Token.objects.create(poll=poll)
@@ -160,17 +160,17 @@ class TestDefaults:
 
 @pytest.mark.django_db
 class TestPollType:
-    """`POLL_TYPES` war eine Liste von Strings, seit 3.6 ist es eine `TextChoices` (Plan 3.6)."""
+    """`POLL_TYPES` was a list of strings, since 3.6 it is a `TextChoices` (plan 3.6)."""
 
     def test_values_are_unchanged(self):
-        """Die Werte stehen als Spaltenwerte im Bestand -- sie dürfen sich nicht bewegen."""
+        """The values are column values in the existing data -- they must not move."""
         assert PollType.values == ["simple_choice", "multiple_choice"]
 
     def test_default_is_simple_choice(self):
         assert Poll.objects.create(title="P", question_text="?").type == PollType.SIMPLE_CHOICE
 
     def test_an_unknown_type_is_a_validation_error(self):
-        """`choices` bringt die Prüfung ins Modell; vorher gab es sie nur im Formular."""
+        """`choices` brings the check into the model; before, it only existed in the form."""
         poll = Poll(title="P", question_text="?", type="quatsch")
         with pytest.raises(ValidationError):
             poll.full_clean()
@@ -183,6 +183,6 @@ class TestGetAbsoluteUrl:
         assert poll.get_absolute_url() == "/vote/ABC/"
 
     def test_matches_the_url_in_the_invitation_mail(self):
-        """Die Wähler-Mail baut ihren Link darauf auf (vote/services/mail.py)."""
+        """The voter mail builds its link on this (vote/services/mail.py)."""
         poll = Poll.objects.create(title="P", question_text="?")
         assert poll.get_absolute_url() == reverse("vote:polls:poll", args=(poll.identifier,))

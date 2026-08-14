@@ -1,4 +1,4 @@
-"""Tests für vote/services/polls.py (Plan 3.5)."""
+"""Tests for vote/services/polls.py (plan 3.5)."""
 
 import pytest
 
@@ -49,7 +49,7 @@ class TestCreatePoll:
         assert {len(s) for s in strings} == {128}
 
     def test_returned_tokens_are_the_persisted_ones(self):
-        """bulk_create liefert auf SQLite die Primärschlüssel mit zurück (RETURNING)."""
+        """On SQLite, bulk_create hands the primary keys back as well (RETURNING)."""
         _, tokens = create(num_tokens=3)
         assert all(token.pk is not None for token in tokens)
         assert set(Token.objects.values_list("pk", flat=True)) == {t.pk for t in tokens}
@@ -60,14 +60,14 @@ class TestCreatePoll:
         assert poll.token_set.count() == 0
 
     def test_rolls_back_as_a_whole(self, monkeypatch):
-        """Die Funktion ist atomar, damit sie auch außerhalb eines Requests nichts halb anlegt.
+        """The function is atomic, so that outside a request it does not create half of anything.
 
-        Der Fehler wird beim Anlegen der Tokens ausgelöst, also nachdem Umfrage und Choices
-        schon in der Datenbank stehen -- genau der Zustand, der nicht überleben darf.
+        The failure is triggered while creating the tokens, so after the poll and the choices are
+        already in the database -- exactly the state that must not survive.
         """
 
         def boom(*args, **kwargs):
-            raise RuntimeError("Datenbank weg")
+            raise RuntimeError("database gone")
 
         monkeypatch.setattr(Token.objects, "bulk_create", boom)
         with pytest.raises(RuntimeError):
@@ -78,12 +78,12 @@ class TestCreatePoll:
 
 
 class TestQueryCount:
-    """Der Punkt von 3.5 und 3.6: die Zahl der Statements hängt nicht an der Umfragegröße.
+    """The point of 3.5 and 3.6: the number of statements does not depend on the size of the poll.
 
-    2 Savepoint-Statements (`transaction.atomic`) + 3 INSERT (Umfrage, Choices, Tokens).
-    Kein SELECT mehr: 3.5 hat aus den Save-Schleifen zwei `bulk_create` gemacht, 3.6 hat die
-    Kollisionsprüfungen in `mk_identifier`/`mk_token` gestrichen -- die Eindeutigkeit erzwingt
-    jetzt der `UniqueConstraint`. Vor 3.5 waren es bei 200 Empfängern 404 Queries.
+    2 savepoint statements (`transaction.atomic`) + 3 INSERTs (poll, choices, tokens). No SELECT any
+    more: 3.5 turned the save loops into two `bulk_create` calls, and 3.6 dropped the collision
+    checks in `mk_identifier`/`mk_token` -- the `UniqueConstraint` enforces uniqueness now. Before
+    3.5 it was 404 queries for 200 recipients.
     """
 
     EXPECTED = 5

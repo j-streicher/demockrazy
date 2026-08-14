@@ -1,12 +1,11 @@
-"""Tests für vote/forms.py.
+"""Tests for vote/forms.py.
 
-Das Formular ist in 3.1 entstanden, seit 3.2 benutzt `create()` es, und seit 3.8 trägt es den Deckel
-auf die Empfängerzahl (B4). Diese Tests prüfen es direkt; dass die *View* sich entsprechend verhält,
-steht in test_views.py und test_known_bugs.py.
+The form appeared in 3.1, `create()` has used it since 3.2, and since 3.8 it carries the cap on the
+number of recipients (B4). These tests check it directly; that the *view* behaves accordingly is in
+test_views.py and test_known_bugs.py.
 
-Geschrieben wurden sie ursprünglich als einzige Absicherung, dass das Formular sich so verhält wie
-die View-Helfer, die es ersetzt (B3, B6, B12). Deren Ist-Verhalten steht in
-notes/phase-0-baseline.md.
+They were originally written as the only assurance that the form behaves like the view helpers it
+replaces (B3, B6, B12). What those helpers actually did is recorded in notes/phase-0-baseline.md.
 """
 
 import pytest
@@ -68,7 +67,7 @@ class TestValidPayload:
 
 
 class TestDeduplication:
-    """B6: dieselbe Adresse mehrfach eingetragen ergab mehrere Tokens und damit mehrere Stimmen."""
+    """B6: the same address entered twice produced several tokens and with them several votes."""
 
     def test_exact_duplicates_collapse(self):
         form = PollCreateForm(payload(voter_mails="dup@example.org\n" * 3))
@@ -81,7 +80,7 @@ class TestDeduplication:
         assert form.cleaned_data["voter_mails"] == ["Max@example.org"]
 
     def test_first_spelling_wins(self):
-        """Die Mail soll so rausgehen, wie sie eingegeben wurde."""
+        """The mail should go out the way it was entered."""
         form = PollCreateForm(payload(voter_mails="MAX@example.org\nmax@example.org"))
         assert form.is_valid()
         assert form.cleaned_data["voter_mails"] == ["MAX@example.org"]
@@ -93,7 +92,7 @@ class TestDeduplication:
 
 
 class TestInvalidMailAddresses:
-    """B12: eine kaputte Adresse endete in einem ungefangenen ValidationError, also in einem 500."""
+    """B12: a broken address ended in an uncaught ValidationError, so in a 500."""
 
     @pytest.mark.parametrize(
         "address",
@@ -134,10 +133,10 @@ class TestInvalidMailAddresses:
 
 
 class TestRejectedInput:
-    """Eingaben, die die View bisher stillschweigend zu unbrauchbaren Umfragen verarbeitet hat."""
+    """Input the view used to turn silently into unusable polls."""
 
     def test_unknown_poll_type_is_a_field_error(self):
-        """B3: `raise Exception('Invalid poll type')` war ein 500."""
+        """B3: `raise Exception('Invalid poll type')` was a 500."""
         form = PollCreateForm(payload(type="quatsch"))
         assert not form.is_valid()
         assert "type" in form.errors
@@ -157,7 +156,7 @@ class TestRejectedInput:
         assert field in form.errors
 
     def test_missing_field_is_an_error_not_an_exception(self):
-        """B3: `request.POST['title']` warf einen MultiValueDictKeyError."""
+        """B3: `request.POST['title']` raised a MultiValueDictKeyError."""
         data = payload()
         del data["title"]
         form = PollCreateForm(data)
@@ -165,7 +164,7 @@ class TestRejectedInput:
         assert "title" in form.errors
 
     def test_title_longer_than_the_column_is_rejected(self):
-        """Das Modellfeld ist `varchar(200)`; SQLite würde es stillschweigend akzeptieren."""
+        """The model field is `varchar(200)`; SQLite would accept more without a word."""
         form = PollCreateForm(payload(title="x" * 201))
         assert not form.is_valid()
         assert "title" in form.errors
@@ -173,25 +172,25 @@ class TestRejectedInput:
     def test_title_at_the_column_limit_is_accepted(self):
         assert PollCreateForm(payload(title="x" * 200)).is_valid()
 
-    @pytest.mark.parametrize("umbruch", ["\n", "\r", "\r\n"])
-    def test_title_with_a_line_break_is_rejected(self, umbruch):
-        """R5-1: der Titel steht in einem Mail-Betreff, dort ist ein Umbruch nicht zustellbar.
+    @pytest.mark.parametrize("line_break", ["\n", "\r", "\r\n"])
+    def test_title_with_a_line_break_is_rejected(self, line_break):
+        """R5-1: the title goes into a mail subject, and a break there is not deliverable.
 
-        Django strippt nur außen, ein Umbruch in der Mitte kam also durch -- und machte die erste
-        Zeile der Warteschlange unversendbar, womit der Versand *aller* Umfragen stand.
+        Django only strips the outside, so a break in the middle got through -- and made the first
+        row of the queue unsendable, which stopped sending for *every* poll.
         """
-        form = PollCreateForm(payload(title=f"Kaffee{umbruch}Bcc: leak@example.org"))
+        form = PollCreateForm(payload(title=f"Kaffee{line_break}Bcc: leak@example.org"))
         assert not form.is_valid()
         assert "title" in form.errors
 
 
 class TestSizeCaps:
-    """R7-1: außer der Empfängerzahl war nichts gedeckelt.
+    """R7-1: apart from the number of recipients, nothing was capped.
 
-    Gemessen gingen über einen unauthentifizierten POST 200 000 Zeichen Beschreibung und 5 000
-    Choices durch; letztere ergaben eine Abstimmungsseite von 1,3 MB. Die einzige wirksame Grenze
-    war Djangos `DATA_UPLOAD_MAX_MEMORY_SIZE` von 2,5 MB pro Request, und die stand nirgends als
-    Entscheidung.
+    Measured, an unauthenticated POST got 200,000 characters of description and 5,000 choices
+    through; the latter produced a voting page of 1.3 MB. The only effective limit was Django's
+    `DATA_UPLOAD_MAX_MEMORY_SIZE` of 2.5 MB per request, and that was nowhere written down as a
+    decision.
     """
 
     def test_a_very_long_description_is_rejected(self):
@@ -208,7 +207,7 @@ class TestSizeCaps:
         assert "choices" in form.errors
 
     def test_too_many_choices_are_rejected(self, settings):
-        """Die Zahl zusätzlich zur Länge: 20 000 Zeichen sind auch 10 000 einzeichige Zeilen."""
+        """The count on top of the length: 20,000 characters are also 10,000 one-character lines."""
         settings.VOTE_MAX_CHOICES = 3
         form = PollCreateForm(payload(choices="a\nb\nc\nd"))
         assert not form.is_valid()
@@ -221,13 +220,13 @@ class TestSizeCaps:
         assert form.cleaned_data["choices"] == ["a", "b", "c"]
 
     def test_blank_lines_do_not_count_towards_the_limit(self, settings):
-        """Gezählt wird, was eine Choice wird -- `parse_lines` wirft Leerzeilen vorher weg."""
+        """What is counted is what becomes a choice -- `parse_lines` drops blank lines first."""
         settings.VOTE_MAX_CHOICES = 3
         assert PollCreateForm(payload(choices="a\n\n\nb\n\nc\n")).is_valid()
 
 
 class TestRecipientCap:
-    """Der Deckel gegen B4 (Plan 3.8). Grenze steht in settings.VOTE_MAX_RECIPIENTS."""
+    """The cap against B4 (plan 3.8). The limit lives in settings.VOTE_MAX_RECIPIENTS."""
 
     @staticmethod
     def _mails(count):
@@ -246,10 +245,10 @@ class TestRecipientCap:
         assert form.errors["voter_mails"] == ["At most 3 recipients per poll, got 4."]
 
     def test_duplicates_are_counted_after_dedup(self, settings):
-        """Was begrenzt werden soll, ist die Zahl der Mails -- und Dubletten kosten keine.
+        """What should be limited is the number of mails -- and duplicates cost none.
 
-        Ohne diese Reihenfolge würde eine Liste mit vielen Wiederholungen abgelehnt, obwohl
-        daraus nur wenige Mails entstehen.
+        Without this order a list with many repetitions would be rejected even though only a few
+        mails come out of it.
         """
         settings.VOTE_MAX_RECIPIENTS = 3
         form = PollCreateForm(data=payload(voter_mails="a@example.org\n" * 10))
@@ -257,10 +256,10 @@ class TestRecipientCap:
         assert form.cleaned_data["voter_mails"] == ["a@example.org"]
 
     def test_the_default_is_above_the_real_world_maximum(self):
-        """Real kommen 60--100 Empfänger vor (F13). Ein Deckel darunter wäre ein Ausfall.
+        """60--100 recipients occur in practice (F13). A cap below that would be an outage.
 
-        Kein Selbstzweck: die Zahl ist vom User gewählt, und dieser Test hält fest, warum sie
-        nicht kleiner sein darf.
+        Not for its own sake: the number was chosen by the user, and this test records why it must
+        not be smaller.
         """
         from django.conf import settings as django_settings
 

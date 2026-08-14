@@ -1,8 +1,8 @@
-"""Settings für die Testsuite.
+"""Settings for the test suite.
 
-Bewusst explizit: `settings.py` importiert am Ende ein optionales `local_settings.py`, und auf
-einem Entwicklerrechner kann darin alles stehen. Alles, was für Tests relevant ist, wird hier
-danach überschrieben, damit die Suite unabhängig von der lokalen Konfiguration läuft.
+Deliberately explicit: `settings.py` imports an optional `local_settings.py` at the end, and on a
+developer machine that can contain anything. Everything relevant to tests is overridden here
+afterwards, so that the suite runs independently of the local configuration.
 """
 
 from .settings import *  # noqa: F403
@@ -18,19 +18,19 @@ DATABASES = {
     }
 }
 
-# Mails landen in django.core.mail.outbox statt auf stdout. VOTE_SEND_MAILS muss True sein,
-# damit die Views überhaupt send_mail() aufrufen -- sonst würden sie nur printen.
+# Mails land in django.core.mail.outbox instead of on stdout. VOTE_SEND_MAILS has to be True for the
+# views to call send_mail() at all -- otherwise they would only print.
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 VOTE_SEND_MAILS = True
 VOTE_BASE_URL = "http://testserver"
 
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
-# Ohne das schlagen 56 Tests mit `Missing staticfiles manifest entry` fehl (gemessen, nicht
-# befürchtet): `settings.py` stellt seit 4.4 auf ManifestStaticFilesStorage um, und hier ist
-# DEBUG=False -- Django schlägt also im Manifest nach, das erst `collectstatic` schreibt. Die Suite
-# soll nicht von einem collectstatic-Lauf abhängen, und was `{% static %}` ausgibt, ist nicht ihr
-# Gegenstand. Was Cache-Busting leistet, prüft demockrazy/tests/test_staticfiles.py gezielt.
+# Without this, 56 tests fail with `Missing staticfiles manifest entry` (measured, not feared):
+# `settings.py` has switched to ManifestStaticFilesStorage since 4.4, and DEBUG=False here -- so
+# Django looks in the manifest, which only `collectstatic` writes. The suite should not depend on a
+# collectstatic run, and what `{% static %}` emits is not its subject. What cache busting achieves
+# is checked specifically by demockrazy/tests/test_staticfiles.py.
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},

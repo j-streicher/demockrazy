@@ -1,4 +1,4 @@
-"""Betriebs-Endpunkte. Gehören nicht zur Abstimmung und liegen deshalb nicht in `vote`."""
+"""Operational endpoints. Not part of voting, which is why they are not in `vote`."""
 
 import logging
 
@@ -12,32 +12,30 @@ logger = logging.getLogger(__name__)
 @transaction.non_atomic_requests
 @require_safe
 def healthz(request):
-    """Sagt, ob dieser Prozess Requests bedienen **und** die Datenbank lesen kann.
+    """Says whether this process can serve requests **and** read the database.
 
-    Warum die Datenbank mitgeprüft wird: ohne sie beantwortet der Endpunkt nur „uwsgi lebt und die
-    URLconf lädt". Was an genau diesem Deployment schiefgehen kann, sieht man dann nicht -- die
-    Datenbank ist eine SQLite-Datei unter `/var/lib/demockrazy`, auf die der Dienst aus dem
-    read-only Nix-Store zugreift. Steht der Pfad nach einem Deploy falsch oder ist die Datei nicht
-    lesbar, liefert jede Seite einen 500, während ein reiner 200-Endpunkt „gesund" meldete.
+    Why the database is included: without it the endpoint only answers "uwsgi is alive and the
+    URLconf loads". What can go wrong with this particular deployment is then invisible -- the
+    database is a SQLite file under `/var/lib/demockrazy` that the service reaches from the
+    read-only Nix store. If the path is wrong after a deploy, or the file is not readable, every
+    page returns a 500 while a plain 200 endpoint would report "healthy".
 
-    **Kein Schreibtest.** Was für die Stimmabgabe wirklich zählt, ist Schreibbarkeit -- die zu
-    prüfen hieße aber, bei jedem Aufruf in die Datenbank zu schreiben. Bei vier uwsgi-Prozessen auf
-    einer SQLite-Datei (B13) wäre der Health-Check damit selbst eine Ursache der Lock-Fehler, die er
-    melden soll.
+    **No write test.** What really matters for voting is writability -- but checking that would mean
+    writing to the database on every request. With four uwsgi processes on one SQLite file (B13) the
+    health check would then itself be a cause of the lock errors it is supposed to report.
 
-    `non_atomic_requests` ist heute wirkungslos -- es gibt keine Transaktion um den Request (B16,
-    Begründung in settings.py). Es steht trotzdem da: wird die Option je eingeschaltet (F18), ist
-    ein im Sekundentakt gepollter Endpunkt, der nie schreibt, der erste, der davon ausgenommen
-    gehört. Festgehalten in demockrazy/tests/test_healthz.py, damit die Zeile nicht als Zierrat
-    verschwindet.
+    `non_atomic_requests` has no effect today -- there is no transaction around the request (B16,
+    reasoning in settings.py). It is here anyway: if the option is ever switched on (F18), an
+    endpoint polled every second that never writes is the first that should be exempt. Recorded in
+    demockrazy/tests/test_healthz.py so the line does not disappear as decoration.
     """
     try:
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1")
             cursor.fetchone()
     except Exception:
-        # Der Endpunkt ist unauthentifiziert: der Grund gehört ins Log, nicht in die Antwort.
-        # Der Text einer Datenbank-Exception enthält den Dateipfad.
+        # The endpoint is unauthenticated: the reason belongs in the log, not in the response.
+        # The text of a database exception contains the file path.
         logger.exception("healthz: Datenbank nicht lesbar")
         return HttpResponse("database unavailable\n", status=503, content_type="text/plain")
     return HttpResponse("ok\n", content_type="text/plain")

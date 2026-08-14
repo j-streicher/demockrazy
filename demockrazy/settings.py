@@ -1,20 +1,20 @@
-"""Django-Settings für demockrazy.
+"""Django settings for demockrazy.
 
-Diese Datei enthält die **Defaults**. Sie sind absichtlich so gewählt, dass ein Deployment, das
-nichts überschreibt, sicher hochkommt (kein DEBUG, kein eingebauter SECRET_KEY) statt bequem.
+This file holds the **defaults**. They are deliberately chosen so that a deployment overriding
+nothing comes up safely (no DEBUG, no built-in SECRET_KEY) rather than conveniently.
 
-Überschrieben wird auf zwei Wegen:
+There are two ways they get overridden:
 
-1. In Produktion setzt das NixOS-Modul `mayflower.demockrazy` ein generiertes Settings-Modul
-   `demockrazy_config`, das `from demockrazy.settings import *` macht und danach `SECRET_KEY`,
-   `DEBUG`, `DATABASES`, `STATIC_ROOT`, `LOGGING`, die `EMAIL_*`- und `VOTE_*`-Werte setzt.
-   Siehe notes/deployment.md.
-2. Lokal über eine optionale `demockrazy/local_settings.py` (siehe Dateiende) oder über die
-   `DEMOCKRAZY_*`-Umgebungsvariablen unten.
+1. In production the NixOS module `mayflower.demockrazy` installs a generated settings module
+  `demockrazy_config`, which does `from demockrazy.settings import *` and then sets `SECRET_KEY`,
+  `DEBUG`, `DATABASES`, `STATIC_ROOT`, `LOGGING`, and the `EMAIL_*` and `VOTE_*` values. See
+  notes/deployment.md.
+2. Locally through an optional `demockrazy/local_settings.py` (see the end of the file) or through
+  the `DEMOCKRAZY_*` environment variables below.
 
-Wichtig für Änderungen hier: **nichts darf beim Import hart fehlschlagen.** `demockrazy_config`
-setzt `SECRET_KEY` erst *nach* dem Sternchen-Import — ein `os.environ["..."]` oder ein `raise`
-an dieser Stelle würde die Produktion beim Start töten.
+Important when changing anything here: **nothing may fail hard at import time.** `demockrazy_config`
+sets `SECRET_KEY` only *after* the star import — an `os.environ["..."]` or a `raise` at this point
+would kill production on start.
 """
 
 import os
@@ -32,10 +32,10 @@ def _env_flag(name, default=False):
 
 
 def _env_int(name, default):
-    """Wie `_env_flag`, nur für Zahlen. Ein unbrauchbarer Wert fällt auf den Default zurück.
+    """Like `_env_flag`, only for numbers. An unusable value falls back to the default.
 
-    Bewusst ohne Raise: `demockrazy_config` importiert diese Datei per Sternchen-Import, und ein
-    Fehler hier tötet den Service beim Start (siehe Modulkommentar oben).
+    Deliberately without a raise: `demockrazy_config` imports this file with a star import, and an
+    error here kills the service on start (see the module comment above).
     """
     try:
         return int(os.environ[name])
@@ -43,11 +43,11 @@ def _env_int(name, default):
         return default
 
 
-# Kein eingebauter Key: ein Key in einem öffentlichen Repo ist kein Key.
-# Ohne gesetzte Variable wird pro Prozess ein Zufallskey erzeugt. Damit bleibt `runserver` lokal
-# benutzbar, ohne dass ein Geheimnis im Repo liegt; die einzige Folge ist, dass Sessions einen
-# Neustart nicht überleben. Bewusst **kein** Raise: `demockrazy_config` setzt den echten Key erst
-# *nach* dem Sternchen-Import, ein Fehler an dieser Stelle würde die Produktion beim Start töten.
+# No built-in key: a key in a public repository is not a key. Without the variable set, a random key
+# is generated per process. That keeps `runserver` usable locally without a secret sitting in the
+# repository; the only consequence is that sessions do not survive a restart. Deliberately **no**
+# raise: `demockrazy_config` sets the real key only *after* the star import, so an error at this
+# point would kill production on start.
 SECRET_KEY = os.environ.get("DEMOCKRAZY_SECRET_KEY") or secrets.token_urlsafe(64)
 
 DEBUG = _env_flag("DEMOCKRAZY_DEBUG", default=False)
@@ -98,67 +98,66 @@ TEMPLATES = [
 WSGI_APPLICATION = "demockrazy.wsgi.application"
 
 
-# Datenbank
-# In Produktion überschreibt demockrazy_config den Pfad auf /var/lib/demockrazy/db.sqlite3 --
-# der Code läuft dort aus dem read-only Nix-Store, BASE_DIR ist also nicht beschreibbar.
+# Database In production demockrazy_config overrides the path to /var/lib/demockrazy/db.sqlite3 --
+# the code runs there out of the read-only Nix store, so BASE_DIR is not writable.
 #
-# ⚠️ **Diese OPTIONS erreichen Produktion nicht von allein** (Plan 5.4). `demockrazy_config` setzt
-# `DATABASES` *komplett neu* und verliert damit alles, was hier drinsteht -- genau der Mechanismus,
-# über den `ATOMIC_REQUESTS` zehn Jahre wirkungslos war (B16). Damit das nicht wieder still
-# passiert, meldet ein System-Check das Fehlen: `manage.py check` (siehe demockrazy/checks.py).
-# Prüfen lässt sich das gegen die echten Prod-Settings mit
-# `DJANGO_SETTINGS_MODULE=demockrazy_config python3 manage.py check`.
+# ⚠️ **These OPTIONS do not reach production on their own** (plan 5.4). `demockrazy_config` sets
+# `DATABASES` *from scratch* and thereby loses everything in here -- exactly the mechanism that left
+# `ATOMIC_REQUESTS` ineffective for ten years (B16). So that this cannot happen silently again, a
+# system check reports their absence: `manage.py check` (see demockrazy/checks.py). It can be
+# checked against the real production settings with `DJANGO_SETTINGS_MODULE=demockrazy_config
+# python3 manage.py check`.
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": os.environ.get("DEMOCKRAZY_DB_PATH") or BASE_DIR / "db.sqlite3",
         "OPTIONS": {
-            # Vier uwsgi-Prozesse teilen eine Datei (B13). Ohne diese drei Optionen sind
-            # `database is locked`-Fehler bei gleichzeitiger Stimmabgabe realistisch.
+            # Four uwsgi processes share one file (B13). Without these three options,
+            # `database is locked` errors during concurrent voting are realistic.
             #
-            # `transaction_mode` ist der wichtigste Punkt und nicht der offensichtlichste:
-            # Djangos Default ist `DEFERRED`, da nimmt SQLite die Schreibsperre erst beim ersten
-            # Schreibzugriff. Fängt eine Transaktion mit einem SELECT an und schreibt danach --
-            # genau der Ablauf in `vote()` --, muss die Leseperre zur Schreibsperre hochgestuft
-            # werden, und **das kann SQLite nicht warten lassen**: es kommt ein sofortiges
-            # `SQLITE_BUSY`, ohne `timeout` zu beachten. `IMMEDIATE` nimmt die Schreibsperre schon
-            # beim BEGIN, damit greift der `timeout` und die Schreiber stellen sich in eine Reihe.
+            # `transaction_mode` is the most important point and not the most obvious one: Django's
+            # default is `DEFERRED`, where SQLite takes the write lock only on the first write. If a
+            # transaction starts with a SELECT and writes afterwards -- exactly what happens in
+            # `vote()` -- the read lock has to be upgraded to a write lock, and **SQLite cannot make
+            # that wait**: an immediate `SQLITE_BUSY` comes back, ignoring `timeout`. `IMMEDIATE`
+            # takes the write lock at BEGIN, so `timeout` applies and the writers queue up.
             #
-            # Das ist nur deshalb billig, weil `ATOMIC_REQUESTS` aus bleibt (F18): `atomic()` gibt
-            # es genau an den zwei Stellen, die wirklich schreiben. Mit ATOMIC_REQUESTS würde
-            # `IMMEDIATE` *jeden* Request serialisieren, auch die Ergebnisseite.
+            # This is only cheap because `ATOMIC_REQUESTS` stays off (F18): `atomic()` exists at
+            # exactly the two places that really write. With ATOMIC_REQUESTS, `IMMEDIATE` would
+            # serialise *every* request, the results page included.
             "transaction_mode": "IMMEDIATE",
-            # WAL: Leser blockieren den Schreiber nicht mehr und umgekehrt. Die Einstellung hängt
-            # an der *Datei*, nicht an der Verbindung -- ab dem zweiten Verbindungsaufbau ist das
-            # PRAGMA ein No-op. Legt `db.sqlite3-wal` und `-shm` daneben; das Verzeichnis
-            # /var/lib/demockrazy ist beschreibbar, und borg sichert es mit.
+            # WAL: readers no longer block the writer and vice versa. The setting belongs to the
+            # *file*, not to the connection -- from the second connection onwards the PRAGMA is a
+            # no-op. It puts `db.sqlite3-wal` and `-shm` next to the database; the directory
+            # /var/lib/demockrazy is writable, and borg backs it up along with the rest.
             "init_command": "PRAGMA journal_mode=WAL;",
-            # `sqlite3`-Default sind 5 s. **Bewusst nicht `synchronous=NORMAL` dazu**, was sonst
-            # gern mit WAL zusammen empfohlen wird: das erkauft Geschwindigkeit damit, dass ein
-            # Stromausfall die letzten Commits verlieren kann. Hier sind Commits *Stimmen*.
+            # The `sqlite3` default is 5 s. **Deliberately no `synchronous=NORMAL` alongside it**,
+            # which is otherwise often recommended together with WAL: it buys speed by allowing a
+            # power failure to lose the last commits. Here commits are *votes*.
             "timeout": 20,
         },
     }
 }
 
-# Hier stand von 2016 bis 2026 ein modulweites `ATOMIC_REQUESTS = True` (Commit 154e5f6, direkt
-# unter DATABASES). Django liest die Option aber **pro Datenbank**, aus
-# `DATABASES['default']['ATOMIC_REQUESTS']` -- ein modulweiter Wert wird nie gelesen. Gemessen:
-# `connections.settings['default']['ATOMIC_REQUESTS']` war die ganze Zeit `False`. Produktion hätte
-# den Wert ohnehin verloren, weil das generierte `demockrazy_config` `DATABASES` komplett neu setzt.
+# From 2016 to 2026 a module-wide `ATOMIC_REQUESTS = True` stood here (commit 154e5f6, directly
+# below DATABASES). Django reads the option **per database**, though, from
+# `DATABASES['default']['ATOMIC_REQUESTS']` -- a module-wide value is never read. Measured:
+# `connections.settings['default']['ATOMIC_REQUESTS']` was `False` the entire time. Production would
+# have lost the value anyway, because the generated `demockrazy_config` sets `DATABASES` from
+# scratch.
 #
-# Entfernt statt an die richtige Stelle verschoben, weil Einschalten eine echte
-# Verhaltensänderung wäre -- und zwar in der riskantesten Richtung: dann nähme *jeder* Request eine
-# Transaktion auf einer SQLite-Datei, die vier uwsgi-Prozesse teilen (B13), auch die reine
-# Ergebnisseite. Wo Atomarität gebraucht wird, steht sie explizit im Code und ist getestet:
-# `vote.services.polls.create_poll()` und der `atomic()`-Block in `vote.views.vote()`, der die
-# Teilstimme eines unvollständigen Multiple-Choice-POST zurücknimmt. Beides lief nie über diese
-# Option. Festgehalten in demockrazy/tests/test_transactions.py.
+# Removed rather than moved to the right place, because switching it on would be a real change in
+# behaviour -- and in the riskiest direction: *every* request would then take a transaction on a
+# SQLite file shared by four uwsgi processes (B13), the plain results page included. Where atomicity
+# is needed it is explicit in the code and tested: `vote.services.polls.create_poll()` and the
+# `atomic()` block in `vote.views.vote()`, which takes back the partial vote of an incomplete
+# multiple-choice POST. Neither ever went through this option. Recorded in
+# demockrazy/tests/test_transactions.py.
 
-# Die Tabellen stammen von 2015/16 und haben AutoField-Primärschlüssel. Explizit denselben Wert
-# setzen, statt Djangos neuen BigAutoField-Default zu übernehmen: das vermeidet eine
-# AlterField-Migration, die auf SQLite alle drei Tabellen neu schreiben würde -- für exakt null
-# Gewinn, weil SQLite-Integer-Primärschlüssel ohnehin 64-bittig sind.
+# The tables date from 2015/16 and have AutoField primary keys. Setting the same value explicitly
+# instead of taking Django's new BigAutoField default: that avoids an AlterField migration which on
+# SQLite would rewrite all three tables -- for exactly no gain, because SQLite integer primary keys
+# are 64-bit anyway.
 DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
 
 
@@ -190,25 +189,24 @@ TIME_ZONE = "UTC"
 
 USE_I18N = True
 
-# USE_L10N ist seit Django 5.0 entfernt und wurde stillschweigend ignoriert.
+# USE_L10N was removed in Django 5.0 and had been silently ignored.
 
 USE_TZ = True
 
 
-# Statische Dateien. In Produktion serviert nginx STATIC_ROOT direkt aus
-# /var/lib/demockrazy/static, wohin demockrazy_config es umbiegt.
+# Static files. In production nginx serves STATIC_ROOT directly out of /var/lib/demockrazy/static,
+# where demockrazy_config points it.
 STATIC_URL = "/static/"
 STATIC_ROOT = os.environ.get("DEMOCKRAZY_STATIC_ROOT") or BASE_DIR / "static"
 
-# Gehashte Dateinamen (`bootstrap.a1b2c3d4.css`), damit ein Deploy nicht darauf angewiesen ist, dass
-# Browser und Proxies eine alte Datei loslassen. **Kein Whitenoise:** nginx serviert STATIC_ROOT
-# direkt, das soll so bleiben -- gebraucht wird nur der Dateiname, nicht ein zweiter Server.
+# Hashed file names (`bootstrap.a1b2c3d4.css`), so that a deploy does not depend on browsers and
+# proxies letting go of an old file. **No Whitenoise:** nginx serves STATIC_ROOT directly and should
+# keep doing so -- all that is needed is the file name, not a second server.
 #
-# Zwei Dinge, die das gefahrlos machen: `collectstatic --noinput` läuft im `preStart` bei *jedem*
-# Service-Start, das Manifest ist also nie veraltet; und bei DEBUG=True hasht Django gar nicht
-# (`HashedFilesMixin._url`), `runserver` braucht deshalb kein collectstatic.
-# Die Testsuite setzt das bewusst zurück -- sie soll nicht von einem collectstatic-Lauf abhängen,
-# siehe test_settings.py.
+# Two things make this safe: `collectstatic --noinput` runs in `preStart` on *every* service start,
+# so the manifest is never stale; and with DEBUG=True Django does not hash at all
+# (`HashedFilesMixin._url`), which is why `runserver` needs no collectstatic. The test suite
+# deliberately resets this -- it should not depend on a collectstatic run, see test_settings.py.
 STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {
@@ -223,61 +221,59 @@ EMAIL_PORT = 25
 EMAIL_USE_TLS = True
 EMAIL_USE_SSL = False
 
-# Djangos Default ist `EMAIL_TIMEOUT = None`, und dann bekommt der Socket **keine** Zeitgrenze --
-# nachgesehen statt vermutet: das Backend gibt `timeout` gar nicht an `smtplib` weiter, `smtplib`
-# nimmt den Socket-Default, und `socket.getdefaulttimeout()` ist ebenfalls `None`. Ein Mailserver,
-# der die Verbindung annimmt und dann schweigt, blockiert den Aufrufer damit **unbegrenzt**.
+# Django's default is `EMAIL_TIMEOUT = None`, and then the socket gets **no** time limit -- looked
+# up rather than assumed: the backend does not pass `timeout` to `smtplib` at all, `smtplib` takes
+# the socket default, and `socket.getdefaulttimeout()` is `None` as well. A mail server that accepts
+# the connection and then goes quiet therefore blocks the caller **indefinitely**.
 #
-# Das ist heute schon relevant, nicht erst für Ziel 2: der Versand läuft synchron im Request
-# (siehe notes/plan.md §11), ein hängender Server hält also einen uwsgi-Prozess -- und es gibt
-# vier. Für den getakteten Versender (§11.7) kommt hinzu, dass er sich selbst sperrt: ein Lauf,
-# der nie endet, hält die Sperre und es geht überhaupt keine Mail mehr raus.
+# This matters today, not only for goal 2: sending runs synchronously in the request (see
+# notes/plan.md §11), so a hanging server holds a uwsgi process -- and there are four. For the paced
+# sender (§11.7) there is more: it locks itself out. A run that never ends holds the lock, and then
+# no mail goes out at all.
 #
-# 10 s sind großzügig für einen Mailserver im selben Netz und trotzdem endlich.
+# 10 s is generous for a mail server on the same network and still finite.
 EMAIL_TIMEOUT = _env_int("DEMOCKRAZY_MAIL_TIMEOUT", 10)
 
 VOTE_MAIL_FROM = "wahlleitung@demo.ckrazy"
 VOTE_BASE_URL = "http://127.0.0.1:8000"
 VOTE_SEND_MAILS = _env_flag("DEMOCKRAZY_SEND_MAILS", default=False)
 
-# Obergrenze für Empfänger pro Umfrage (B4, Plan 3.8). `/vote/create` hat keine Authentifizierung:
-# ohne Deckel kann jeder im Netz beliebig viele Mails über den SMTP-Account verschicken.
+# Upper bound on recipients per poll (B4, plan 3.8). `/vote/create` has no authentication: without a
+# cap, anyone on the network can send arbitrarily many mails through the SMTP account.
 #
-# 150 ist vom User gewählt und liegt über den real vorkommenden 60--100. Der Wert ist
-# **Missbrauchsschutz, keine Lösung für das Rate-Limit des Mailservers**: der antwortet schon ab
-# etwa 50 Nachrichten pro Zeitfenster mit `450 4.7.1 Error: too much mail from`. Eine Umfrage mit
-# 150 Empfängern ist also erlaubt, aber erst mit dem getakteten Versand (Ziel 2) zustellbar.
-# Gezählt werden die **deduplizierten** Adressen -- was zählt, ist die Zahl der Mails.
+# 150 was chosen by the user and is above the 60--100 that actually occur. The value is **protection
+# against abuse, not a solution for the mail server's rate limit**: that one starts answering
+# `450 4.7.1 Error: too much mail from` at around 50 messages per window. So a poll with 150
+# recipients is allowed, but only deliverable with the paced sender (goal 2).
+# The **deduplicated** addresses are counted -- what matters is the number of mails.
 VOTE_MAX_RECIPIENTS = _env_int("DEMOCKRAZY_MAX_RECIPIENTS", 150)
 
-# Obergrenze für Antwortmöglichkeiten pro Umfrage (Review R7-1). Dasselbe Motiv wie beim
-# Empfänger-Deckel: `/vote/create` ist unauthentifiziert, und ohne Grenze wurden 5 000 Choices
-# angenommen -- eine Seite von 1,3 MB pro Aufruf und bei multiple_choice 5 000 UPDATEs unter der
-# SQLite-Schreibsperre. **Der Wert ist von mir gesetzt, nicht vom User**, anders als die 150; real
-# vorkommende Umfragen haben eine Handvoll. Über 1 000 wäre eine multiple_choice-Umfrage ohnehin
-# nicht mehr abstimmbar, weil das Formular dann mehr Felder schickt als
-# `DATA_UPLOAD_MAX_NUMBER_FIELDS` erlaubt.
+# Upper bound on choices per poll (review R7-1). The same motive as the recipient cap:
+# `/vote/create` is unauthenticated, and without a limit 5,000 choices were accepted -- a page of
+# 1.3 MB per request and, with multiple_choice, 5,000 UPDATEs under the SQLite write lock. **This
+# value was set by me, not by the user**, unlike the 150; polls that actually occur have a handful.
+# Above 1,000 a multiple_choice poll would not be votable anyway, because the form then sends more
+# fields than `DATA_UPLOAD_MAX_NUMBER_FIELDS` allows.
 VOTE_MAX_CHOICES = _env_int("DEMOCKRAZY_MAX_CHOICES", 100)
 
-# Taktung des Versands (Plan §11.7). Beide Werte sind vom User vorgegeben: 30er Batches, 2 Sekunden
-# dazwischen. Sie stehen hier und nicht als Konstanten im Code, weil sie **die Schraube** sind, an
-# der man dreht, wenn der Mailserver wieder mit `450 4.7.1 Error: too much mail from` antwortet.
+# The pacing of the sender (plan §11.7). Both values were given by the user: batches of 30, 2
+# seconds in between. They live here and not as constants in the code because they are **the screw**
+# to turn when the mail server answers `450 4.7.1 Error: too much mail from` again.
 #
-# ⚠️ Die Rechnung dazu gehört daneben: 100 Empfänger sind vier Batches, mit 2 s Pause also nach
-# ~7 s durch -- **alle 101 Nachrichten liegen damit im selben Zeitfenster.** Immer erfolgreich
-# gemessen wurden 30 pro Fenster, den `450` gab es bei 50. Ist das Zählfenster die Postfix-Vorgabe
-# von 60 s (das ist F20), kommt der Fehler also wieder. Verloren geht dadurch nichts -- ein `450`
-# ist ein 4xx, der Versender bricht ab und der nächste Timer-Aufruf trifft ein zurückgesetztes
-# Fenster --, es kostet nur Zeit und Logzeilen. **Wenn das passiert: `DEMOCKRAZY_MAIL_BATCH_PAUSE`
-# auf 60.** Das ist eine Zahl und kein Deploy.
+# ⚠️ The arithmetic belongs next to them: 100 recipients are four batches, so with a 2 s pause they
+# are through after ~7 s -- **which puts all 101 messages in the same window.** 30 per window was
+# measured as always succeeding, the `450` came at 50. So if the counting window is Postfix's
+# default of 60 s (that is F20), the error comes back. Nothing is lost by it -- a `450` is a 4xx,
+# the sender stops and the next timer invocation meets a window that has been reset -- it only costs
+# time and log lines. **If that happens: `DEMOCKRAZY_MAIL_BATCH_PAUSE` to 60.** That is a number,
+# not a deploy.
 VOTE_MAIL_BATCH_SIZE = _env_int("DEMOCKRAZY_MAIL_BATCH_SIZE", 30)
 VOTE_MAIL_BATCH_PAUSE = _env_int("DEMOCKRAZY_MAIL_BATCH_PAUSE", 2)
 
 
-# Optionale lokale Overrides für die Entwicklung. In Produktion nicht im Spiel -- dort läuft
-# demockrazy_config, das diese Datei ersetzt (notes/deployment.md).
-# Kein print im except-Zweig: das Fehlen der Datei ist der Normalfall und landete bei jedem
-# Produktionsstart im Syslog.
+# Optional local overrides for development. Not in play in production -- demockrazy_config runs
+# there and replaces this file (notes/deployment.md). No print in the except branch: the file being
+# absent is the normal case, and it used to land in the syslog on every production start.
 try:
     from .local_settings import *
 except ImportError:

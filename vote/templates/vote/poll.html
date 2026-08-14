@@ -3,14 +3,14 @@
 {% block title %}{{ poll.title }} – Demockrazy{% endblock %}
 
 {% comment %}
-Die `name`- und `id`-Attribute bleiben zeichengleich: `choice` für simple_choice, `choice<pk>` mit
-den Werten `yes`/`no` für multiple_choice. Daran hängt vote() (siehe vote/views.py), und es sind
-Mails mit Links auf offene Umfragen unterwegs.
+The `name` and `id` attributes stay character-identical: `choice` for simple_choice, `choice<pk>` with
+the values `yes`/`no` for multiple_choice. vote() depends on that (see vote/views.py), and mails with
+links to open polls are out there.
 
-Zwei Markup-Defekte dabei mitbehoben: die Radios standen ohne Gruppierung untereinander, getrennt
-von `<br/>` (jetzt `form-check` in einem `fieldset` mit `legend`), und die ja/nein-Radios der Matrix
-hatten kein Label -- nur ein `<label>` ohne `for` in der Textspalte, das auf nichts zeigte. Sie
-bekommen `aria-label` mit dem Choice-Text, und die Tabelle Header-Zellen mit `scope`.
+Two markup defects fixed along the way: the radios sat one below the other without grouping, separated
+by `<br/>` (now `form-check` inside a `fieldset` with a `legend`), and the yes/no radios of the matrix
+had no label -- only a `<label>` without `for` in the text column, pointing at nothing. They get an
+`aria-label` with the choice text, and the table gets header cells with `scope`.
 {% endcomment %}
 
 {% block content %}

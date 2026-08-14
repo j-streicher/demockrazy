@@ -1,12 +1,12 @@
-"""Verschickt die Mail-Warteschlange getaktet. Für einen systemd-Timer gedacht.
+"""Sends the mail queue at a pace. Meant for a systemd timer.
 
-Der Command ist bewusst dünn: die Arbeit steckt in `vote.services.mail.send_pending()`, hier stehen
-nur die Betriebsdinge -- Optionen, die **Sperre** und eine Zusammenfassung nach stdout.
+The command is deliberately thin: the work lives in `vote.services.mail.send_pending()`, and only
+the operational parts are here -- options, the **lock**, and a summary on stdout.
 
-Warum eine eigene Sperre und nicht das Verlassen auf systemd: ein Lauf dauert Minuten (30 Mails,
-dann 2 s, dann die nächsten), der Timer feuert aber im Minutentakt. Zwei gleichzeitige Läufe würden
-dieselben Zeilen greifen und doppelt verschicken. `flock` macht das unmöglich, egal wie der Command
-gestartet wird -- auch bei einem Aufruf von Hand, während der Timer arbeitet.
+Why a lock of its own instead of relying on systemd: a run takes minutes (30 mails, then 2 s, then
+the next ones), while the timer fires every minute. Two concurrent runs would grab the same rows and
+send them twice. `flock` makes that impossible however the command is started -- including a run by
+hand while the timer is working.
 """
 
 import fcntl
@@ -20,13 +20,14 @@ from vote.services import mail
 
 
 def lock_path(database_name=None):
-    """Die Sperrdatei liegt neben der Datenbank, nicht unter `BASE_DIR`.
+    """The lock file sits next to the database, not under `BASE_DIR`.
 
-    `BASE_DIR` ist in Produktion der **read-only Nix-Store** -- genau deshalb liegt auch die
-    Datenbank dort nicht, sondern unter `/var/lib/demockrazy` (notes/deployment.md). Die
-    Sperrdatei folgt der Datenbank, dann stimmt die Schreibbarkeit automatisch.
+    In production `BASE_DIR` is the **read-only Nix store** -- which is exactly why the database is
+    not there either but under `/var/lib/demockrazy` (notes/deployment.md). The lock file follows
+    the database, and then writability takes care of itself.
 
-    Bei einer In-Memory-Datenbank (Testsuite) gibt es keinen Ort daneben; dann das Temp-Verzeichnis.
+    With an in-memory database (the test suite) there is no place next to it; the temp directory
+    then.
     """
     name = str(settings.DATABASES["default"]["NAME"] if database_name is None else database_name)
     if name.startswith(":") or "mode=memory" in name:
@@ -57,14 +58,13 @@ class Command(BaseCommand):
             try:
                 fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
-                # Kein Fehler und kein Rückgabecode ungleich 0: dass der Timer in einen laufenden
-                # Versand feuert, ist der Normalfall und soll nicht als Fehlschlag im Journal
-                # stehen.
+                # No error and no non-zero exit code: the timer firing into a run that is already
+                # going is the normal case and should not show up in the journal as a failure.
                 self.stdout.write("Es läuft schon ein Versand, dieser Aufruf tut nichts.")
                 return
             summary = mail.send_pending(batch_size=options["batch_size"], pause=options["pause"])
         finally:
-            # Schließt den Deskriptor und damit auch die flock-Sperre.
+            # Closes the descriptor and with it the flock.
             handle.close()
 
         self.stdout.write(

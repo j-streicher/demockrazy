@@ -7,11 +7,11 @@ dependencies = [
     "django>=5.2,<6.0",
 ]
 
-# Nix (flake.nix) bleibt die Source of Truth für den Build. Diese Datei deklariert die
-# Abhängigkeiten lesbar an einer Stelle und konfiguriert die Tools -- ohne sie musste man
-# die Versionen aus dem Flake bzw. aus der README-Prosa raten.
+# Nix (flake.nix) remains the source of truth for the build. This file declares the dependencies
+# readably in one place and configures the tools -- without it, the versions had to be guessed from the
+# flake or from the prose in the README.
 [project.optional-dependencies]
-# Produktion läuft auf SQLite; psycopg wird nur gebraucht, wenn auf Postgres gewechselt wird.
+# Production runs on SQLite; psycopg is only needed if someone switches to Postgres.
 postgres = ["psycopg[binary]>=3.2"]
 dev = [
     "pytest>=8.0",
@@ -34,21 +34,21 @@ select = [
     "B",   # bugbear
     "C4",  # comprehensions
     "DJ",  # flake8-django
-    "DTZ", # naive datetimes -- relevant, USE_TZ ist an
+    "DTZ", # naive datetimes -- relevant, USE_TZ is on
     "RUF",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Der `from .local_settings import *` am Dateiende ist der Prod-Konfigurationsmechanismus
-# und bleibt absichtlich stehen (Plan 2.4). Das E501 daneben ist mit 3.4 weggefallen, weil die
-# Mail-Texte jetzt Templates sind.
+# The `from .local_settings import *` at the end of the file is the production configuration mechanism
+# and deliberately stays (plan 2.4). The E501 next to it went away with 3.4, because the mail texts are
+# templates now.
 "demockrazy/settings.py" = ["F403"]
-# Dieser Test schreibt den Wortlaut der Mails als Literale aus, damit er weder an den Settings
-# noch an den Templates haengt. Umbrechen wuerde ihn genau um seinen Zweck bringen (Plan 3.4).
+# This test writes the wording of the mails out as literals, so that it depends neither on the settings
+# nor on the templates. Wrapping them would defeat exactly that purpose (plan 3.4).
 "vote/tests/test_mail_service.py" = ["E501"]
-# RUF012 verlangt ClassVar-Annotationen fuer veraenderliche Klassenattribute. In Djangos `class
-# Meta` ist eine Liste die dokumentierte Schnittstelle (`constraints`, `indexes`, `ordering`) --
-# hier ist die Regel nicht anwendbar, nicht unbequem (Plan 3.6).
+# RUF012 asks for ClassVar annotations on mutable class attributes. In Django's `class Meta` a list is
+# the documented interface (`constraints`, `indexes`, `ordering`) -- here the rule is not applicable,
+# not inconvenient (plan 3.6).
 "vote/models.py" = ["RUF012"]
 
 [tool.ruff.lint.isort]
@@ -57,9 +57,9 @@ known-first-party = ["demockrazy", "vote"]
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "demockrazy.test_settings"
 python_files = ["test_*.py", "tests.py"]
-# `demockrazy` ist dabei, seit 5.5 dort eine View liegt (der /healthz-Endpunkt).
+# `demockrazy` is included since 5.5 put a view there (the /healthz endpoint).
 testpaths = ["vote", "demockrazy"]
-# Deprecations als Fehler, damit die naechste Django-Version nicht wieder ueberrascht (Plan 2.6).
+# Deprecations as errors, so that the next Django version does not surprise anyone again (plan 2.6).
 filterwarnings = [
     "error::DeprecationWarning",
     "error::PendingDeprecationWarning",

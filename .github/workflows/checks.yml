@@ -1,13 +1,13 @@
-# Führt dieselbe Verifikationsschleife aus, die lokal nach jeder Änderung läuft
-# (notes/handover.md §4). Was hier grün ist, ist auch lokal grün -- und umgekehrt.
+# Runs the same verification loop that runs locally after every change (notes/handover.md §4).
+# What is green here is green locally -- and the other way around.
 #
-# Der Vorgänger-Workflow baute nur Docker-Images für das abgeschaltete k8s-Deployment und ist
-# mit 4e15012 entfallen; getestet oder gelintet wurde nie (notes/plan.md 5.3).
+# The predecessor workflow only built Docker images for the k8s deployment that has been switched off,
+# and went away with 4e15012; nothing was ever tested or linted (notes/plan.md 5.3).
 name: checks
 
-# Jeder Push auf jeden Branch, genau ein Lauf. Kein `pull_request`-Trigger: für einen PR aus
-# diesem Repo hängt das Ergebnis ohnehin am Commit und erscheint am PR, und beide Trigger
-# zusammen ergäben zwei Läufe pro Push. Für PRs aus einem Fork müsste er ergänzt werden.
+# Every push on every branch, exactly one run. No `pull_request` trigger: for a PR from this
+# repository the result hangs off the commit anyway and shows up on the PR, and both triggers together
+# would mean two runs per push. For PRs from a fork it would have to be added.
 on:
   push:
   workflow_dispatch:
@@ -22,15 +22,15 @@ permissions:
 jobs:
   checks:
     runs-on: ubuntu-latest
-    # Alles Schwere (Python, Django, pytest, ruff) kommt aus cache.nixos.org -- nur der
-    # withPackages-Symlink-Join wird gebaut. Läuft das länger, ist etwas anderes kaputt.
+    # Everything heavy (Python, Django, pytest, ruff) comes from cache.nixos.org -- only the
+    # withPackages symlink join is built. If this takes longer, something else is broken.
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
       - uses: cachix/install-nix-action@v31
         with:
-          # Explizit, statt sich auf den Default der Action zu verlassen.
+          # Explicit, rather than relying on the action's default.
           extra_nix_config: |
             experimental-features = nix-command flakes
 
@@ -43,11 +43,11 @@ jobs:
       - name: ruff check
         run: nix develop --command ruff check .
 
-      # `--fail-level WARNING`, weil `check` sich bei einem `Warning` sonst mit 0 beendet (Review
-      # R9-2): der Härtungs-Check aus demockrazy/checks.py wäre gedruckt und folgenlos gewesen,
-      # also genau die stille Fehlkonfiguration, gegen die er gebaut ist. Ein `Error` daraus zu
-      # machen wäre die Alternative -- sie würde aber auch den Dienststart in Produktion
-      # verweigern, und das ist eine Betriebsentscheidung des Users (notes/to-check.md D2).
+      # `--fail-level WARNING`, because otherwise `check` exits with 0 on a `Warning` (review R9-2):
+      # the hardening check from demockrazy/checks.py would have been printed and without consequence,
+      # so exactly the silent misconfiguration it is built against. Making it an `Error` would be the
+      # alternative -- but that would also refuse to start the service in production, and that is an
+      # operational decision for the user (notes/to-check.md D2).
       - name: django check
         run: nix develop --command python3 manage.py check --fail-level WARNING
 
