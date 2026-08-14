@@ -148,6 +148,7 @@ benannten Ausnahme: bei R2-1 ist die Oberfläche gemessen, die Existenz von Kont
 | R15-2 | **Mittel** · K6 | Die Anleitung zum Fake-Mailserver funktioniert nicht: der Trap setzt sein Fenster nie zurück, der zweite Lauf verschickt nichts | [README.md](../README.md), [handover.md](handover.md) §7 | **offen** |
 | R10-5 | Notiz · K4 | Das neue Double zählt eine abgebrochene `DATA` als zugestellt, mischt Nachrichten- und Empfängerzähler und verschluckt eigene Fehler | [mailtrap.py](../vote/tests/mailtrap.py) | **offen** |
 | R15-3 | Notiz | Die R10-4-Zeile dieser Tabelle nennt „siehe unten" statt ihres Commits | review.md:142 | **offen** |
+| R15-4 | **Mittel** | Der Kopf von handover.md nennt sechs überholte Angaben, darunter „nichts gepusht, die CI hat noch nie gelaufen" | [handover.md](handover.md) | siehe unten |
 
 Zwei Muster fallen daran auf, und sie sind der eigentliche Ertrag des Laufs:
 **(1) Das Gefährliche stand nicht im Code, sondern in seinen Rändern** -- der Doppelklick, der
@@ -1331,6 +1332,37 @@ die jemand zuerst liest; eine Zeile, die auf „unten" verweist, kostet genau de
 Tabelle sparen soll.
 
 **Vorschlag:** `8b238f6` in die Zeile. Während des Reviews nicht getan (Regel 3).
+
+### R15-4 · Der Kopf von handover.md beschreibt einen Stand, den der Branch hinter sich hat
+
+*(Gefunden beim Beheben von R15-3, also nach dem Abschluss von §8 -- deshalb hier nachgetragen.)*
+
+**Schwere:** Mittel
+**Nachweis:** **gemessen**, Behauptung gegen Wirklichkeit:
+
+| steht in handover.md | gemessen |
+|---|---|
+| „Stand: 2026-08-04" | 2026-08-14 |
+| „96 Commits über `master`" | 106 |
+| „**nichts gepusht** -- die CI hat also noch nie gelaufen" | gepusht, **drei CI-Läufe**, alle grün |
+| „24 Befunde, 22 behoben in 13 Commits" | 29 Befunde, 27 behoben, 16 Commits mit Befundnummer |
+| „von 215 auf **261** Tests gewachsen" | 272 |
+| Sollwert in §4: „`pytest` → **261 passed**" | 272 passed |
+
+**Befund:** handover.md ist **das erste Dokument, das eine neue Session liest** -- §1 sagt das
+ausdrücklich. Der Kopf ist damit die Stelle, an der eine falsche Zahl am meisten kostet. Die
+gefährlichste Zeile ist nicht eine Zahl, sondern der Satz „nichts gepusht, die CI hat noch nie
+gelaufen": wer damit anfängt, hält den Branch für unveröffentlicht und die CI für unerprobt, und
+richtet sein Vorgehen danach ein.
+
+Entstanden ist es nicht in einem Schritt: R10-4 hob die Testzahl auf 262, ohne den Sollwert
+nachzuziehen; der Push machte den Satz über die CI falsch; R15-2/R10-5 hoben sie auf 272. Jeder
+Schritt war klein genug, um nicht daran zu denken -- **dieselbe Mechanik wie R15-1**, wo die README
+die Testsuite von vor 3.8 beschrieb.
+
+**Vorschlag:** die sechs Stellen nachziehen, und die drei Zahlen, die bei jeder Änderung nachwachsen
+(Commits, Tests, Befunde), im Kopf als *gemessen am Datum* markieren statt als Zustand. Behoben
+zusammen mit diesem Eintrag.
 
 ## 8.1 Negativraum des zweiten Laufs
 
