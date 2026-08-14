@@ -1,15 +1,19 @@
 {% extends 'base.html' %}
 {% load static %}
 
+{% block title %}Results for {{ poll.title }} – Demockrazy{% endblock %}
+
 {% block content %}
 <h1>results for poll {{ poll.title }}</h1>
 
 <table class="table">
+    <thead>
     <tr>
-        <th>Choice</td>
-        <th>Votes</td>
+        <th scope="col">Choice</th>
+        <th scope="col">Votes</th>
     </tr>
-    {% for choice in poll.choice_set.all %}
+    </thead>
+    {% for choice in choices %}
         <tr>
             <td>{{ choice.choice_text }}</td>
             <td>{{ choice.votes }}</td>
@@ -21,59 +25,75 @@
     </tr>
     <tr>
         <td>Total Voters</td>
-        <td>{{ poll.num_tokens }}</td>
+        {% comment %}R14-1: the computed value, not the raw field -- `num_tokens` is NULL for
+        old polls and then stood on the page as "None".{% endcomment %}
+        <td>{{ amount_tokens_total }}</td>
     </tr>
 </table>
 
-<div id="results-chart"></div>
+{% comment %}
+The chart is the secondary presentation -- every number is there in full in the table above it. So the
+canvas carries only a brief aria-label and no attempt to rebuild its content for screen readers: the
+table *is* the accessible version, and it comes first.
+{% endcomment %}
+<div class="mt-4" style="max-width: 32rem;">
+    <canvas id="results-chart" role="img"
+            aria-label="Pie chart of the results. The table above lists the same numbers."></canvas>
+</div>
 {% endblock %}
 
 {% block js %}
+{% comment %}
+Load Chart.js only here, not in base.html: it is needed on one of six pages, and it is 204 KB.
+Highcharts used to hang in base.html and therefore went out with every page.
+
+The chart data comes out of the view as JSON, not as values interpolated into JS literals (B10). The
+choice text used to sit directly in a JS string literal here: Django escaped it for HTML, but the
+content of a script element is not entity-decoded by the parser -- `Bier & Brezn` became a visible
+`Bier &amp; Brezn` in the chart. `json_script` escapes for exactly this place.
+{% endcomment %}
+{{ chart_series|json_script:"chart-series" }}
+<script src="{% static "chartjs-4.5.1/chart.umd.min.js" %}"></script>
 <script>
-$(function () {
-    $('#results-chart').highcharts({
-        chart: {
-            plotBackgroundColor: null,
-            plotBorderWidth: null,
-            plotShadow: false,
-            type: 'pie'
+(function () {
+    var series = JSON.parse(document.getElementById('chart-series').textContent);
+    var total = series.reduce(function (sum, entry) { return sum + entry.y; }, 0);
+
+    // A fixed palette instead of Chart.js' automatic one: the number of choices is unknown, and this
+    // way it is clear which colours come out. Reused cyclically.
+    var palette = ['#0d6efd', '#dc3545', '#198754', '#fd7e14', '#6f42c1', '#20c997', '#6c757d'];
+
+    // The percentage goes in the label, not into a datalabel plugin: that way it is visible without
+    // hovering and in print, and it stays at a single dependency.
+    var labels = series.map(function (entry) {
+        var share = total > 0 ? (100 * entry.y / total).toFixed(1) : '0.0';
+        return entry.name + ' — ' + share + ' %';
+    });
+
+    new Chart(document.getElementById('results-chart'), {
+        type: 'pie',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: series.map(function (entry) { return entry.y; }),
+                backgroundColor: series.map(function (entry, i) { return palette[i % palette.length]; }),
+                borderColor: '#fff',
+                borderWidth: 1
+            }]
         },
-        title: {
-            text: null
-        },
-        tooltip: {
-            pointFormat: '{series.name}: <b>{point.percentage:.1f}%</b>'
-        },
-        plotOptions: {
-            pie: {
-                allowPointSelect: true,
-                cursor: 'pointer',
-                dataLabels: {
-                    enabled: true,
-                    format: '<b>{point.name}</b>: {point.percentage:.1f} %',
-                    style: {
-                        color: (Highcharts.theme && Highcharts.theme.contrastTextColor) || 'black'
+        options: {
+            plugins: {
+                legend: { position: 'bottom' },
+                tooltip: {
+                    callbacks: {
+                        label: function (context) {
+                            return context.parsed === 1 ? '1 vote' : context.parsed + ' votes';
+                        }
                     }
                 }
             }
-        },
-        series: [{
-            name: 'Votes',
-            colorByPoint: true,
-            data: [
-                {% for choice in poll.choice_set.all %}
-                    {
-                        name: '{{ choice.choice_text }}',
-                        y: {{ choice.votes }}
-                    },
-                {% endfor %}
-                {% if poll.type == 'simple_choice' %}{
-                    name: 'Abstentions',
-                    y: {{ amount_remaining_tokens }}
-                },{% endif %}
-            ]
-        }]
+        }
     });
-});
+})();
 </script>
 {% endblock %}

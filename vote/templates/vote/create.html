@@ -1,12 +1,14 @@
 {% extends 'base.html' %}
 
+{% block title %}Poll created – Demockrazy{% endblock %}
+
 {% block content %}
 <h1>poll created</h1>
 
-{% if errors %}
-  <b>Unfortunately, the following errors were encountered while dispatching mails.</b><br>
-  {% for error in errors %}
-    {{ error }}<br>
-  {% endfor %}
-{% endif %}
+{% comment %}
+At this point the mails are only *enqueued*; they are sent later by another process (plan §11.7) --
+so the list of delivery errors from before 3.4 cannot exist, errors go to the log. Whether the queue is
+empty is shown on the manage page.
+{% endcomment %}
+<p>The invitations are on their way.</p>
 {% endblock %}

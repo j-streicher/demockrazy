@@ -16,7 +16,6 @@ downloads/
 eggs/
 .eggs/
 lib/
-!k8s/lib/
 lib64/
 parts/
 sdist/
@@ -65,9 +64,20 @@ target/
 *.swp
 
 db.sqlite3
-migrations/
-static/
+# The lock file of the mail sender sits next to the database (plan §11.7).
+# Deliberately **without** a leading slash: the database path is freely configurable through
+# DEMOCKRAZY_DB_PATH, and the lock file follows it. This is the exception to the lesson from B18 --
+# there the missing anchoring was the bug, here it is the intent.
+*.mailsend.lock
 
-k8s/vendor
+# This means STATIC_ROOT, so the collectstatic output under BASE_DIR/static -- which is why the leading
+# slash limits it to the project root. Without the slash the pattern matches every directory named
+# "static" at every level, so vote/static/ with the app's source assets as well. That is exactly what it
+# did from 2016 to 2026 (see B18): only the two files older than the rule were tracked there, and every
+# new asset silently fell out.
+/static/
 
 .direnv
+
+# Lokale Claude-Code-Konfiguration (Berechtigungen, Startbefehle) -- gehoert nicht ins Repo.
+.claude/

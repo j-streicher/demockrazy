@@ -1,3 +1,20 @@
+/* The navbar is `fixed-top` and therefore lies above the content -- the body needs room the height of
+   it. Measured in the browser, not guessed: the Bootstrap 5 navbar is 56px high here (with Bootstrap 3
+   it was 50px, hence the old value -- with which it covered the heading by 6px). 4.5rem = 72px leaves
+   16px of air. */
 body {
-  padding-top: 50px;
+  padding-top: 4.5rem;
+}
+
+/* Django's error list is called `errorlist`, Bootstrap 5 only knows `invalid-feedback` -- so the
+   messages stood there as a bullet list in body colour, while the same application shows voting errors
+   in red (review R13-2). Colour is the *addition* here: the message is already there as text at the
+   field and linked with aria-describedby, so WCAG 1.4.1 is met without it.
+   `--bs-form-invalid-color` is Bootstrap's own variable for exactly this purpose. */
+.errorlist {
+  color: var(--bs-form-invalid-color);
+  list-style: none;
+  padding-left: 0;
+  margin-bottom: 0.25rem;
+  font-size: 0.875em;
 }

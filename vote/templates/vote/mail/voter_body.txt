@@ -1,0 +1,19 @@
+{% autoescape off %}{# Wording exactly as the former settings.VOTE_MAIL_TEXT. #}
+Hallo,
+
+Jemand hat eine Abstimmung mit dem Titel '{{ title }}' auf {{ vote_base_url }} erstellt.
+Du wurdest eingeladen an dieser Abstimmung teilzunehmen.
+
+Dies ist dir über folgenden Link möglich:
+{{ poll_url_with_token }}
+
+Nach Abgabe deiner Stimme wird der Token aus der Datenbank gelöscht.
+Dadurch gibt es keine Korrelation zwischen Token (Teilnehmer) und abgegebener Stimme.
+
+Die Umfrage wird automatisch beendet, sobald alle Tokens verbraucht wurden. Nach Beendigung sind die Umfrageergebnisse sichtbar.
+Der Ersteller der Umfrage hat die möglichkeit diese vorzeitig zu beenden.
+
+XoXoXo
+Die Wahlleitung
+
+{% endautoescape %}

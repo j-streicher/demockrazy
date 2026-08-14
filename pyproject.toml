@@ -1,0 +1,66 @@
+[project]
+name = "demockrazy"
+version = "0.1.0"
+description = "A simple token based voting system"
+requires-python = ">=3.13"
+dependencies = [
+    "django>=5.2,<6.0",
+]
+
+# Nix (flake.nix) remains the source of truth for the build. This file declares the dependencies
+# readably in one place and configures the tools -- without it, the versions had to be guessed from the
+# flake or from the prose in the README.
+[project.optional-dependencies]
+# Production runs on SQLite; psycopg is only needed if someone switches to Postgres.
+postgres = ["psycopg[binary]>=3.2"]
+dev = [
+    "pytest>=8.0",
+    "pytest-django>=4.9",
+    "ruff>=0.14",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+extend-exclude = ["vote/static", "vote/migrations", "notes"]
+
+[tool.ruff.lint]
+select = [
+    "F",   # pyflakes
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # bugbear
+    "C4",  # comprehensions
+    "DJ",  # flake8-django
+    "DTZ", # naive datetimes -- relevant, USE_TZ is on
+    "RUF",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The `from .local_settings import *` at the end of the file is the production configuration mechanism
+# and deliberately stays (plan 2.4). The E501 next to it went away with 3.4, because the mail texts are
+# templates now.
+"demockrazy/settings.py" = ["F403"]
+# This test writes the wording of the mails out as literals, so that it depends neither on the settings
+# nor on the templates. Wrapping them would defeat exactly that purpose (plan 3.4).
+"vote/tests/test_mail_service.py" = ["E501"]
+# RUF012 asks for ClassVar annotations on mutable class attributes. In Django's `class Meta` a list is
+# the documented interface (`constraints`, `indexes`, `ordering`) -- here the rule is not applicable,
+# not inconvenient (plan 3.6).
+"vote/models.py" = ["RUF012"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["demockrazy", "vote"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "demockrazy.test_settings"
+python_files = ["test_*.py", "tests.py"]
+# `demockrazy` is included since 5.5 put a view there (the /healthz endpoint).
+testpaths = ["vote", "demockrazy"]
+# Deprecations as errors, so that the next Django version does not surprise anyone again (plan 2.6).
+filterwarnings = [
+    "error::DeprecationWarning",
+    "error::PendingDeprecationWarning",
+]

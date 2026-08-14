@@ -1,43 +1,63 @@
 {% extends 'base.html' %}
 
+{% block title %}Create a new poll – Demockrazy{% endblock %}
+
+{% comment %}
+The markup stays hand-written on purpose, now in Bootstrap 5 (4.1 is done; this still said
+"Bootstrap 3, to be replaced in plan 4.1" -- review R14-2). What the form needs for that: errors per
+field, and the input back in the field, so that a typo in address 200 does not cost the whole list.
+
+Every error list has an id of its own, and the field it belongs to points at it with
+aria-describedby -- otherwise the message sits beside the field visually, but a screen reader reads
+only the label at the field and not why it was rejected (plan 4.5). Both aria attributes appear only
+when there really is an error: aria-invalid="false" on every field would be noise, and an
+aria-describedby pointing at an empty container is a promise nobody keeps.
+{% endcomment %}
+
 {% block content %}
 <h1>create a new poll</h1>
 
-{% if error_message %}<p>{{ error_message }}</p>{% endif %}
+{{ form.non_field_errors }}
 
 <form action="{% url 'vote:create' %}" method="post">
     {% csrf_token %}
-    <div class="form-group">
-        <label for="title">poll title:</label>
-        <input class="form-control" type="text" name="title" id="title">
+    <div class="mb-3">
+        <label class="form-label" for="title">poll title:</label>
+        <div id="title-errors">{{ form.title.errors }}</div>
+        <input class="form-control" type="text" name="title" id="title" value="{{ form.title.value|default_if_none:'' }}"{% if form.title.errors %} aria-invalid="true" aria-describedby="title-errors"{% endif %}>
     </div>
 
-    <div class="form-group">
-        <label for="type">poll type:</label>
-        <select name="type" id="type">
-            <option value="simple_choice" selected>Simple Choice</option>
-            <option value="multiple_choice">Multiple Choice</option>
+    <div class="mb-3">
+        <label class="form-label" for="type">poll type:</label>
+        <div id="type-errors">{{ form.type.errors }}</div>
+        <select class="form-select" name="type" id="type"{% if form.type.errors %} aria-invalid="true" aria-describedby="type-errors"{% endif %}>
+            <option value="simple_choice" {% if form.type.value != 'multiple_choice' %}selected{% endif %}>Simple Choice</option>
+            <option value="multiple_choice" {% if form.type.value == 'multiple_choice' %}selected{% endif %}>Multiple Choice</option>
         </select>
     </div>
 
-    <div class="form-group">
-        <label for="description">description:</label>
-        <textarea class="form-control" name="description" id="description" rows="10"></textarea>
+    <div class="mb-3">
+        <label class="form-label" for="description">description:</label>
+        <div id="description-errors">{{ form.description.errors }}</div>
+        <textarea class="form-control" name="description" id="description" rows="10"{% if form.description.errors %} aria-invalid="true" aria-describedby="description-errors"{% endif %}>{{ form.description.value|default_if_none:'' }}</textarea>
     </div>
 
-    <div class="form-group">
-    <label for="choices">choices (separated by line):</label>
-    <textarea class="form-control" name="choices" id="choices" rows="18"></textarea>
+    <div class="mb-3">
+        <label class="form-label" for="choices">choices (separated by line):</label>
+        <div id="choices-errors">{{ form.choices.errors }}</div>
+        <textarea class="form-control" name="choices" id="choices" rows="18"{% if form.choices.errors %} aria-invalid="true" aria-describedby="choices-errors"{% endif %}>{{ form.choices.value|default_if_none:'' }}</textarea>
     </div>
 
-    <div class="form-group">
-        <label for="creator_mail">admin mail:</label>
-        <input class="form-control" type="email" name="creator_mail" id="creator_mail">
+    <div class="mb-3">
+        <label class="form-label" for="creator_mail">admin mail:</label>
+        <div id="creator_mail-errors">{{ form.creator_mail.errors }}</div>
+        <input class="form-control" type="email" name="creator_mail" id="creator_mail" value="{{ form.creator_mail.value|default_if_none:'' }}"{% if form.creator_mail.errors %} aria-invalid="true" aria-describedby="creator_mail-errors"{% endif %}>
     </div>
 
-    <div class="form-group">
-        <label for="voter_mails">recipients (separated by line):</label>
-        <textarea class="form-control" name="voter_mails" id="voter_mails" rows="23"></textarea>
+    <div class="mb-3">
+        <label class="form-label" for="voter_mails">recipients (separated by line):</label>
+        <div id="voter_mails-errors">{{ form.voter_mails.errors }}</div>
+        <textarea class="form-control" name="voter_mails" id="voter_mails" rows="23"{% if form.voter_mails.errors %} aria-invalid="true" aria-describedby="voter_mails-errors"{% endif %}>{{ form.voter_mails.value|default_if_none:'' }}</textarea>
     </div>
 
     <input class="btn btn-primary" type="submit" value="submit">

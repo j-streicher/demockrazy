@@ -1,36 +1,71 @@
 {% extends 'base.html' %}
 
+{% block title %}{{ poll.title }} – Demockrazy{% endblock %}
+
+{% comment %}
+The `name` and `id` attributes stay character-identical: `choice` for simple_choice, `choice<pk>` with
+the values `yes`/`no` for multiple_choice. vote() depends on that (see vote/views.py), and mails with
+links to open polls are out there.
+
+Two markup defects fixed along the way: the radios sat one below the other without grouping, separated
+by `<br/>` (now `form-check` inside a `fieldset` with a `legend`), and the yes/no radios of the matrix
+had no label -- only a `<label>` without `for` in the text column, pointing at nothing. They get an
+`aria-label` with the choice text, and the table gets header cells with `scope`.
+{% endcomment %}
+
 {% block content %}
 <h1>{{ poll }}</h1>
 <p>{{ poll.question_text }}</p>
 
-{% if error_message %}<p><strong>{{ error_message }}</strong></p>{% endif %}
+{% if error_message %}
+<div class="alert alert-danger" role="alert">{{ error_message }}</div>
+{% endif %}
 
 <form action="{% url 'vote:polls:vote' poll_identifier=poll.identifier %}" method="post">
     {% csrf_token %}
     {% if poll.type == 'simple_choice' %}
-    {% for choice in poll.choice_set.all %}
-    <input type="radio" name="choice" id="choice{{ forloop.counter }}" value="{{ choice.id }}"/>
-    <label for="choice{{ forloop.counter }}">{{ choice.choice_text }}</label><br/>
-    {% endfor %}
-    {% else %}
-    <table class="table">
-        <tr>
-            <th></th>
-            <th>yes</th>
-            <th>no</th>
-        </tr>
+    <fieldset class="mb-3">
+        <legend class="fs-6">Your choice</legend>
         {% for choice in poll.choice_set.all %}
-        <tr>
-            <td><label>{{ choice.choice_text }}</label></td>
-            <td><input type="radio" name="choice{{ choice.id }}" value="yes"/></td>
-            <td><input type="radio" name="choice{{ choice.id }}" value="no"/></td>
-        </tr>
+        <div class="form-check">
+            <input class="form-check-input" type="radio" name="choice" id="choice{{ forloop.counter }}" value="{{ choice.id }}">
+            <label class="form-check-label" for="choice{{ forloop.counter }}">{{ choice.choice_text }}</label>
+        </div>
         {% endfor %}
+    </fieldset>
+    {% else %}
+    <table class="table table-sm align-middle">
+        <thead>
+            <tr>
+                <th scope="col">Choice</th>
+                <th scope="col">yes</th>
+                <th scope="col">no</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for choice in poll.choice_set.all %}
+            <tr>
+                <th scope="row" class="fw-normal">{{ choice.choice_text }}</th>
+                <td>
+                    <input class="form-check-input" type="radio" name="choice{{ choice.id }}" value="yes"
+                           aria-label="yes for {{ choice.choice_text }}">
+                </td>
+                <td>
+                    <input class="form-check-input" type="radio" name="choice{{ choice.id }}" value="no"
+                           aria-label="no for {{ choice.choice_text }}">
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
     </table>
     {% endif %}
-    <label for="token">Your voting token:</label> <input type="text" id="token" name="token" value="{{token}}">
-    <input type="submit" value="Vote"/>
+
+    <div class="mb-3">
+        <label class="form-label" for="token">Your voting token:</label>
+        <input class="form-control" type="text" id="token" name="token" value="{{ token }}">
+    </div>
+    <input class="btn btn-primary" type="submit" value="Vote">
 </form>
+
 {% include 'vote/token_state.html' %}
 {% endblock %}

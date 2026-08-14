@@ -1,7 +1,13 @@
-<label></label>
-<ul class="nav nav-pills" role="tablist">
-    <li role="presentation"><b>Token State: </b></li>
-    <li role="presentation">Total <span class="badge">{{ amount_tokens_total }}</span></li>
-    <li role="presentation">Redeemed <span class="badge">{{ amount_redeemed_tokens }}</span></li>
-    <li role="presentation">Remaining <span class="badge">{{ amount_remaining_tokens }}</span></li>
+{% comment %}
+This was a `ul.nav.nav-pills` -- navigation markup with `role="tablist"` and `role="presentation"`
+for something that is neither navigation nor a tab. A screen reader announced tabs here that nobody
+can click. Now a plain list; the leading empty `<label></label>` (which labelled nothing) is gone.
+
+In Bootstrap 5 the `badge` needs a colour class, otherwise it is transparent on transparent.
+{% endcomment %}
+<p class="mb-1"><b>Token State:</b></p>
+<ul class="list-inline">
+    <li class="list-inline-item">Total <span class="badge text-bg-secondary">{{ amount_tokens_total }}</span></li>
+    <li class="list-inline-item">Redeemed <span class="badge text-bg-secondary">{{ amount_redeemed_tokens }}</span></li>
+    <li class="list-inline-item">Remaining <span class="badge text-bg-secondary">{{ amount_remaining_tokens }}</span></li>
 </ul>
