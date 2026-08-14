@@ -1,7 +1,7 @@
 # Umfassendes Review
 
-> **Status: 7.1 gelaufen, 7.2 abgearbeitet; zweiter Lauf über die Commits danach (§8).**
-> 28 Befunde, davon **23 behoben** in 14 Commits --
+> **Status: 7.1 gelaufen, 7.2 abgearbeitet; zweiter Lauf über die Commits danach (§8), ebenfalls
+> abgearbeitet.** 29 Befunde, davon **27 behoben** in 16 Commits --
 > ein Commit je Befund bzw. je Befundpaar, die Nummer steht im Betreff. **R2-1 ist zu**: die
 > Django-Hälfte behoben (`5adb612`), und der User beschränkt `/admin/` am Proxy aufs Intranet, was
 > das fehlende Login-Rate-Limit gegenstandslos macht. Offen sind damit **R8-1** (der User prüft das
@@ -16,8 +16,9 @@
 > `check --fail-level WARNING` → no issues, `makemigrations --check` → No changes, ruff sauber.
 > **Nach dem Nachzug von R2-1:** `pytest` → **261 passed**.
 > **Nach R10-4** (Nachtrag, gefunden nach 7.2): `pytest` → **262 passed**.
-> **Zweiter Lauf (§8), 2026-08-14:** drei neue Befunde -- **R15-2** (Mittel), **R10-5**, **R15-3** --
-> alle **offen**, denn Regel 3 gilt auch für den zweiten Lauf: gemessen, aufgeschrieben, nicht behoben.
+> **Zweiter Lauf (§8), 2026-08-14:** drei Befunde -- **R15-2** (Mittel), **R10-5**, **R15-3** --,
+> beim Beheben kam **R15-4** dazu. Regel 3 galt auch hier: erst gemessen und aufgeschrieben, dann in
+> eigenen Commits behoben. `pytest` → **272 passed**.
 
 ---
 
@@ -142,13 +143,13 @@ benannten Ausnahme: bei R2-1 ist die Oberfläche gemessen, die Existenz von Kont
 | R8-1 | Notiz | sops-Geheimnisse von 2023 (`email_password`) stehen weiter in der History -- gelöscht ≠ rotiert | `master:k8s/…/secrets.sops.yaml` | **offen** -- Frage an den User (A5); Rotation statt History umschreiben |
 | R9-3 | Notiz | Rückwärts-Migration hinter `0004` wirft die Warteschlange weg → Tokens ohne Einladung | [0004](../vote/migrations/0004_outgoingmail.py) | **offen als Verfahren** -- to-check.md D5, kein Codeeingriff |
 | R10-3 | Notiz · K4 | Drei weitere unbemerkte Mutationen: Taktungs-Defaults (30/2) ungeprüft, `multiple_choice`-Diagrammdaten ungeprüft | vote/tests/ | `eff438f` -- Taktungswerte 30/2 und das multiple_choice-Diagramm |
-| R10-4 | **Mittel** · K4 | Das Mail-Double erzeugt den `450` in der falschen smtplib-Form — der Zweig, den ein echter drosselnder Server trifft, ist von keinem Test gedeckt | [test_mail_service.py:234](../vote/tests/test_mail_service.py:234), [mail.py:106](../vote/services/mail.py:106) | siehe unten |
+| R10-4 | **Mittel** · K4 | Das Mail-Double erzeugt den `450` in der falschen smtplib-Form — der Zweig, den ein echter drosselnder Server trifft, ist von keinem Test gedeckt | [test_mail_service.py:234](../vote/tests/test_mail_service.py:234), [mail.py:106](../vote/services/mail.py:106) | `8b238f6` -- Socket-Test gegen `mailtrap` |
 | R11-1 | Notiz | `multiple_choice`: ein `UPDATE` je Choice **unter der Schreibsperre** (17 Abfragen bei 10 Choices) | [views.py:194](../vote/views.py:194) | `5ddd491` -- ein `UPDATE` per `filter(pk__in=...)` |
 | R14-3 | Notiz | `get_amount_used_unused()` viermal mit demselben Dreizeiler entpackt | [views.py:100](../vote/views.py:100) | `9bf0fc7` -- ein `_token_state(poll)`-Helfer, kein Verhaltens- und kein Abfrageunterschied |
-| R15-2 | **Mittel** · K6 | Die Anleitung zum Fake-Mailserver funktioniert nicht: der Trap setzt sein Fenster nie zurück, der zweite Lauf verschickt nichts | [README.md](../README.md), [handover.md](handover.md) §7 | **offen** |
-| R10-5 | Notiz · K4 | Das neue Double zählt eine abgebrochene `DATA` als zugestellt, mischt Nachrichten- und Empfängerzähler und verschluckt eigene Fehler | [mailtrap.py](../vote/tests/mailtrap.py) | **offen** |
+| R15-2 | **Mittel** · K6 | Die Anleitung zum Fake-Mailserver funktioniert nicht: der Trap setzt sein Fenster nie zurück, der zweite Lauf verschickt nichts | [README.md](../README.md), [handover.md](handover.md) §7 | `05b4f7d` -- Zeitfenster im Trap, Anleitung gemessen |
+| R10-5 | Notiz · K4 | Das neue Double zählt eine abgebrochene `DATA` als zugestellt, mischt Nachrichten- und Empfängerzähler und verschluckt eigene Fehler | [mailtrap.py](../vote/tests/mailtrap.py) | `57574b9` -- `451` statt `250`, `messages`, `errors` |
 | R15-3 | Notiz | Die R10-4-Zeile dieser Tabelle nennt „siehe unten" statt ihres Commits | review.md:142 | **offen** |
-| R15-4 | **Mittel** | Der Kopf von handover.md nennt sechs überholte Angaben, darunter „nichts gepusht, die CI hat noch nie gelaufen" | [handover.md](handover.md) | siehe unten |
+| R15-4 | **Mittel** | Der Kopf von handover.md nennt sechs überholte Angaben, darunter „nichts gepusht, die CI hat noch nie gelaufen" | [handover.md](handover.md) | `4773adc` -- Kopf nachgezogen, Zahlen als Messung markiert |
 
 Zwei Muster fallen daran auf, und sie sind der eigentliche Ertrag des Laufs:
 **(1) Das Gefährliche stand nicht im Code, sondern in seinen Rändern** -- der Doppelklick, der
