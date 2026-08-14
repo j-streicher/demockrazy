@@ -4,11 +4,11 @@ from . import views
 
 
 class PollIdentifierConverter:
-    """Umfragekennungen, genau so eng wie das frühere ``[a-zA-Z0-9]+``.
+    """Poll identifiers, exactly as narrow as the former ``[a-zA-Z0-9]+``.
 
-    Djangos eingebautes ``slug`` wäre kein Ersatz: es lässt zusätzlich ``-`` und
-    ``_`` zu und würde damit Kennungen annehmen, die es nicht gibt --
-    ``mk_identifier()`` zieht nur aus ``string.ascii_letters + string.digits``.
+    Django's built-in ``slug`` would not be a replacement: it also allows ``-``
+    and ``_`` and would therefore accept identifiers that do not exist --
+    ``mk_identifier()`` only draws from ``string.ascii_letters + string.digits``.
     """
 
     regex = "[a-zA-Z0-9]+"

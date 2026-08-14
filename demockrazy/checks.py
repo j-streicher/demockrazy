@@ -1,15 +1,15 @@
-"""System-Checks, die stille Fehlkonfiguration sichtbar machen.
+"""System checks that make silent misconfiguration visible.
 
-Diese Datei existiert wegen einer Lehre aus zwei Befunden dieses Projekts: `ATOMIC_REQUESTS` war
-zehn Jahre wirkungslos (B16) und `.gitignore` schluckte zehn Jahre die Frontend-Assets (B18). Beide
-hatten dieselbe Eigenschaft -- **sie sahen richtig aus und taten nichts**, ohne dass irgendwo eine
-Meldung erschien.
+This file exists because of a lesson from two findings in this project: `ATOMIC_REQUESTS` was
+ineffective for ten years (B16), and `.gitignore` swallowed the frontend assets for ten years (B18).
+Both had the same property -- **they looked right and did nothing**, without a message appearing
+anywhere.
 
-Die SQLite-Härtung aus 5.4 kann genauso enden: sie steht in `DATABASES['OPTIONS']`, und das
-generierte `demockrazy_config` setzt `DATABASES` in Produktion komplett neu. Dieser Check macht das
-Fehlen sichtbar, statt es dem nächsten `database is locked` zu überlassen.
+The SQLite hardening from 5.4 can end the same way: it lives in `DATABASES['OPTIONS']`, and the
+generated `demockrazy_config` sets `DATABASES` from scratch in production. This check makes its
+absence visible instead of leaving it to the next `database is locked`.
 
-Nach dem Deploy prüfbar mit:
+Checkable after a deploy with:
 
     DJANGO_SETTINGS_MODULE=demockrazy_config python3 manage.py check
 """
@@ -17,7 +17,7 @@ Nach dem Deploy prüfbar mit:
 from django.conf import settings
 from django.core.checks import Warning, register
 
-HINWEIS = (
+HINT = (
     "Ohne transaction_mode='IMMEDIATE' liefert SQLite ein sofortiges SQLITE_BUSY, wenn eine "
     "Transaktion von Lesen auf Schreiben hochstufen muss -- der timeout greift dann nicht. Mit "
     "vier uwsgi-Prozessen auf einer Datei sind das die 'database is locked'-Fehler aus B13. "
@@ -29,46 +29,45 @@ HINWEIS = (
 
 
 def _is_file_backed_sqlite(config):
-    """SQLite auf einer Datei -- nur dort gibt es Sperren und nur dort wirkt WAL."""
+    """SQLite on a file -- locks only exist there, and WAL only has an effect there."""
     if "sqlite3" not in config.get("ENGINE", ""):
         return False
     name = str(config.get("NAME", ""))
-    # In-Memory kennt kein WAL (`journal_mode` bleibt dort `memory`) und hat keine Nebenläufigkeit
-    # zwischen Prozessen. Die Testsuite läuft so -- der Check darf sie nicht anmeckern.
+    # In-memory knows no WAL (`journal_mode` stays `memory` there) and has no concurrency between
+    # processes. The test suite runs that way -- the check must not complain about it.
     return name != ":memory:" and "mode=memory" not in name
 
 
 def problems_for(alias, config):
-    """Prüft *einen* `DATABASES`-Eintrag. Reine Funktion, damit sie ohne Settings testbar ist.
+    """Checks *one* `DATABASES` entry. A pure function, so it is testable without settings.
 
-    Der Umweg ist Absicht: ein Test, der `settings.DATABASES` überschreibt, holt sich von Django
-    ein `UserWarning` („can lead to unexpected behavior") -- zu Recht, denn die offenen
-    Verbindungen hängen daran. Hier gibt es nichts zu überschreiben.
+    The detour is deliberate: a test that overrides `settings.DATABASES` earns a `UserWarning` from
+    Django ("can lead to unexpected behavior") -- rightly so, because the open connections depend on
+    it. Here there is nothing to override.
     """
     if not _is_file_backed_sqlite(config):
         return []
 
     options = config.get("OPTIONS") or {}
-    fehlt = []
+    missing = []
     if "journal_mode=wal" not in str(options.get("init_command", "")).lower().replace(" ", ""):
-        fehlt.append("init_command mit 'PRAGMA journal_mode=WAL;'")
-    # Auf den **Wert** prüfen, nicht auf die Anwesenheit (Review R9-1). Vorher genügte irgendein
-    # wahrer Wert: `DEFERRED` -- also genau der Zustand, den 5.4 abgeschafft hat -- und ein
-    # Tippfehler kamen beide durch. Ein Check gegen stille Fehlkonfiguration, der selbst still ist,
-    # ist die Fehlerklasse K1 an sich selbst.
+        missing.append("init_command mit 'PRAGMA journal_mode=WAL;'")
+    # Check the **value**, not its presence (review R9-1). Before, any truthy value was enough:
+    # `DEFERRED` -- exactly the state 5.4 abolished -- and a typo both got through. A check against
+    # silent misconfiguration that is itself silent is error class K1 applied to itself.
     if str(options.get("transaction_mode", "")).strip().upper() != "IMMEDIATE":
-        fehlt.append("transaction_mode='IMMEDIATE'")
+        missing.append("transaction_mode='IMMEDIATE'")
     timeout = options.get("timeout")
     if not isinstance(timeout, int | float) or timeout <= 0:
-        fehlt.append("timeout > 0 (sqlite3-Default sind 5 s)")
-    if not fehlt:
+        missing.append("timeout > 0 (sqlite3-Default sind 5 s)")
+    if not missing:
         return []
 
     return [
         Warning(
             f"DATABASES[{alias!r}] ist SQLite auf einer Datei, ohne die Härtung aus Plan 5.4. "
-            f"Es fehlt: {', '.join(fehlt)}.",
-            hint=HINWEIS,
+            f"Es fehlt: {', '.join(missing)}.",
+            hint=HINT,
             id="demockrazy.W001",
         )
     ]
@@ -76,11 +75,11 @@ def problems_for(alias, config):
 
 @register()
 def check_sqlite_concurrency_options(app_configs, **kwargs):
-    """Meldet jede SQLite-Datenbank, der die Härtung aus Plan 5.4 fehlt.
+    """Reports every SQLite database that lacks the hardening from plan 5.4.
 
-    Absichtlich **ohne** `Tags.database`: so getaggte Checks lässt `manage.py check` ohne
-    `--database` aus, und dann wäre der Check genau in dem Moment still, für den er gedacht ist.
-    Er fragt nur die Settings ab und öffnet keine Verbindung.
+    Deliberately **without** `Tags.database`: `manage.py check` skips checks tagged that way when no
+    `--database` is given, and then the check would be silent in exactly the moment it is meant for.
+    It only reads the settings and opens no connection.
     """
     problems = []
     for alias, config in settings.DATABASES.items():

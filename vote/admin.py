@@ -1,17 +1,16 @@
-"""Admin-Oberfläche -- absichtlich beschnitten (Review R2-1).
+"""The admin interface -- deliberately cut back (review R2-1).
 
-Sie ist seit 2016 registriert, und der User hat bestätigt, dass es in Produktion ein Staff-Konto
-gibt. Damit war `/admin/` der einzige Weg im ganzen System, der **Stimmzahlen unmittelbar ändern**
-und **jeden Wähler-Token lesen** konnte -- ein Passwort gegen das Kernversprechen. Beides ist hier
-zugedreht, ohne die Oberfläche wegzunehmen: nachsehen und aufräumen geht weiter.
+It has been registered since 2016, and the user confirmed that a staff account exists in production.
+That made `/admin/` the only path in the whole system that could **change vote counts directly** and
+**read every voter token** -- one password against the core promise. Both are shut here without
+taking the interface away: looking and tidying up still work.
 
-Was bewusst **nicht** eingeschränkt ist, und warum: Löschen bleibt erlaubt (eine Umfrage, die
-jemand versehentlich oder missbräuchlich angelegt hat, muss wegräumbar sein) und `is_active` bleibt
-schaltbar (das kann der Ersteller mit seinem Token auch). Djangos `LogEntry` hält fest, wer was
-gelöscht hat.
+What is deliberately **not** restricted, and why: deleting stays allowed (a poll someone created by
+accident or in abuse has to be removable) and `is_active` stays switchable (the creator can do that
+with their token too). Django's `LogEntry` records who deleted what.
 
-**Der Rest liegt am Proxy** (notes/to-check.md §B4): `/admin/login/` antwortet ohne jede Drosselung
-von Fehlversuchen, und das ist nicht in Django zu lösen, ohne eine Abhängigkeit dazuzunehmen.
+**The rest is up to the proxy** (notes/to-check.md §B4): `/admin/login/` answers without throttling
+failed attempts at all, and that cannot be solved in Django without taking on a dependency.
 """
 
 from django.contrib import admin
@@ -24,11 +23,11 @@ class PollAdmin(admin.ModelAdmin):
     list_display = ("title", "type", "is_active", "pub_date", "num_tokens")
     list_filter = ("is_active", "type")
     search_fields = ("title", "identifier")
-    # `creator_token` ist ein Geheimnis und gehört nicht auf eine Seite, die ein Passwort öffnet.
-    # `exclude` statt `readonly_fields`: letzteres würde ihn weiterhin **anzeigen**.
+    # `creator_token` is a secret and does not belong on a page that a password opens.
+    # `exclude` rather than `readonly_fields`: the latter would still **display** it.
     exclude = ("creator_token",)
-    # Die Kennung steht in jeder Einladungsmail und in jedem Link -- lesbar ist sie also ohnehin,
-    # aber änderbar darf sie nicht sein: das bricht alle verschickten Links (Arbeitsregel 5).
+    # The identifier is in every invitation mail and every link -- so it is readable anyway, but it
+    # must not be changeable: that breaks every link already sent (working rule 5).
     readonly_fields = ("identifier",)
 
 
@@ -36,19 +35,18 @@ class PollAdmin(admin.ModelAdmin):
 class ChoiceAdmin(admin.ModelAdmin):
     list_display = ("choice_text", "poll", "votes")
     list_filter = ("poll",)
-    # **Der wichtigste Riegel:** Stimmzahlen sind nicht editierbar. Sie werden angezeigt, weil ein
-    # Staff-Konto sie ohnehin über die Ergebnisseite einer geschlossenen Umfrage sieht -- aber ein
-    # Zahlenfeld, das jemand überschreiben kann, ist eine Wahlfälschung in einem Formular.
+    # **The most important bolt:** vote counts are not editable. They are displayed, because a staff
+    # account sees them on the results page of a closed poll anyway -- but a number field someone
+    # can overwrite is election fraud in a form.
     readonly_fields = ("votes",)
 
 
 @admin.register(Token)
 class TokenAdmin(admin.ModelAdmin):
-    """Tokens sind sichtbar als *Anzahl*, nie als Wert.
+    """Tokens are visible as a *count*, never as a value.
 
-    Wer einen Token liest, kann damit abstimmen -- die Anonymität bleibt gewahrt, aber die Zusage
-    „eine Stimme pro Einladung" nicht. Deshalb steht `token_string` weder in der Liste noch im
-    Formular.
+    Whoever reads a token can vote with it -- anonymity stays intact, but the promise of "one vote
+    per invitation" does not. So `token_string` appears neither in the list nor in the form.
     """
 
     list_display = ("__str__", "poll")

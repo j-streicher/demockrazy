@@ -8,6 +8,6 @@ urlpatterns = [
     path("", RedirectView.as_view(url="vote/", permanent=False)),
     path("vote/", include("vote.urls")),
     path("admin/", admin.site.urls),
-    # Ohne Slash und ohne Namespace: der Pfad wird von Monitoring konfiguriert, nicht per reverse().
+    # No slash and no namespace: the path is configured by monitoring, not built with reverse().
     path("healthz", views.healthz),
 ]

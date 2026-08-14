@@ -5,8 +5,8 @@ class VoteConfig(AppConfig):
     name = "vote"
 
     def ready(self):
-        # `demockrazy.checks` registriert seine Checks beim Import. Der Import muss irgendwo
-        # passieren, nachdem die Settings geladen sind -- und `vote` ist die einzige eigene App,
-        # es gibt kein Projekt-AppConfig. Deshalb hier, obwohl der Check die Datenbank-
-        # konfiguration betrifft und nicht die Abstimmungslogik.
+        # `demockrazy.checks` registers its checks on import. The import has to happen somewhere
+        # after the settings are loaded -- and `vote` is the only app of our own, there is no
+        # project AppConfig. So here, even though the check is about the database configuration and
+        # not about the voting logic.
         from demockrazy import checks  # noqa: F401
