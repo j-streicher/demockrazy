@@ -3,8 +3,8 @@
 **Für eine neue Session gedacht. Dies zuerst lesen, dann [plan.md](plan.md).**
 **Stand: 2026-08-14** (die Zahlen unten sind an diesem Tag gemessen und wachsen mit jeder
 Änderung nach -- R15-4 entstand daraus, dass sie stehen blieben). Branch `update/modernize-2026`,
-106 Commits über `master` (Basis `3074dbb`). Arbeitsbaum sauber, **gepusht**, PR #1 offen, die CI ist
-dreimal gelaufen und war jedes Mal grün.
+106 Commits über `master` (Basis `3074dbb`). Arbeitsbaum sauber, **gepusht**, PR #1 offen. Die CI läuft
+auf jeden Push (§4) und war bisher jedes Mal grün.
 
 > **Das umfassende Review ist gelaufen und abgearbeitet** ([review.md](review.md), Plan §14).
 > **29 Befunde, 27 behoben** in 16 Commits (`a1b5117` … `57574b9`), jeder mit der Befundnummer im
